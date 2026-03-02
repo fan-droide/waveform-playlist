@@ -44,6 +44,10 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **Native→Tone.js connection:** `fadeGainNode.connect((volumeNode.input as Gain).input)` — accesses the native GainNode backing Tone.js Volume's input Gain.
 
+## Tone.js Type Gotchas
+
+**Gain generic mismatch:** `Volume.input` is `Gain<"decibels">` but plain `Gain` import defaults to `Gain<"gain">`. Accessing native input requires double cast: `(this.volumeNode.input as unknown as Gain).input`.
+
 ## Global AudioContext Pattern
 
 **Implementation:** Recording and playback use a global shared AudioContext (same as Tone.js).
