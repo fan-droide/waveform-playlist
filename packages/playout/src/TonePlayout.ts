@@ -164,12 +164,12 @@ export class TonePlayout {
       this.tracks.forEach((track) => track.stopAllSources());
       this.clearDeferredLoopTimeout();
 
-      // Always start with loop DISABLED. Tone.js's _loop TimelineValue
-      // accumulates entries across play sessions. When _processTick runs
-      // after transport.start(), it can process ticks at times where stale
-      // _loop entries return true, causing an immediate wrap — even when
-      // we set _loopEnd correctly beforehand. Starting with loop=false
-      // guarantees safe first ticks. Loop is deferred below.
+      // Always start with loop DISABLED. Setting transport.loop = true
+      // before transport.start() causes an immediate wrap to position 0
+      // on the first tick cycle. The exact mechanism is unclear — the
+      // _processTick loop check (`_loop.get(tickTime) && ticks >= _loopEnd`)
+      // should not trigger, but does. Deferring loop enable to after the
+      // first tick batch (via setTimeout below) reliably prevents this.
       transport.loopStart = this._loopStart;
       transport.loopEnd = this._loopEnd;
       transport.loop = false;
