@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Tone.js Transport Loop Debug</title>
+  <script src="https://unpkg.com/tone@15.1.22/build/Tone.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #ddd; }
+    button { padding: 8px 16px; margin: 4px; font-size: 14px; cursor: pointer; }
+    #log { white-space: pre-wrap; background: #111; padding: 16px; margin-top: 16px; border: 1px solid #333; max-height: 600px; overflow-y: auto; font-size: 12px; }
+    .section { color: #63C75F; font-weight: bold; }
+    .warn { color: #c49a6c; }
+    .error { color: #d08070; }
+    h3 { color: #63C75F; }
+  </style>
+</head>
+<body>
+  <h3>Tone.js Transport Loop Debug</h3>
+  <p>Open DevTools console for raw output. Formatted output below.</p>
+
+  <div>
+    <button onclick="reproduceBug()" style="background:#d08070;color:#fff;font-weight:bold;padding:10px 20px;font-size:16px">
+      Reproduce Bug (one click)
+    </button>
+  </div>
+  <hr style="border-color:#333;margin:12px 0">
+  <details>
+    <summary style="cursor:pointer;color:#63C75F">Advanced: individual tests</summary>
+    <div style="margin-top:8px">
+      <button onclick="initTone()">1. Init Tone (required first)</button>
+    </div>
+    <div>
+      <button onclick="testLoopBeforeStart()">2a. loop=true BEFORE start (bare)</button>
+      <button onclick="testLoopDeferred()">2b. Deferred loop=true (bare)</button>
+      <button onclick="testLoopAfterStart()">2c. loop=true AFTER start (bare)</button>
+    </div>
+    <div>
+      <button onclick="testWithSchedule(true)">3a. loop=true BEFORE + schedule()</button>
+      <button onclick="testWithSchedule(false)">3b. Deferred + schedule()</button>
+    </div>
+    <div>
+      <button onclick="testAppPattern()">4. Full app pattern (TonePlayout.play replica)</button>
+      <button onclick="testStopStartCycle()">5. Stop/Start CYCLE</button>
+      <button onclick="testRapidCycle()">6. Rapid cycles (stress)</button>
+      <button onclick="testNearLoopEnd()">7. Near loopEnd (trigger wrap)</button>
+      <button onclick="testFreshContext()">8. Fresh context (first play)</button>
+      <button onclick="testFreshContextDeferred()">9. Fresh + deferred (fix)</button>
+    </div>
+  </details>
+  <div>
+    <button onclick="stopTransport()">Stop Transport</button>
+    <button onclick="clearLog()">Clear Log</button>
+  </div>
+
+  <div>
+    Loop region: <input id="loopStart" value="2" size="4">s to <input id="loopEnd" value="5" size="4">s
+    &nbsp; Start offset: <input id="offset" value="3" size="4">s
+  </div>
+
+  <div id="log"></div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    let tickCount = 0;
+    let origProcessTick = null;
+
+    function log(msg, cls) {
+      const line = document.createElement('span');
+      if (cls) line.className = cls;
+      line.textContent = msg + '\n';
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    function clearLog() {
+      while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+    }
+
+    function getInputs() {
+      return {
+        loopStart: parseFloat(document.getElementById('loopStart').value),
+        loopEnd: parseFloat(document.getElementById('loopEnd').value),
+        offset: parseFloat(document.getElementById('offset').value),
+      };
+    }
+
+    function patchProcessTick() {
+      var transport = Tone.getTransport();
+      var clock = transport._clock;
+      // Patch the Clock's callback, not transport._processTick (which is bound at construction)
+      if (!origProcessTick) {
+        origProcessTick = clock.callback;
+      }
+      tickCount = 0;
+
+      clock.callback = function(tickTime, ticks) {
+        if (tickCount < 15) {
+          var loopVal = transport._loop.get(tickTime);
+          var wouldWrap = loopVal && ticks >= transport._loopEnd;
+          var msg = '  tick #' + tickCount + ': tickTime=' + tickTime.toFixed(6) +
+            ', ticks=' + ticks +
+            ', _loop.get=' + loopVal +
+            ', _loopEnd=' + transport._loopEnd +
+            ', _loopStart=' + transport._loopStart +
+            (wouldWrap ? '  >>> WRAPS!' : '');
+          log(msg, wouldWrap ? 'error' : '');
+          tickCount++;
+        }
+        return origProcessTick(tickTime, ticks);
+      };
+    }
+
+    function dumpLoopTimeline(prefix) {
+      const transport = Tone.getTransport();
+      const entries = [];
+      transport._loop._timeline._timeline.forEach(function(e) {
+        entries.push(prefix + '  t=' + e.time.toFixed(6) + ' val=' + e.value);
+      });
+      log(prefix + '_loop timeline (' + entries.length + ' entries):');
+      entries.forEach(function(e) { log(e); });
+    }
+
+    function logTransportState(label) {
+      const transport = Tone.getTransport();
+      const ctx = Tone.getContext();
+      log(label, 'section');
+      log('  now()=' + transport.now().toFixed(6) +
+        ' (ctx.currentTime=' + ctx.currentTime.toFixed(6) +
+        ' + lookAhead=' + ctx.lookAhead.toFixed(4) + ')');
+      log('  transport.state=' + transport.state);
+      log('  transport.loop=' + transport.loop);
+      log('  transport.loopStart=' + transport.loopStart + ' (' + transport._loopStart + ' ticks)');
+      log('  transport.loopEnd=' + transport.loopEnd + ' (' + transport._loopEnd + ' ticks)');
+      log('  transport.seconds=' + transport.seconds.toFixed(6));
+      log('  transport.ticks=' + transport.ticks);
+      log('  transport.bpm=' + transport.bpm.value + ', ppq=' + transport._ppq);
+      log('  clock._lastUpdate=' + transport._clock._lastUpdate.toFixed(6));
+      dumpLoopTimeline('  ');
+    }
+
+    // One-click reproduction: inits Tone, warms up context, runs rapid cycles
+    async function reproduceBug() {
+      clearLog();
+      log('=== ONE-CLICK BUG REPRODUCTION ===', 'section');
+      log('Initializing Tone.js...\n');
+
+      await Tone.start();
+
+      log('Bug: after stop/start cycles, Clock._lastUpdate is stale.');
+      log('First tick batch generates "ghost ticks" from previous TickSource state.');
+      log('If ghost ticks >= _loopEnd AND _loop.get()=true → immediate wrap.');
+      log('');
+      log('Warming up AudioContext (3s) to create larger _lastUpdate gaps...');
+
+      // Warm-up: the bug requires a gap between _lastUpdate and now().
+      // With a fresh context, _lastUpdate stays close to now(). After the
+      // context has been running, stop/start cycles create larger gaps.
+      var transport = Tone.getTransport();
+      transport.start(Tone.now(), 0);
+      await new Promise(function(r) { setTimeout(r, 1000); });
+      transport.stop();
+      await new Promise(function(r) { setTimeout(r, 1000); });
+      transport.start(Tone.now(), 0);
+      await new Promise(function(r) { setTimeout(r, 500); });
+      transport.stop();
+      await new Promise(function(r) { setTimeout(r, 500); });
+      log('Warm-up done. context.currentTime=' + Tone.getContext().currentTime.toFixed(2) + 's\n');
+
+      // Set small loop region so stale ticks easily cross _loopEnd
+      document.getElementById('loopStart').value = '0';
+      document.getElementById('loopEnd').value = '0.1';
+      document.getElementById('offset').value = '0.05';
+
+      log('Settings: loopStart=0, loopEnd=0.1s (~38 ticks), offset=0.05s');
+      log('Running 5 rapid stop/start cycles, then checking 6th play for ghost ticks...\n');
+
+      origProcessTick = null;
+      await testRapidCycle();
+    }
+
+    async function initTone() {
+      await Tone.start();
+      log('Tone.js initialized', 'section');
+      logTransportState('Initial state:');
+    }
+
+    function stopTransport() {
+      const transport = Tone.getTransport();
+      transport.stop();
+      transport.loop = false;
+      log('Transport stopped, loop disabled', 'warn');
+    }
+
+    async function testLoopBeforeStart() {
+      const inputs = getInputs();
+      const transport = Tone.getTransport();
+
+      log('\n=== TEST: loop=true BEFORE transport.start() ===', 'section');
+
+      if (transport.state !== 'stopped') {
+        transport.stop();
+        log('Stopped transport first');
+      }
+
+      patchProcessTick();
+
+      log('\nSetting loopStart=' + inputs.loopStart + ', loopEnd=' + inputs.loopEnd + '...');
+      var nowBefore = transport.now();
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      log('  now() at set boundaries: ' + nowBefore.toFixed(6));
+      log('  _loopStart=' + transport._loopStart + ' ticks, _loopEnd=' + transport._loopEnd + ' ticks');
+
+      log('\nSetting loop=true...');
+      var nowAtLoop = transport.now();
+      transport.loop = true;
+      log('  now() at loop=true: ' + nowAtLoop.toFixed(6));
+
+      logTransportState('State before start:');
+
+      log('\nCalling transport.start(now(), ' + inputs.offset + ')...');
+      var startNow = Tone.now();
+      transport.start(startNow, inputs.offset);
+      log('  startTime (now())=' + startNow.toFixed(6));
+      log('  offset=' + inputs.offset + 's = ' + transport.toTicks(inputs.offset) + ' ticks');
+
+      logTransportState('State after start:');
+      log('\nWaiting for ticks...');
+
+      setTimeout(function() {
+        log('\nAfter 200ms:', 'warn');
+        log('  transport.seconds=' + transport.seconds.toFixed(6));
+        log('  transport.ticks=' + transport.ticks);
+        log('  transport.state=' + transport.state);
+        transport.stop();
+        transport.loop = false;
+        log('Stopped.');
+      }, 200);
+    }
+
+    async function testLoopDeferred() {
+      var inputs = getInputs();
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST: loop=false before start, deferred loop=true ===', 'section');
+
+      if (transport.state !== 'stopped') {
+        transport.stop();
+        log('Stopped transport first');
+      }
+
+      patchProcessTick();
+
+      log('\nSetting loopStart=' + inputs.loopStart + ', loopEnd=' + inputs.loopEnd + ', loop=false...');
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      var nowAtFalse = transport.now();
+      transport.loop = false;
+      log('  now() at loop=false: ' + nowAtFalse.toFixed(6));
+      log('  _loopStart=' + transport._loopStart + ' ticks, _loopEnd=' + transport._loopEnd + ' ticks');
+
+      logTransportState('State before start:');
+
+      log('\nCalling transport.start(now(), ' + inputs.offset + ')...');
+      var startNow = Tone.now();
+      transport.start(startNow, inputs.offset);
+      log('  startTime=' + startNow.toFixed(6));
+
+      logTransportState('State after start:');
+
+      log('\nDeferring loop=true via setTimeout(0)...');
+      setTimeout(function() {
+        var nowAtDeferred = transport.now();
+        transport.loop = true;
+        log('\nDeferred loop=true set at now()=' + nowAtDeferred.toFixed(6), 'warn');
+        dumpLoopTimeline('  ');
+
+        setTimeout(function() {
+          log('\nAfter 200ms:', 'warn');
+          log('  transport.seconds=' + transport.seconds.toFixed(6));
+          log('  transport.ticks=' + transport.ticks);
+          transport.stop();
+          transport.loop = false;
+          log('Stopped.');
+        }, 200);
+      }, 0);
+    }
+
+    // Track schedule IDs so we can clear them between tests
+    var scheduleIds = [];
+
+    function clearSchedules() {
+      var transport = Tone.getTransport();
+      scheduleIds.forEach(function(id) {
+        try { transport.clear(id); } catch(e) {}
+      });
+      scheduleIds = [];
+    }
+
+    // Simulate what ToneTrack does: schedule permanent events for clips
+    function addScheduleEvents() {
+      var transport = Tone.getTransport();
+      clearSchedules();
+      // Simulate clips at various positions (like a real multi-clip track):
+      // Clip A: 0s-3s, Clip B: 3s-6s, Clip C: 6s-9s
+      var clipStarts = [0, 3, 6];
+      clipStarts.forEach(function(t) {
+        var id = transport.schedule(function(time) {
+          log('  [schedule] fired at transportTime=' + t + 's, audioCtxTime=' + time.toFixed(6), 'warn');
+        }, t);
+        scheduleIds.push(id);
+        log('  Scheduled event at ' + t + 's (id=' + id + ')');
+      });
+    }
+
+    // Test 3a/3b: loop with Transport.schedule() events
+    async function testWithSchedule(loopBeforeStart) {
+      var inputs = getInputs();
+      var transport = Tone.getTransport();
+      var label = loopBeforeStart ? 'loop=true BEFORE start' : 'deferred loop=true';
+
+      log('\n=== TEST: ' + label + ' + Transport.schedule() ===', 'section');
+
+      if (transport.state !== 'stopped') {
+        transport.stop();
+        log('Stopped transport first');
+      }
+
+      patchProcessTick();
+
+      // Add schedule events (like ToneTrack constructor)
+      log('\nAdding Transport.schedule() events...');
+      addScheduleEvents();
+
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+
+      if (loopBeforeStart) {
+        transport.loop = true;
+        log('Set loop=true BEFORE start');
+      } else {
+        transport.loop = false;
+        log('Set loop=false (will defer)');
+      }
+
+      logTransportState('State before start:');
+
+      var startNow = Tone.now();
+      transport.start(startNow, inputs.offset);
+      log('\nStarted at offset=' + inputs.offset + ', now=' + startNow.toFixed(6));
+
+      logTransportState('State after start:');
+
+      if (!loopBeforeStart) {
+        setTimeout(function() {
+          transport.loop = true;
+          log('\nDeferred loop=true set', 'warn');
+          dumpLoopTimeline('  ');
+
+          setTimeout(function() {
+            log('\nAfter 200ms:', 'warn');
+            log('  transport.seconds=' + transport.seconds.toFixed(6));
+            log('  transport.ticks=' + transport.ticks);
+            transport.stop();
+            transport.loop = false;
+            log('Stopped.');
+          }, 200);
+        }, 0);
+      } else {
+        setTimeout(function() {
+          log('\nAfter 200ms:', 'warn');
+          log('  transport.seconds=' + transport.seconds.toFixed(6));
+          log('  transport.ticks=' + transport.ticks);
+          transport.stop();
+          transport.loop = false;
+          log('Stopped.');
+        }, 200);
+      }
+    }
+
+    // Test 4: Full replica of TonePlayout.play() sequence
+    async function testAppPattern() {
+      var inputs = getInputs();
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST: Full TonePlayout.play() replica ===', 'section');
+
+      // Step 1: Conditional stop (like TonePlayout.play lines 161-163)
+      if (transport.state !== 'stopped') {
+        transport.stop();
+        log('Step 1: transport.stop() (was running)');
+      } else {
+        log('Step 1: transport already stopped');
+      }
+
+      patchProcessTick();
+
+      // Step 2: Add schedule events (like ToneTrack constructor does)
+      log('\nStep 2: Adding Transport.schedule() events...');
+      addScheduleEvents();
+
+      // Step 3: Also add a scheduleOnce for completion (like TonePlayout does)
+      var completionId = transport.scheduleOnce(function() {
+        log('  [scheduleOnce] completion event fired', 'warn');
+      }, inputs.loopEnd + 2); // beyond loop end
+      log('  Added scheduleOnce completion at ' + (inputs.loopEnd + 2) + 's (id=' + completionId + ')');
+
+      // Step 4: Set loop boundaries BEFORE loop enable (like TonePlayout.play lines 173-175)
+      log('\nStep 4: Setting loop boundaries...');
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      transport.loop = false;
+      log('  loopStart=' + inputs.loopStart + ', loopEnd=' + inputs.loopEnd + ', loop=false');
+
+      logTransportState('State before start:');
+
+      // Step 5: transport.start with offset (like TonePlayout.play lines 177-181)
+      log('\nStep 5: transport.start(now(), ' + inputs.offset + ')...');
+      var startNow = Tone.now();
+      transport.start(startNow, inputs.offset);
+      log('  startTime=' + startNow.toFixed(6));
+
+      logTransportState('State after start:');
+
+      // Step 6: Deferred loop enable (like TonePlayout.play lines 193-202)
+      log('\nStep 6: Deferring loop=true via setTimeout(0)...');
+      setTimeout(function() {
+        var nowAtDeferred = transport.now();
+        transport.loop = true;
+        log('\nDeferred loop=true set at now()=' + nowAtDeferred.toFixed(6), 'warn');
+        dumpLoopTimeline('  ');
+
+        // Step 7: Check state after 200ms
+        setTimeout(function() {
+          log('\nAfter 200ms:', 'warn');
+          log('  transport.seconds=' + transport.seconds.toFixed(6));
+          log('  transport.ticks=' + transport.ticks);
+          log('  transport.state=' + transport.state);
+          transport.stop();
+          transport.loop = false;
+          clearSchedules();
+          log('Stopped and cleared schedules.');
+        }, 200);
+      }, 0);
+    }
+
+    // Test 5: Stop/start cycle — the most realistic reproduction attempt
+    // Simulates: play with loop → stop → play with loop again
+    async function testStopStartCycle() {
+      var inputs = getInputs();
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST 5: Stop/Start CYCLE with loop ===', 'section');
+      log('Simulates: play(offset=3, loop=true) → stop → play(offset=3, loop=true)');
+
+      // Clean slate
+      if (transport.state !== 'stopped') {
+        transport.stop();
+      }
+      clearSchedules();
+
+      // Add scheduled events (like ToneTrack)
+      addScheduleEvents();
+
+      // ---- FIRST PLAY (no deferred, like buggy code) ----
+      log('\n--- First play (loop=true before start) ---', 'section');
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      transport.loop = true;
+
+      var startNow1 = Tone.now();
+      transport.start(startNow1, inputs.offset);
+      log('Started at offset=' + inputs.offset + ', now=' + startNow1.toFixed(6));
+      log('  ticks=' + transport.ticks + ', seconds=' + transport.seconds.toFixed(6));
+      dumpLoopTimeline('  ');
+
+      // Let it play for 150ms
+      await new Promise(function(resolve) { setTimeout(resolve, 150); });
+
+      log('\nAfter 150ms of playing:');
+      log('  transport.seconds=' + transport.seconds.toFixed(6));
+      log('  transport.ticks=' + transport.ticks);
+
+      // ---- STOP ----
+      log('\n--- Stopping transport ---', 'section');
+      transport.stop();
+      transport.loop = false;
+      log('Stopped. transport.state=' + transport.state);
+      log('Set loop=false');
+      dumpLoopTimeline('  ');
+
+      // Brief pause (like user thinking)
+      await new Promise(function(resolve) { setTimeout(resolve, 50); });
+
+      // ---- SECOND PLAY (the bug scenario) ----
+      log('\n--- Second play (loop=true before start — BUG?) ---', 'section');
+      patchProcessTick();
+
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      transport.loop = true;
+
+      logTransportState('State before second start:');
+
+      var startNow2 = Tone.now();
+      transport.start(startNow2, inputs.offset);
+      log('\nStarted at offset=' + inputs.offset + ', now=' + startNow2.toFixed(6));
+
+      logTransportState('State after second start:');
+      log('\nWaiting for ticks...');
+
+      setTimeout(function() {
+        log('\nAfter 200ms:', 'warn');
+        log('  transport.seconds=' + transport.seconds.toFixed(6));
+        log('  transport.ticks=' + transport.ticks);
+        log('  transport.state=' + transport.state);
+        transport.stop();
+        transport.loop = false;
+        clearSchedules();
+        log('Stopped and cleared.');
+      }, 200);
+    }
+
+    // Test 6: Rapid stop/start (stress test)
+    async function testRapidCycle() {
+      var inputs = getInputs();
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST 6: RAPID stop/start cycles ===', 'section');
+
+      clearSchedules();
+      addScheduleEvents();
+
+      // Do 5 rapid start/stop cycles to accumulate state
+      for (var i = 0; i < 5; i++) {
+        transport.loopStart = inputs.loopStart;
+        transport.loopEnd = inputs.loopEnd;
+        transport.loop = true;
+        transport.start(Tone.now(), inputs.offset);
+        await new Promise(function(resolve) { setTimeout(resolve, 20); });
+        transport.stop();
+        transport.loop = false;
+        log('Cycle ' + (i+1) + ': start→stop (20ms)');
+      }
+
+      dumpLoopTimeline('After 5 cycles: ');
+      log('_loop timeline entries accumulated: check for stale values');
+
+      // Now the 6th play — does it break?
+      log('\n--- 6th play (after 5 rapid cycles) ---', 'section');
+      patchProcessTick();
+
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      transport.loop = true;
+
+      logTransportState('State before start:');
+
+      var startNow = Tone.now();
+      transport.start(startNow, inputs.offset);
+      log('\nStarted at offset=' + inputs.offset + ', now=' + startNow.toFixed(6));
+
+      logTransportState('State after start:');
+
+      setTimeout(function() {
+        log('\nAfter 200ms:', 'warn');
+        log('  transport.seconds=' + transport.seconds.toFixed(6));
+        log('  transport.ticks=' + transport.ticks);
+        transport.stop();
+        transport.loop = false;
+        clearSchedules();
+        log('Stopped and cleared.');
+      }, 200);
+    }
+
+    // Test 7: Play near loopEnd, stop, replay — should trigger stale-tick wrapping
+    async function testNearLoopEnd() {
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST 7: Play near loopEnd → stop → replay ===', 'section');
+      log('Goal: stale ticks from _lastUpdate range >= _loopEnd → triggers wrap');
+
+      clearSchedules();
+      addScheduleEvents();
+
+      // Loop region 2s-5s. Play from 4.5s (near loop end)
+      var loopStart = 2;
+      var loopEnd = 5;
+      var offset = 4.5;
+
+      transport.loopStart = loopStart;
+      transport.loopEnd = loopEnd;
+      transport.loop = true;
+
+      // First play: start near loopEnd, let it play 600ms to accumulate ticks past loopEnd
+      var startNow1 = Tone.now();
+      transport.start(startNow1, offset);
+      log('First play: offset=' + offset + 's, now=' + startNow1.toFixed(6));
+      log('  _loopEnd=' + transport._loopEnd + ' ticks (' + loopEnd + 's)');
+      log('  start ticks=' + transport.toTicks(offset) + ' (' + offset + 's)');
+
+      // Let it play long enough for ticks to reach/pass _loopEnd naturally (loop wraps back)
+      await new Promise(function(resolve) { setTimeout(resolve, 600); });
+
+      log('\nAfter 600ms:');
+      log('  transport.seconds=' + transport.seconds.toFixed(6));
+      log('  transport.ticks=' + transport.ticks);
+
+      // Stop
+      transport.stop();
+      transport.loop = false;
+      log('\nStopped. State:');
+      log('  clock._lastUpdate=' + transport._clock._lastUpdate.toFixed(6));
+      dumpLoopTimeline('  ');
+
+      // Brief pause
+      await new Promise(function(resolve) { setTimeout(resolve, 50); });
+
+      // Second play — THIS should expose the stale-tick wrap
+      log('\n--- Second play (loop=true before start) ---', 'section');
+      patchProcessTick();
+
+      transport.loopStart = loopStart;
+      transport.loopEnd = loopEnd;
+      transport.loop = true;
+
+      logTransportState('Before second start:');
+
+      var startNow2 = Tone.now();
+      transport.start(startNow2, offset);
+      log('\nStarted at offset=' + offset + ', now=' + startNow2.toFixed(6));
+
+      logTransportState('After second start:');
+
+      setTimeout(function() {
+        log('\nAfter 300ms:', 'warn');
+        log('  transport.seconds=' + transport.seconds.toFixed(6));
+        log('  transport.ticks=' + transport.ticks);
+        transport.stop();
+        transport.loop = false;
+        clearSchedules();
+        log('Stopped and cleared.');
+      }, 300);
+    }
+
+    // Test 8: Fresh AudioContext — mimics first play in real app
+    // In the app: await engine.init() (Tone.start) → immediately engine.play()
+    async function testFreshContext() {
+      log('\n=== TEST 8: Fresh context → immediate loop+start ===', 'section');
+      log('Simulates first play in app: Tone.start() → loop → start with minimal gap');
+
+      // Dispose current context and create fresh one
+      var oldCtx = Tone.getContext();
+      log('Old context currentTime=' + oldCtx.currentTime.toFixed(6) + ', state=' + oldCtx.state);
+
+      // Create fresh Tone.js context (simulates app startup)
+      log('\nCreating fresh context...');
+      var newCtx = new Tone.Context();
+      Tone.setContext(newCtx);
+      log('New context state=' + newCtx.state + ', currentTime=' + newCtx.currentTime.toFixed(6));
+
+      // Resume context (like Tone.start() does)
+      await Tone.start();
+      log('After Tone.start(): state=' + newCtx.state + ', currentTime=' + newCtx.currentTime.toFixed(6));
+
+      var transport = Tone.getTransport();
+
+      // Reset monkey-patch for new transport
+      origProcessTick = null;
+      patchProcessTick();
+
+      // Add schedule events
+      clearSchedules();
+      addScheduleEvents();
+
+      // IMMEDIATELY set loop and start (minimal gap after Tone.start)
+      var inputs = getInputs();
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      transport.loop = true;
+
+      log('\nImmediate: loop=true, boundaries set');
+      logTransportState('State before start:');
+
+      var startNow = Tone.now();
+      transport.start(startNow, inputs.offset);
+      log('\ntransport.start(now=' + startNow.toFixed(6) + ', offset=' + inputs.offset + ')');
+
+      logTransportState('State after start:');
+
+      setTimeout(function() {
+        log('\nAfter 300ms:', 'warn');
+        log('  transport.seconds=' + transport.seconds.toFixed(6));
+        log('  transport.ticks=' + transport.ticks);
+        transport.stop();
+        transport.loop = false;
+        clearSchedules();
+        log('Stopped.');
+      }, 300);
+    }
+
+    // Test 9: Same as 8 but with deferred loop (the fix)
+    async function testFreshContextDeferred() {
+      log('\n=== TEST 9: Fresh context → deferred loop (fix) ===', 'section');
+
+      var newCtx = new Tone.Context();
+      Tone.setContext(newCtx);
+      await Tone.start();
+      log('Fresh context, state=' + newCtx.state + ', currentTime=' + newCtx.currentTime.toFixed(6));
+
+      var transport = Tone.getTransport();
+      origProcessTick = null;
+      patchProcessTick();
+
+      clearSchedules();
+      addScheduleEvents();
+
+      var inputs = getInputs();
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      transport.loop = false;
+
+      var startNow = Tone.now();
+      transport.start(startNow, inputs.offset);
+      log('Started with loop=false, offset=' + inputs.offset);
+
+      logTransportState('State after start:');
+
+      setTimeout(function() {
+        transport.loop = true;
+        log('\nDeferred loop=true set', 'warn');
+        dumpLoopTimeline('  ');
+
+        setTimeout(function() {
+          log('\nAfter 300ms:', 'warn');
+          log('  transport.seconds=' + transport.seconds.toFixed(6));
+          log('  transport.ticks=' + transport.ticks);
+          transport.stop();
+          transport.loop = false;
+          clearSchedules();
+          log('Stopped.');
+        }, 300);
+      }, 0);
+    }
+
+    async function testLoopAfterStart() {
+      var inputs = getInputs();
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST: loop=true AFTER start (immediate, no defer) ===', 'section');
+
+      if (transport.state !== 'stopped') {
+        transport.stop();
+        log('Stopped transport first');
+      }
+
+      patchProcessTick();
+
+      transport.loopStart = inputs.loopStart;
+      transport.loopEnd = inputs.loopEnd;
+      transport.loop = false;
+
+      var startNow = Tone.now();
+      transport.start(startNow, inputs.offset);
+      log('Started at offset=' + inputs.offset + ', now=' + startNow.toFixed(6));
+
+      var nowAtTrue = transport.now();
+      transport.loop = true;
+      log('Set loop=true at now()=' + nowAtTrue.toFixed(6));
+      logTransportState('State:');
+
+      setTimeout(function() {
+        log('\nAfter 200ms:', 'warn');
+        log('  transport.seconds=' + transport.seconds.toFixed(6));
+        log('  transport.ticks=' + transport.ticks);
+        transport.stop();
+        transport.loop = false;
+        log('Stopped.');
+      }, 200);
+    }
+  </script>
+</body>
+</html>
