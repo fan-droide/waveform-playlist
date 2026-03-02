@@ -14,8 +14,6 @@
 
 **No React, no Tone.js** — zero framework dependencies. Only peer dependency is `@waveform-playlist/core`.
 
-**Design doc:** `docs/plans/2026-02-24-engine-extraction-design.md`
-
 ## Patterns
 
 - All mutating methods (moveClip, trimClip, removeTrack, setZoomLevel) guard against no-op statechange emissions — bail early when constrained delta is 0, track not found, or zoom unchanged
