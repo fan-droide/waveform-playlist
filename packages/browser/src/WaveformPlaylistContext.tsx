@@ -966,13 +966,14 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       // This ensures the animation loop starts from the correct position
       currentTimeRef.current = actualStartTime;
 
-      // Stop the animation loop (will be restarted with fresh closure after play).
-      // Note: We do NOT call engine.stop() here — the playout layer handles
-      // stop-before-restart internally (Transport.stop() + Transport.start() in
-      // TonePlayout.play()). Calling engine.stop() would briefly reset
-      // engine._currentTime to _playStartPosition and set _isPlaying=false,
-      // creating a race where AnimatedPlayhead's RAF reads the wrong position
-      // for one frame (cursor flashes to 0).
+      // Stop existing playback and animation loop before restarting.
+      // engine.stop() resets engine._currentTime to _playStartPosition (could be 0)
+      // and sets _isPlaying=false. AnimatedPlayhead's RAF may fire during this
+      // window and call engine.getCurrentTime() which would return 0.
+      // The seek() immediately sets _currentTime to the intended start position,
+      // preventing the cursor flash.
+      engineRef.current.stop();
+      engineRef.current.seek(actualStartTime);
       stopAnimationLoop();
 
       // Record timing for accurate position tracking using Tone.js context
@@ -1043,15 +1044,13 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       currentTimeRef.current = clampedTime;
       setCurrentTime(clampedTime);
 
-      // If currently playing, stop and restart at the new position
+      // If currently playing, restart at the new position.
+      // play() handles stop+seek+restart internally.
       if (isPlaying && engineRef.current) {
-        engineRef.current.stop();
-        stopAnimationLoop();
-        // Use play() which handles all the timing setup
         play(clampedTime);
       }
     },
-    [duration, isPlaying, play, stopAnimationLoop]
+    [duration, isPlaying, play]
   );
 
   // Track controls
@@ -1127,8 +1126,13 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       setCurrentTime(start);
 
       if (isPlaying && engineRef.current) {
-        // Restart playback from selection start without calling engine.stop()
-        // (same rationale as provider play() — avoids brief _currentTime reset)
+        // Stop + seek before restarting playback from selection start.
+        // engine.stop() resets _currentTime and _isPlaying, creating a window
+        // where getCurrentTime() returns wrong value. seek() immediately
+        // corrects _currentTime so any RAF firing in between reads the
+        // intended position. engine.play() then restarts everything.
+        engineRef.current.stop();
+        engineRef.current.seek(start);
         engineRef.current.play(start);
       }
     },
