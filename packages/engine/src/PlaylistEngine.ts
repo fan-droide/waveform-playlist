@@ -30,6 +30,7 @@ type EventName = keyof EngineEvents;
 export class PlaylistEngine {
   private _tracks: ClipTrack[] = [];
   private _currentTime = 0;
+  private _playStartPosition = 0;
   private _isPlaying = false;
   private _selectedTrackId: string | null = null;
   private _sampleRate: number;
@@ -270,14 +271,33 @@ export class PlaylistEngine {
   // Playback (delegates to adapter, no-ops without adapter)
   // ---------------------------------------------------------------------------
 
-  async play(startTime?: number, endTime?: number): Promise<void> {
+  async init(): Promise<void> {
+    if (this._adapter) {
+      await this._adapter.init();
+    }
+  }
+
+  play(startTime?: number, endTime?: number): void {
     if (startTime !== undefined) {
       const duration = calculateDuration(this._tracks);
       this._currentTime = clampSeekPosition(startTime, duration);
     }
 
+    // Remember where playback started (Audacity-style: stop returns here)
+    this._playStartPosition = this._currentTime;
+
     if (this._adapter) {
-      await this._adapter.play(this._currentTime, endTime);
+      // Disable Transport loop for duration-limited playback (selection/annotation)
+      if (endTime !== undefined) {
+        this._adapter.setLoop(false, this._loopStart, this._loopEnd);
+      } else if (this._isLoopEnabled) {
+        // Only enable Transport loop if starting within the loop region.
+        // Starting outside plays normally to the end (Audacity/DAW behavior).
+        const inLoopRegion =
+          this._currentTime >= this._loopStart && this._currentTime < this._loopEnd;
+        this._adapter.setLoop(inLoopRegion, this._loopStart, this._loopEnd);
+      }
+      this._adapter.play(this._currentTime, endTime);
       this._startTimeUpdateLoop();
     }
 
@@ -299,8 +319,9 @@ export class PlaylistEngine {
 
   stop(): void {
     this._isPlaying = false;
-    this._currentTime = 0;
+    this._currentTime = this._playStartPosition;
     this._stopTimeUpdateLoop();
+    this._adapter?.setLoop(false, this._loopStart, this._loopEnd);
     this._adapter?.stop();
     this._emit('stop');
     this._emitStateChange();
@@ -318,6 +339,13 @@ export class PlaylistEngine {
     this._masterVolume = volume;
     this._adapter?.setMasterVolume(volume);
     this._emitStateChange();
+  }
+
+  getCurrentTime(): number {
+    if (this._isPlaying && this._adapter) {
+      return this._adapter.getCurrentTime();
+    }
+    return this._currentTime;
   }
 
   // ---------------------------------------------------------------------------
@@ -339,12 +367,14 @@ export class PlaylistEngine {
     if (s === this._loopStart && e === this._loopEnd) return;
     this._loopStart = s;
     this._loopEnd = e;
+    this._adapter?.setLoop(this._isLoopEnabled, this._loopStart, this._loopEnd);
     this._emitStateChange();
   }
 
   setLoopEnabled(enabled: boolean): void {
     if (enabled === this._isLoopEnabled) return;
     this._isLoopEnabled = enabled;
+    this._adapter?.setLoop(this._isLoopEnabled, this._loopStart, this._loopEnd);
     this._emitStateChange();
   }
 
@@ -451,6 +481,15 @@ export class PlaylistEngine {
       if (this._disposed || !this._isPlaying) return;
       if (this._adapter) {
         this._currentTime = this._adapter.getCurrentTime();
+
+        // Natural end detection: Transport has no inherent duration limit,
+        // so it will tick forever unless we detect the end ourselves.
+        const duration = calculateDuration(this._tracks);
+        if (duration > 0 && this._currentTime >= duration) {
+          this.stop();
+          return;
+        }
+
         this._emit('timeupdate', this._currentTime);
       }
       this._animFrameId = requestAnimationFrame(tick);

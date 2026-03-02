@@ -34,9 +34,9 @@ export interface PlayheadProps {
   isPlaying: boolean;
   /** Ref to current time in seconds - use for smooth animation during playback */
   currentTimeRef: React.RefObject<number>;
-  /** Audio context start time when playback began - for calculating elapsed time */
+  /** Audio context start time when playback began. Fallback when getPlaybackTime is not provided. */
   playbackStartTimeRef: React.RefObject<number>;
-  /** Audio position when playback started - for calculating current position */
+  /** Audio position when playback started. Fallback when getPlaybackTime is not provided. */
   audioStartPositionRef: React.RefObject<number>;
   /** Samples per pixel - for converting time to pixels */
   samplesPerPixel: number;
@@ -46,6 +46,8 @@ export interface PlayheadProps {
   controlsOffset: number;
   /** Function to get current audio context time - required for smooth animation */
   getAudioContextTime?: () => number;
+  /** Returns current playback time (auto-wraps at loop boundaries). Preferred over manual elapsed calculation. */
+  getPlaybackTime?: () => number;
 }
 
 /**
@@ -110,6 +112,7 @@ export const PlayheadWithMarker: React.FC<PlayheadProps> = ({
   sampleRate,
   controlsOffset,
   getAudioContextTime,
+  getPlaybackTime,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -118,9 +121,15 @@ export const PlayheadWithMarker: React.FC<PlayheadProps> = ({
     const updatePosition = () => {
       if (containerRef.current) {
         let time: number;
-        if (isPlaying && getAudioContextTime) {
-          const elapsed = getAudioContextTime() - (playbackStartTimeRef.current ?? 0);
-          time = (audioStartPositionRef.current ?? 0) + elapsed;
+        if (isPlaying) {
+          if (getPlaybackTime) {
+            time = getPlaybackTime();
+          } else if (getAudioContextTime) {
+            const elapsed = getAudioContextTime() - (playbackStartTimeRef.current ?? 0);
+            time = (audioStartPositionRef.current ?? 0) + elapsed;
+          } else {
+            time = currentTimeRef.current ?? 0;
+          }
         } else {
           time = currentTimeRef.current ?? 0;
         }
@@ -154,6 +163,7 @@ export const PlayheadWithMarker: React.FC<PlayheadProps> = ({
     playbackStartTimeRef,
     audioStartPositionRef,
     getAudioContextTime,
+    getPlaybackTime,
   ]);
 
   // Update position when stopped (for seeks)

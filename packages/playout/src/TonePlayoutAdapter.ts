@@ -19,10 +19,19 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
   let playout: TonePlayout | null = null;
   let _isPlaying = false;
   let _playoutGeneration = 0;
+  let _loopEnabled = false;
+  let _loopStart = 0;
+  let _loopEnd = 0;
+  let _audioInitialized = false;
 
   function buildPlayout(tracks: ClipTrack[]): void {
     if (playout) {
-      playout.dispose();
+      try {
+        playout.dispose();
+      } catch (err) {
+        console.warn('[waveform-playlist] Error disposing previous playout during rebuild:', err);
+      }
+      playout = null;
     }
 
     _playoutGeneration++;
@@ -31,6 +40,20 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
     playout = new TonePlayout({
       effects: options?.effects,
     });
+
+    // If Tone.start() was already called (AudioContext resumed), carry
+    // initialization forward. Tone.start() is global and idempotent —
+    // the resolved promise completes synchronously on subsequent calls.
+    if (_audioInitialized) {
+      playout.init().catch((err) => {
+        console.warn(
+          '[waveform-playlist] Failed to re-initialize playout after rebuild. ' +
+            'Audio playback will require another user gesture.',
+          err
+        );
+        _audioInitialized = false;
+      });
+    }
 
     for (const track of tracks) {
       const playableClips = track.clips.filter((c) => c.audioBuffer);
@@ -68,6 +91,7 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
     }
 
     playout.applyInitialSoloState();
+    playout.setLoop(_loopEnabled, _loopStart, _loopEnd);
 
     playout.setOnPlaybackComplete(() => {
       if (generation === _playoutGeneration) {
@@ -80,6 +104,7 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
     async init(): Promise<void> {
       if (playout) {
         await playout.init();
+        _audioInitialized = true;
       }
     },
 
@@ -87,11 +112,12 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
       buildPlayout(tracks);
     },
 
-    async play(startTime: number, endTime?: number): Promise<void> {
+    play(startTime: number, endTime?: number): void {
       if (!playout) return;
-      await playout.init();
       const duration = endTime !== undefined ? endTime - startTime : undefined;
       playout.play(now(), startTime, duration);
+      // Only set _isPlaying if play() didn't throw
+      // (TonePlayout.play() re-throws after cleanup on Transport failure)
       _isPlaying = true;
     },
 
@@ -137,8 +163,19 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
       playout?.getTrack(trackId)?.setPan(pan);
     },
 
+    setLoop(enabled: boolean, start: number, end: number): void {
+      _loopEnabled = enabled;
+      _loopStart = start;
+      _loopEnd = end;
+      playout?.setLoop(enabled, start, end);
+    },
+
     dispose(): void {
-      playout?.dispose();
+      try {
+        playout?.dispose();
+      } catch (err) {
+        console.warn('[waveform-playlist] Error disposing playout:', err);
+      }
       playout = null;
       _isPlaying = false;
     },

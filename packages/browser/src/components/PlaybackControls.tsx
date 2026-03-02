@@ -15,18 +15,13 @@ export const PlayButton: React.FC<{ className?: string }> = ({ className }) => {
   const handleClick = async () => {
     const hasSelection = selectionStart !== selectionEnd && selectionEnd > selectionStart;
 
-    if (hasSelection) {
-      if (isLoopEnabled) {
-        // With loop: Start from selection start, let loop logic handle boundaries
-        // Playback continues until it gets trapped in loop or reaches end
-        await play(selectionStart);
-      } else {
-        // Without loop: Play selection region only, then stop
-        const duration = selectionEnd - selectionStart;
-        await play(selectionStart, duration);
-      }
+    if (hasSelection && !isLoopEnabled) {
+      // Without loop: Play selection region only, then stop
+      const duration = selectionEnd - selectionStart;
+      await play(selectionStart, duration);
     } else {
-      // No selection: Play from current position to the end
+      // With loop or no selection: Play from current cursor position.
+      // Transport loop handles boundaries when loop is enabled.
       await play(currentTimeRef.current ?? 0);
     }
   };
@@ -63,13 +58,11 @@ export const StopButton: React.FC<{ className?: string }> = ({ className }) => {
 export const RewindButton: React.FC<{ className?: string }> = ({ className }) => {
   const { isPlaying } = usePlaybackAnimation();
   const { play, setCurrentTime } = usePlaylistControls();
-  const { playoutRef } = usePlaylistData();
 
   const handleClick = () => {
     setCurrentTime(0);
 
-    if (isPlaying && playoutRef.current) {
-      playoutRef.current.stop();
+    if (isPlaying) {
       play(0);
     }
   };
@@ -84,13 +77,12 @@ export const RewindButton: React.FC<{ className?: string }> = ({ className }) =>
 export const FastForwardButton: React.FC<{ className?: string }> = ({ className }) => {
   const { isPlaying } = usePlaybackAnimation();
   const { play, setCurrentTime } = usePlaylistControls();
-  const { duration, playoutRef } = usePlaylistData();
+  const { duration } = usePlaylistData();
 
   const handleClick = () => {
     setCurrentTime(duration);
 
-    if (isPlaying && playoutRef.current) {
-      playoutRef.current.stop();
+    if (isPlaying) {
       play(duration);
     }
   };
@@ -108,14 +100,12 @@ export const SkipBackwardButton: React.FC<{ skipAmount?: number; className?: str
 }) => {
   const { currentTimeRef, isPlaying } = usePlaybackAnimation();
   const { play, setCurrentTime } = usePlaylistControls();
-  const { playoutRef } = usePlaylistData();
 
   const handleClick = () => {
     const newTime = Math.max(0, (currentTimeRef.current ?? 0) - skipAmount);
     setCurrentTime(newTime);
 
-    if (isPlaying && playoutRef.current) {
-      playoutRef.current.stop();
+    if (isPlaying) {
       play(newTime);
     }
   };
@@ -133,14 +123,13 @@ export const SkipForwardButton: React.FC<{ skipAmount?: number; className?: stri
 }) => {
   const { currentTimeRef, isPlaying } = usePlaybackAnimation();
   const { play, setCurrentTime } = usePlaylistControls();
-  const { duration, playoutRef } = usePlaylistData();
+  const { duration } = usePlaylistData();
 
   const handleClick = () => {
     const newTime = Math.min(duration, (currentTimeRef.current ?? 0) + skipAmount);
     setCurrentTime(newTime);
 
-    if (isPlaying && playoutRef.current) {
-      playoutRef.current.stop();
+    if (isPlaying) {
       play(newTime);
     }
   };
