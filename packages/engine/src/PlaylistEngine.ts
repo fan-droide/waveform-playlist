@@ -481,16 +481,6 @@ export class PlaylistEngine {
       if (this._disposed || !this._isPlaying) return;
       if (this._adapter) {
         this._currentTime = this._adapter.getCurrentTime();
-
-        // Natural end detection: Transport has no inherent duration limit,
-        // so it will tick forever unless we detect the end ourselves.
-        // Skip during loop playback — Transport wraps at loop boundary.
-        const duration = calculateDuration(this._tracks);
-        if (duration > 0 && this._currentTime >= duration && !this._isLoopEnabled) {
-          this.stop();
-          return;
-        }
-
         this._emit('timeupdate', this._currentTime);
       }
       this._animFrameId = requestAnimationFrame(tick);

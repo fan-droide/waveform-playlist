@@ -979,8 +979,8 @@ describe('PlaylistEngine', () => {
     });
   });
 
-  describe('natural end detection', () => {
-    it('stops playback when currentTime reaches duration', () => {
+  describe('timeupdate loop', () => {
+    it('emits timeupdate events from RAF loop during playback', () => {
       const rafCallbacks: FrameRequestCallback[] = [];
       vi.stubGlobal(
         'requestAnimationFrame',
@@ -992,27 +992,27 @@ describe('PlaylistEngine', () => {
       vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
       const adapter = createMockAdapter();
-      // Track is 10 seconds (441000 samples @ 44100)
       const engine = new PlaylistEngine({ adapter });
       engine.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
       ]);
 
-      // Mock getCurrentTime to return past-end value
-      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(10.1);
-      engine.play();
-      expect(engine.getState().isPlaying).toBe(true);
+      const timeupdateListener = vi.fn();
+      engine.on('timeupdate', timeupdateListener);
 
-      // Fire the RAF tick — should trigger natural end detection and stop
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(5.0);
+      engine.play();
+
+      // Fire the RAF tick — should emit timeupdate with current time
       rafCallbacks[rafCallbacks.length - 1](performance.now());
-      expect(engine.getState().isPlaying).toBe(false);
-      expect(adapter.stop).toHaveBeenCalled();
+      expect(timeupdateListener).toHaveBeenCalledWith(5.0);
+      expect(engine.getState().isPlaying).toBe(true);
 
       engine.dispose();
       vi.unstubAllGlobals();
     });
 
-    it('does not stop during loop playback even if currentTime >= duration', () => {
+    it('does not emit timeupdate after stop', () => {
       const rafCallbacks: FrameRequestCallback[] = [];
       vi.stubGlobal(
         'requestAnimationFrame',
@@ -1029,16 +1029,19 @@ describe('PlaylistEngine', () => {
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
       ]);
 
-      engine.setLoopRegion(2.0, 8.0);
-      engine.setLoopEnabled(true);
+      const timeupdateListener = vi.fn();
+      engine.on('timeupdate', timeupdateListener);
 
-      // Mock getCurrentTime to return past-end value (would stop without loop guard)
-      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(10.1);
-      engine.play(3.0); // start inside loop region
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(3.0);
+      engine.play();
 
-      // Fire RAF tick — should NOT stop because loop is enabled
+      // Stop before RAF fires
+      engine.stop();
+      timeupdateListener.mockClear();
+
+      // Fire RAF tick — should NOT emit because isPlaying is false
       rafCallbacks[rafCallbacks.length - 1](performance.now());
-      expect(engine.getState().isPlaying).toBe(true);
+      expect(timeupdateListener).not.toHaveBeenCalled();
 
       engine.dispose();
       vi.unstubAllGlobals();

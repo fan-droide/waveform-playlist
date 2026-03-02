@@ -966,8 +966,13 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       // This ensures the animation loop starts from the correct position
       currentTimeRef.current = actualStartTime;
 
-      // Stop any existing playback and animation loop before starting
-      engineRef.current.stop();
+      // Stop the animation loop (will be restarted with fresh closure after play).
+      // Note: We do NOT call engine.stop() here — the playout layer handles
+      // stop-before-restart internally (Transport.stop() + Transport.start() in
+      // TonePlayout.play()). Calling engine.stop() would briefly reset
+      // engine._currentTime to _playStartPosition and set _isPlaying=false,
+      // creating a race where AnimatedPlayhead's RAF reads the wrong position
+      // for one frame (cursor flashes to 0).
       stopAnimationLoop();
 
       // Record timing for accurate position tracking using Tone.js context
@@ -1116,14 +1121,15 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
 
   // Selection — wraps hook setter with playback side-effects (provider concern).
   const setSelection = useCallback(
-    async (start: number, end: number) => {
+    (start: number, end: number) => {
       setSelectionEngine(start, end);
       currentTimeRef.current = start;
       setCurrentTime(start);
 
       if (isPlaying && engineRef.current) {
-        engineRef.current.stop();
-        await engineRef.current.play(start);
+        // Restart playback from selection start without calling engine.stop()
+        // (same rationale as provider play() — avoids brief _currentTime reset)
+        engineRef.current.play(start);
       }
     },
     [isPlaying, setSelectionEngine]
