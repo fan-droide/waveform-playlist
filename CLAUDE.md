@@ -342,6 +342,8 @@ const LazyExample = createLazyExample(() =>
 
 **Plans directory:** `plans/` contains future feature specs (waveform service, listening test tool).
 
+**Debug tests:** `debug/tonejs/` contains standalone HTML reproductions of upstream Tone.js bugs. Each file loads Tone.js from CDN with a one-click reproduce button — change the `<script src>` version to test new releases. See `debug/tonejs/README.md`.
+
 **Deployment:** Site deploys automatically via GitHub Actions on push to `main`.
 
 ---
@@ -350,9 +352,8 @@ const LazyExample = createLazyExample(() =>
 
 - **Roadmap & Progress:** `TODO.md`
 - **Architecture Details:** `PROJECT_STRUCTURE.md`
-- **Debugging Guide:** `DEBUGGING.md`
 - **Main branch:** `main`
-- **Current work:** `tonejs-overhaul`
+- **Current work:** `transport-synced-playout`
 - **Dev server:** `http://localhost:3000/` (Docusaurus)
 
 ---
@@ -371,4 +372,4 @@ Package-specific conventions, architecture, and patterns live in each package's 
 
 ---
 
-**Last Updated:** 2026-02-28
+**Last Updated:** 2026-03-02
