@@ -164,12 +164,12 @@ export class TonePlayout {
       this.tracks.forEach((track) => track.stopAllSources());
       this.clearDeferredLoopTimeout();
 
-      // Always start with loop DISABLED. Setting transport.loop = true
-      // before transport.start() causes an immediate wrap to position 0
-      // on the first tick cycle. The exact mechanism is unclear — the
-      // _processTick loop check (`_loop.get(tickTime) && ticks >= _loopEnd`)
-      // should not trigger, but does. Deferring loop enable to after the
-      // first tick batch (via setTimeout below) reliably prevents this.
+      // Always start with loop DISABLED. After stop/start cycles,
+      // Clock._lastUpdate is stale — the first tick batch processes
+      // "ghost ticks" from the previous TickSource state that can be
+      // >= _loopEnd, triggering an immediate wrap to loopStart via
+      // _processTick. Deferring loop enable (setTimeout below) ensures
+      // _loop.get() returns false for the stale-tick range.
       transport.loopStart = this._loopStart;
       transport.loopEnd = this._loopEnd;
       transport.loop = false;
