@@ -153,13 +153,6 @@ export class TonePlayout {
       }
       this.tracks.forEach((track) => track.stopAllSources());
 
-      // Disable Transport loop before starting. Tone.js's _processTick checks
-      // `ticks >= _loopEnd` on every tick. If loop is enabled with a stale
-      // _loopEnd (e.g., 0 from the Transport default), the condition is always
-      // true and the Transport wraps to loopStart immediately.
-      // The caller (engine) re-enables loop after play() returns.
-      transport.loop = false;
-
       if (offset !== undefined) {
         transport.start(startTime, offset);
       } else {

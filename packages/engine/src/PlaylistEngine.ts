@@ -290,19 +290,14 @@ export class PlaylistEngine {
       // Disable Transport loop for duration-limited playback (selection/annotation)
       if (endTime !== undefined) {
         this._adapter.setLoop(false, this._loopStart, this._loopEnd);
-      }
-      // Start playback BEFORE enabling loop. If loop is enabled before
-      // transport.start(), Tone.js immediately wraps to loopStart on the
-      // first tick — even when the offset is well within the loop region.
-      this._adapter.play(this._currentTime, endTime);
-
-      if (endTime === undefined && this._isLoopEnabled) {
+      } else if (this._isLoopEnabled) {
         // Only enable Transport loop if starting within the loop region.
         // Starting outside plays normally to the end (Audacity/DAW behavior).
         const inLoopRegion =
           this._currentTime >= this._loopStart && this._currentTime < this._loopEnd;
         this._adapter.setLoop(inLoopRegion, this._loopStart, this._loopEnd);
       }
+      this._adapter.play(this._currentTime, endTime);
     }
 
     this._isPlaying = true;
