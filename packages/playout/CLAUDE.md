@@ -44,7 +44,11 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **Native→Tone.js connection:** `fadeGainNode.connect((volumeNode.input as unknown as Gain).input)` — accesses the native GainNode backing Tone.js Volume's input Gain (double cast needed, see Type Gotchas below).
 
-**Loop property ordering:** `_processTick` checks `ticks >= _loopEnd` every tick. `_loopEnd` defaults to `0`, so `transport.loop = true` before updating `loopEnd` causes immediate wrap. **Always:** set `loopStart`/`loopEnd` BEFORE `transport.loop = enabled`. Also disable `transport.loop = false` before `transport.start()` to clear stale state. Engine calls `adapter.play()` before `adapter.setLoop()` as a third guard.
+**Loop property ordering:** `_processTick` checks `ticks >= _loopEnd` every tick. `_loopEnd` defaults to `0`, so `transport.loop = true` before updating `loopEnd` causes immediate wrap. **Always:** set `loopStart`/`loopEnd` BEFORE `transport.loop = enabled`.
+
+**Deferred loop enable:** Tone.js's `_loop` is a `TimelineValue` that accumulates entries across play sessions. When `_processTick` runs after `transport.start()`, it can process ticks at times where stale `_loop` entries return `true`, causing an immediate wrap — even when `_loopEnd` is set correctly. **Fix:** Always start Transport with `loop = false`. After `transport.start()`, defer `transport.loop = true` via `setTimeout(0)`. This runs after the current call stack AND any pending audio callbacks, so the initial `_processTick` batch sees `loop = false`. The deferred timeout is cleaned up in `pause()`, `stop()`, and `dispose()`.
+
+**Cached loop state:** `TonePlayout` caches loop state (`_loopEnabled`, `_loopStart`, `_loopEnd`) from `setLoop()`. In `play()`, these cached values set `loopStart`/`loopEnd` on the Transport before `transport.start()`. Engine calls `adapter.setLoop()` before `adapter.play()` so the cached state is up-to-date when `play()` applies it.
 
 ## Tone.js Type Gotchas
 

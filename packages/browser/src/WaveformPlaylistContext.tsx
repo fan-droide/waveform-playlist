@@ -867,7 +867,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       // Transport.seconds auto-wraps at loop boundaries, so getPlaybackTime() returns
       // the correct position without manual detection here.
 
-      if (time >= duration && !isLoopEnabledRef.current) {
+      if (time >= duration) {
         // Stop playback - inline to avoid circular dependency
         if (engineRef.current) {
           engineRef.current.stop();
@@ -889,7 +889,6 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     setActiveAnnotationId,
     startAnimationFrameLoop,
     getPlaybackTime,
-    isLoopEnabledRef,
   ]);
 
   const stopAnimationLoop = stopAnimationFrameLoop;

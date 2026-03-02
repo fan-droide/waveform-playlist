@@ -31,8 +31,11 @@ export class TonePlayout {
   private effectsCleanup?: () => void;
   private onPlaybackCompleteCallback?: () => void;
   private _completionEventId: number | null = null;
+  private _deferredLoopTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private _loopHandler: (() => void) | null = null;
+  private _loopEnabled = false;
   private _loopStart = 0;
+  private _loopEnd = 0;
 
   constructor(options: TonePlayoutOptions = {}) {
     this.masterVolume = new Volume(this.gainToDb(options.masterGain ?? 1));
@@ -67,6 +70,13 @@ export class TonePlayout {
         console.warn('[waveform-playlist] Error clearing Transport completion event:', err);
       }
       this._completionEventId = null;
+    }
+  }
+
+  private clearDeferredLoopTimeout(): void {
+    if (this._deferredLoopTimeoutId !== null) {
+      clearTimeout(this._deferredLoopTimeoutId);
+      this._deferredLoopTimeoutId = null;
     }
   }
 
@@ -152,12 +162,16 @@ export class TonePlayout {
         transport.stop();
       }
       this.tracks.forEach((track) => track.stopAllSources());
+      this.clearDeferredLoopTimeout();
 
-      // Disable Transport loop before starting. Tone.js's _processTick checks
-      // `ticks >= _loopEnd` on every tick. If loop is enabled with a stale
-      // _loopEnd (e.g., 0 from the Transport default), the condition is always
-      // true and the Transport wraps to loopStart immediately.
-      // The caller (engine) re-enables loop after play() returns.
+      // Always start with loop DISABLED. Tone.js's _loop TimelineValue
+      // accumulates entries across play sessions. When _processTick runs
+      // after transport.start(), it can process ticks at times where stale
+      // _loop entries return true, causing an immediate wrap — even when
+      // we set _loopEnd correctly beforehand. Starting with loop=false
+      // guarantees safe first ticks. Loop is deferred below.
+      transport.loopStart = this._loopStart;
+      transport.loopEnd = this._loopEnd;
       transport.loop = false;
 
       if (offset !== undefined) {
@@ -172,9 +186,24 @@ export class TonePlayout {
       this.tracks.forEach((track) => {
         track.startMidClipSources(transportOffset, startTime);
       });
+
+      // Defer loop enable to after the first tick processing cycle.
+      // setTimeout(0) runs after the current call stack AND any pending
+      // audio callbacks, so the initial _processTick batch sees loop=false.
+      if (this._loopEnabled) {
+        this._deferredLoopTimeoutId = setTimeout(() => {
+          this._deferredLoopTimeoutId = null;
+          try {
+            getTransport().loop = true;
+          } catch (err) {
+            console.warn('[waveform-playlist] Error enabling deferred loop:', err);
+          }
+        }, 0);
+      }
     } catch (err) {
       // Clean up scheduled events since Transport failed to start
       this.clearCompletionEvent();
+      this.clearDeferredLoopTimeout();
       this.tracks.forEach((track) => track.cancelFades());
       console.warn(
         '[waveform-playlist] Transport.start() failed. Audio playback could not begin.',
@@ -185,6 +214,7 @@ export class TonePlayout {
   }
 
   pause(): void {
+    this.clearDeferredLoopTimeout();
     const transport = getTransport();
     try {
       transport.pause();
@@ -199,6 +229,7 @@ export class TonePlayout {
   }
 
   stop(): void {
+    this.clearDeferredLoopTimeout();
     const transport = getTransport();
     try {
       transport.stop();
@@ -268,7 +299,9 @@ export class TonePlayout {
       console.warn('[waveform-playlist] Error configuring Transport loop:', err);
       return;
     }
+    this._loopEnabled = enabled;
     this._loopStart = loopStart;
+    this._loopEnd = loopEnd;
 
     if (enabled && !this._loopHandler) {
       this._loopHandler = () => {
@@ -312,6 +345,7 @@ export class TonePlayout {
 
   dispose(): void {
     this.clearCompletionEvent();
+    this.clearDeferredLoopTimeout();
 
     // Clean up loop handler
     if (this._loopHandler) {
