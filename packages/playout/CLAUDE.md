@@ -44,7 +44,7 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **Native→Tone.js connection:** `fadeGainNode.connect((volumeNode.input as unknown as Gain).input)` — accesses the native GainNode backing Tone.js Volume's input Gain (double cast needed, see Type Gotchas below).
 
-**Loop property ordering:** `_processTick` checks `ticks >= _loopEnd` every tick. `_loopEnd` defaults to `0`, so `transport.loop = true` before updating `loopEnd` causes immediate wrap. **Always:** set `loopStart`/`loopEnd` BEFORE `transport.loop = enabled`.
+**Loop property ordering:** `_processTick` checks `ticks >= _loopEnd` every tick. `_loopEnd` defaults to `0`, so `transport.loop = true` before updating `loopEnd` causes immediate wrap. **Always:** set `loopStart`/`loopEnd` BEFORE `transport.loop = enabled`. Also disable `transport.loop = false` before `transport.start()` to clear stale state. Engine calls `adapter.play()` before `adapter.setLoop()` as a third guard.
 
 ## Tone.js Type Gotchas
 
