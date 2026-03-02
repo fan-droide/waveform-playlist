@@ -298,10 +298,10 @@ export class PlaylistEngine {
         this._adapter.setLoop(inLoopRegion, this._loopStart, this._loopEnd);
       }
       this._adapter.play(this._currentTime, endTime);
-      this._startTimeUpdateLoop();
     }
 
     this._isPlaying = true;
+    this._startTimeUpdateLoop();
     this._emit('play');
     this._emitStateChange();
   }
@@ -484,8 +484,9 @@ export class PlaylistEngine {
 
         // Natural end detection: Transport has no inherent duration limit,
         // so it will tick forever unless we detect the end ourselves.
+        // Skip during loop playback — Transport wraps at loop boundary.
         const duration = calculateDuration(this._tracks);
-        if (duration > 0 && this._currentTime >= duration) {
+        if (duration > 0 && this._currentTime >= duration && !this._isLoopEnabled) {
           this.stop();
           return;
         }

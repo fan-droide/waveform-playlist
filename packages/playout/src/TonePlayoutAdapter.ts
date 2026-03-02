@@ -43,7 +43,7 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
 
     // If Tone.start() was already called (AudioContext resumed), carry
     // initialization forward. Tone.start() is global and idempotent —
-    // the resolved promise completes synchronously on subsequent calls.
+    // the promise resolves near-instantly on subsequent calls (already-running context).
     if (_audioInitialized) {
       playout.init().catch((err) => {
         console.warn(

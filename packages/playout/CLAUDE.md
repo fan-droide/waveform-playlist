@@ -12,7 +12,7 @@
 
 **Clip time helpers:** `clipStartTime`, `clipEndTime`, `clipOffsetTime`, `clipDurationTime` in `packages/core/src/clipTimeHelpers.ts`. Pure functions: `samples / sampleRate`.
 
-**Testing:** `src/__tests__/TonePlayoutAdapter.test.ts` — mocks `TonePlayout` to avoid AudioContext (30 tests). `packages/core/src/__tests__/clipTimeHelpers.test.ts`.
+**Testing:** `src/__tests__/TonePlayoutAdapter.test.ts` — mocks `TonePlayout` to avoid AudioContext. `packages/core/src/__tests__/clipTimeHelpers.test.ts`.
 
 ## Transport.schedule() Architecture
 
@@ -42,7 +42,7 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **Loop handling:** Transport `loop` event fires BEFORE schedule callbacks (event ordering: `loopEnd` → ticks reset → `loopStart` → `loop` → `forEachAtTime`). Loop handler: `stopAllSources()` + `cancelFades()` + `startMidClipSources(loopStart)` + `prepareFades()`.
 
-**Native→Tone.js connection:** `fadeGainNode.connect((volumeNode.input as Gain).input)` — accesses the native GainNode backing Tone.js Volume's input Gain.
+**Native→Tone.js connection:** `fadeGainNode.connect((volumeNode.input as unknown as Gain).input)` — accesses the native GainNode backing Tone.js Volume's input Gain (double cast needed, see Type Gotchas below).
 
 ## Tone.js Type Gotchas
 

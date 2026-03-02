@@ -1,4 +1,3 @@
-// Named imports for tree-shaking
 import {
   Volume,
   ToneAudioNode,
@@ -11,7 +10,6 @@ import {
 } from 'tone';
 import { ToneTrack, ToneTrackOptions } from './ToneTrack';
 
-// Effects function no longer receives ToneLib - effects should import Tone themselves
 export type EffectsFunction = (
   masterGainNode: Volume,
   destination: ToneAudioNode,
@@ -118,8 +116,7 @@ export class TonePlayout {
 
   play(when?: number, offset?: number, duration?: number): void {
     if (!this.isInitialized) {
-      console.warn('[waveform-playlist] TonePlayout not initialized. Call init() first.');
-      return;
+      throw new Error('[waveform-playlist] TonePlayout not initialized. Call init() first.');
     }
 
     const startTime = when ?? now();
@@ -258,13 +255,14 @@ export class TonePlayout {
       transport.loopEnd = loopEnd;
     } catch (err) {
       console.warn('[waveform-playlist] Error configuring Transport loop:', err);
+      return;
     }
     this._loopStart = loopStart;
 
     if (enabled && !this._loopHandler) {
       this._loopHandler = () => {
         // On loop boundary: stop old sources, re-schedule fades, start mid-clip sources.
-        // Event ordering in Transport._processTick:
+        // Event ordering in Transport's tick processing (Tone.js 15.x _processTick):
         //   loopEnd → ticks reset → loopStart → loop → forEachAtTime(ticks)
         // Our loop handler fires BEFORE schedule callbacks, so:
         // 1. stopAllSources + cancelFades — clean slate

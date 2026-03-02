@@ -1,4 +1,3 @@
-// Named imports for tree-shaking
 import {
   Volume,
   Gain,
@@ -11,7 +10,6 @@ import {
 import { Track, type Fade } from '@waveform-playlist/core';
 import { applyFadeIn, applyFadeOut, getUnderlyingAudioParam } from './fades';
 
-// Effects function no longer receives ToneLib - effects should import Tone themselves
 export type TrackEffectsFunction = (
   graphEnd: Gain,
   masterGainNode: ToneAudioNode,
@@ -136,7 +134,18 @@ export class ToneTrack {
 
     const offset = bufferOffset ?? clipInfo.offset;
     const duration = playDuration ?? clipInfo.duration;
-    source.start(audioContextTime, offset, duration);
+
+    try {
+      source.start(audioContextTime, offset, duration);
+    } catch (err) {
+      console.warn(
+        `[waveform-playlist] Failed to start source on track "${this.id}" ` +
+          `(time=${audioContextTime}, offset=${offset}, duration=${duration}):`,
+        err
+      );
+      source.disconnect();
+      return;
+    }
 
     this.activeSources.add(source);
     source.onended = () => {
@@ -183,8 +192,8 @@ export class ToneTrack {
     this.activeSources.forEach((source) => {
       try {
         source.stop();
-      } catch {
-        // Source may already be stopped or disposed
+      } catch (err) {
+        console.warn(`[waveform-playlist] Error stopping source on track "${this.id}":`, err);
       }
     });
     this.activeSources.clear();
