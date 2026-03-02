@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Tone.js Tick-0 Phantom Replay Debug (#1417)</title>
+  <script src="https://unpkg.com/tone@15.1.22/build/Tone.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #ddd; }
+    button { padding: 8px 16px; margin: 4px; font-size: 14px; cursor: pointer; }
+    #log { white-space: pre-wrap; background: #111; padding: 16px; margin-top: 16px; border: 1px solid #333; max-height: 600px; overflow-y: auto; font-size: 12px; }
+    .section { color: #63C75F; font-weight: bold; }
+    .warn { color: #c49a6c; }
+    .error { color: #d08070; }
+    h3 { color: #63C75F; }
+    p { color: #999; }
+  </style>
+</head>
+<body>
+  <h3>Tone.js Tick-0 Phantom Replay (#1417)</h3>
+  <p>Demonstrates: Player.sync().start(0) phantom-replays after stop/start cycles.</p>
+  <p>A 440Hz tone (clip A, time 0) and 880Hz tone (clip B, time 3s) are synced to Transport.</p>
+
+  <div>
+    <button onclick="reproduceBug()" style="background:#d08070;color:#fff;font-weight:bold;padding:10px 20px;font-size:16px">
+      Reproduce Bug (one click)
+    </button>
+  </div>
+  <hr style="border-color:#333;margin:12px 0">
+  <details>
+    <summary style="cursor:pointer;color:#63C75F">Advanced: individual tests</summary>
+    <div style="margin-top:8px">
+      <button onclick="initTone()">1. Init Tone (required first)</button>
+    </div>
+    <div>
+      <button onclick="testPhantomReplay()">2. Test: phantom replay at tick 0</button>
+      <button onclick="testWithGuard()">3. Test: with _start guard (workaround)</button>
+    </div>
+  </details>
+  <div>
+    <button onclick="stopAll()">Stop Transport</button>
+    <button onclick="clearLog()">Clear Log</button>
+  </div>
+
+  <div id="log"></div>
+
+  <script>
+    var logEl = document.getElementById('log');
+    var playerA = null; // 440Hz at time 0
+    var playerB = null; // 880Hz at time 3
+
+    function log(msg, cls) {
+      var line = document.createElement('span');
+      if (cls) line.className = cls;
+      line.textContent = msg + '\n';
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(msg);
+    }
+
+    function clearLog() {
+      while (logEl.firstChild) logEl.removeChild(logEl.firstChild);
+    }
+
+    // Create a simple tone buffer programmatically
+    function createToneBuffer(frequency, durationSec) {
+      var ctx = Tone.getContext().rawContext;
+      var sampleRate = ctx.sampleRate;
+      var length = Math.floor(sampleRate * durationSec);
+      var buffer = ctx.createBuffer(1, length, sampleRate);
+      var data = buffer.getChannelData(0);
+      for (var i = 0; i < length; i++) {
+        // Simple sine with fade in/out to avoid clicks
+        var t = i / sampleRate;
+        var envelope = 1;
+        if (t < 0.01) envelope = t / 0.01;
+        if (t > durationSec - 0.01) envelope = (durationSec - t) / 0.01;
+        data[i] = Math.sin(2 * Math.PI * frequency * t) * 0.3 * envelope;
+      }
+      return buffer;
+    }
+
+    // One-click reproduction: inits Tone and runs the phantom replay test
+    async function reproduceBug() {
+      clearLog();
+      log('=== ONE-CLICK BUG REPRODUCTION ===', 'section');
+      log('Initializing Tone.js...\n');
+
+      await Tone.start();
+
+      log('Two Players synced to Transport:');
+      log('  Player A: 440Hz, 2s, at Transport time 0');
+      log('  Player B: 880Hz, 2s, at Transport time 3s');
+      log('');
+      log('Sequence: play from 0 → stop → restart from offset 5s');
+      log('Bug: PlayerA._start fires with offset=5, duration=-3 (phantom)');
+      log('');
+
+      await testPhantomReplay();
+    }
+
+    async function initTone() {
+      await Tone.start();
+      log('Tone.js initialized', 'section');
+      log('  sampleRate=' + Tone.getContext().rawContext.sampleRate);
+    }
+
+    function setupPlayers() {
+      // Dispose old players if any
+      if (playerA) { try { playerA.dispose(); } catch(e) {} }
+      if (playerB) { try { playerB.dispose(); } catch(e) {} }
+
+      var bufA = createToneBuffer(440, 2); // 440Hz, 2 seconds
+      var bufB = createToneBuffer(880, 2); // 880Hz, 2 seconds
+
+      playerA = new Tone.Player(bufA);
+      playerA.toDestination();
+
+      playerB = new Tone.Player(bufB);
+      playerB.toDestination();
+
+      log('Created players:');
+      log('  Player A: 440Hz tone, 2s duration, synced at time 0');
+      log('  Player B: 880Hz tone, 2s duration, synced at time 3s');
+    }
+
+    // Patch Player._start to log when sources are created
+    function patchPlayerStart(player, label) {
+      var origStart = player._start.bind(player);
+      var startCount = 0;
+      player._start = function(time, offset, duration) {
+        startCount++;
+        var transportSec = Tone.getTransport().seconds;
+        var msg = '  [' + label + '._start] #' + startCount +
+          ': audioTime=' + time.toFixed(6) +
+          ', offset=' + (offset !== undefined ? offset.toFixed(4) : 'undef') +
+          ', duration=' + (duration !== undefined ? duration.toFixed(4) : 'undef') +
+          ', transport.seconds=' + transportSec.toFixed(4);
+        if (transportSec > 2 && label === 'PlayerA') {
+          log(msg + '  >>> PHANTOM! (time 0 clip playing at transport ' + transportSec.toFixed(2) + 's)', 'error');
+        } else {
+          log(msg, 'warn');
+        }
+        return origStart(time, offset, duration);
+      };
+    }
+
+    // Dump Player._activeSources to show resource accumulation
+    function dumpActiveSources(label) {
+      var countA = 0;
+      var countB = 0;
+      try {
+        playerA._activeSources.forEach(function() { countA++; });
+      } catch(e) {}
+      try {
+        playerB._activeSources.forEach(function() { countB++; });
+      } catch(e) {}
+      log(label + 'Active sources: PlayerA=' + countA + ', PlayerB=' + countB);
+    }
+
+    // Dump the transport.schedule internal events for the player
+    function dumpPlayerScheduled(player, label) {
+      try {
+        var scheduled = player._scheduled;
+        log('  ' + label + '._scheduled IDs: [' + scheduled.join(', ') + '] (' + scheduled.length + ' events)');
+      } catch(e) {
+        log('  ' + label + '._scheduled: (inaccessible)');
+      }
+    }
+
+    async function testPhantomReplay() {
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST: Phantom replay at tick 0 (NO guard) ===', 'section');
+
+      if (transport.state !== 'stopped') {
+        transport.stop();
+      }
+
+      setupPlayers();
+      patchPlayerStart(playerA, 'PlayerA');
+      patchPlayerStart(playerB, 'PlayerB');
+
+      // Sync players to Transport
+      playerA.sync().start(0, 0, 2);    // time 0, full buffer
+      playerB.sync().start(3, 0, 2);    // time 3, full buffer
+
+      log('\nSynced players to Transport');
+      dumpPlayerScheduled(playerA, 'PlayerA');
+      dumpPlayerScheduled(playerB, 'PlayerB');
+
+      // --- First play from offset 0 ---
+      log('\n--- Step 1: Play from offset 0 ---', 'section');
+      transport.start(Tone.now(), 0);
+      log('  transport.start(now, 0)');
+
+      await new Promise(function(r) { setTimeout(r, 500); });
+      log('\n  After 500ms: transport.seconds=' + transport.seconds.toFixed(4));
+      dumpActiveSources('  ');
+
+      // --- Stop ---
+      log('\n--- Step 2: Stop transport ---', 'section');
+      transport.stop();
+      log('  transport.stop()');
+      log('  transport.state=' + transport.state);
+
+      await new Promise(function(r) { setTimeout(r, 100); });
+      dumpActiveSources('  After 100ms: ');
+
+      // --- Restart from offset 5 (past both clips) ---
+      log('\n--- Step 3: Restart from offset 5s (past both clips) ---', 'section');
+      log('  Expected: NO clips should play (both end before 5s)');
+      log('  Bug: PlayerA phantom-replays from tick-0 schedule callback\n');
+
+      transport.start(Tone.now(), 5);
+      log('  transport.start(now, 5)');
+
+      await new Promise(function(r) { setTimeout(r, 300); });
+      log('\n  After 300ms: transport.seconds=' + transport.seconds.toFixed(4));
+      dumpActiveSources('  ');
+
+      // --- Stop again, restart from offset 5 again (more phantoms?) ---
+      log('\n--- Step 4: Stop and restart again from offset 5s ---', 'section');
+      transport.stop();
+      await new Promise(function(r) { setTimeout(r, 100); });
+
+      transport.start(Tone.now(), 5);
+      log('  Another start from offset 5');
+
+      await new Promise(function(r) { setTimeout(r, 300); });
+      log('\n  After 300ms: transport.seconds=' + transport.seconds.toFixed(4));
+      dumpActiveSources('  ');
+      log('  (Each cycle may accumulate another phantom source)', 'warn');
+
+      transport.stop();
+      log('\nStopped.');
+    }
+
+    async function testWithGuard() {
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST: With _start guard (workaround) ===', 'section');
+
+      if (transport.state !== 'stopped') {
+        transport.stop();
+      }
+
+      setupPlayers();
+
+      // Apply guard at the _start level — intercepts BOTH paths:
+      // 1. transport.schedule callback (unconditional)
+      // 2. _syncedStart handler (passes wrong offset/duration)
+      var transportStartOffset = 0;
+      var origStartA = playerA._start.bind(playerA);
+      var guardedStartCount = 0;
+      playerA._start = function(time, offset, duration) {
+        guardedStartCount++;
+        // Only allow _start when transport is at/near time 0
+        if (transportStartOffset < 0.01) {
+          log('  [GUARD] Allowing PlayerA._start #' + guardedStartCount +
+            ' (transportOffset=' + transportStartOffset.toFixed(4) +
+            ', offset=' + (offset !== undefined ? offset.toFixed(4) : 'undef') +
+            ', duration=' + (duration !== undefined ? duration.toFixed(4) : 'undef') + ')', 'warn');
+          return origStartA(time, offset, duration);
+        } else {
+          log('  [GUARD] BLOCKED PlayerA._start #' + guardedStartCount +
+            ' (transportOffset=' + transportStartOffset.toFixed(4) +
+            ', offset=' + (offset !== undefined ? offset.toFixed(4) : 'undef') +
+            ', duration=' + (duration !== undefined ? duration.toFixed(4) : 'undef') + ')', 'section');
+        }
+      };
+
+      // Still patch PlayerB for logging
+      patchPlayerStart(playerB, 'PlayerB');
+
+      // Sync players to Transport
+      playerA.sync().start(0, 0, 2);
+      playerB.sync().start(3, 0, 2);
+
+      log('\nSynced players to Transport');
+      log('Applied _start-level guard to PlayerA');
+
+      // --- First play from offset 0 ---
+      log('\n--- Step 1: Play from offset 0 ---', 'section');
+      transportStartOffset = 0;
+      transport.start(Tone.now(), 0);
+
+      await new Promise(function(r) { setTimeout(r, 500); });
+      log('\n  After 500ms: transport.seconds=' + transport.seconds.toFixed(4));
+      dumpActiveSources('  ');
+
+      // --- Stop ---
+      log('\n--- Step 2: Stop ---', 'section');
+      transport.stop();
+      await new Promise(function(r) { setTimeout(r, 100); });
+
+      // --- Restart from offset 5 ---
+      log('\n--- Step 3: Restart from offset 5s (with guard) ---', 'section');
+      log('  Expected: guard blocks phantom _start calls\n');
+      transportStartOffset = 5;
+      transport.start(Tone.now(), 5);
+
+      await new Promise(function(r) { setTimeout(r, 300); });
+      log('\n  After 300ms: transport.seconds=' + transport.seconds.toFixed(4));
+      dumpActiveSources('  ');
+
+      // --- Another cycle ---
+      log('\n--- Step 4: Another stop/start from offset 5 ---', 'section');
+      transport.stop();
+      await new Promise(function(r) { setTimeout(r, 100); });
+      transportStartOffset = 5;
+      transport.start(Tone.now(), 5);
+
+      await new Promise(function(r) { setTimeout(r, 300); });
+      log('\n  After 300ms: transport.seconds=' + transport.seconds.toFixed(4));
+      dumpActiveSources('  ');
+
+      transport.stop();
+      log('\nStopped. Guard blocked all phantom replays.');
+    }
+
+    function stopAll() {
+      Tone.getTransport().stop();
+      log('Transport stopped', 'warn');
+    }
+  </script>
+</body>
+</html>
