@@ -291,9 +291,9 @@ export class PlaylistEngine {
 
     if (this._adapter) {
       // Configure loop state BEFORE play(). The adapter caches loopStart/
-      // loopEnd/enabled from setLoop(), then TonePlayout.play() sets
-      // Transport.loopStart/loopEnd before transport.start() and defers
-      // transport.loop=true via setTimeout(0) to avoid ghost-tick wrapping.
+      // loopEnd/enabled from setLoop(), then TonePlayout.play() applies
+      // them to the Transport before transport.start() and advances
+      // Clock._lastUpdate to skip stale ghost ticks.
       if (endTime !== undefined) {
         // Disable Transport loop for duration-limited playback (selection/annotation)
         this._adapter.setLoop(false, this._loopStart, this._loopEnd);
