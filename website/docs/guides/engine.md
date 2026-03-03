@@ -55,7 +55,7 @@ const track = createTrack({
 engine.setTracks([track]);
 
 // 4. Control playback (requires a PlayoutAdapter — see below)
-await engine.play();
+engine.play();
 engine.pause();
 engine.stop();
 
@@ -184,7 +184,7 @@ All three methods:
 
 ```typescript
 // Start playback (optionally from a time position)
-await engine.play(startTime?: number, endTime?: number): Promise<void>;
+engine.play(startTime?: number, endTime?: number): void;
 
 // Pause at current position
 engine.pause(): void;
@@ -281,7 +281,7 @@ class MyAudioAdapter implements PlayoutAdapter {
     // Rebuild audio graph from tracks
   }
 
-  async play(startTime: number, endTime?: number): Promise<void> {
+  play(startTime: number, endTime?: number): void {
     // Start audio playback from startTime
   }
 
@@ -315,6 +315,10 @@ class MyAudioAdapter implements PlayoutAdapter {
   setTrackMute(trackId: string, muted: boolean): void { /* ... */ }
   setTrackSolo(trackId: string, soloed: boolean): void { /* ... */ }
   setTrackPan(trackId: string, pan: number): void { /* ... */ }
+
+  setLoop(enabled: boolean, start: number, end: number): void {
+    // Configure loop region
+  }
 
   dispose(): void {
     // Clean up audio resources
@@ -595,7 +599,7 @@ interface PlaylistEngineOptions {
 interface PlayoutAdapter {
   init(): Promise<void>;
   setTracks(tracks: ClipTrack[]): void;
-  play(startTime: number, endTime?: number): Promise<void>;
+  play(startTime: number, endTime?: number): void;
   pause(): void;
   stop(): void;
   seek(time: number): void;
@@ -606,6 +610,7 @@ interface PlayoutAdapter {
   setTrackMute(trackId: string, muted: boolean): void;
   setTrackSolo(trackId: string, soloed: boolean): void;
   setTrackPan(trackId: string, pan: number): void;
+  setLoop(enabled: boolean, start: number, end: number): void;
   dispose(): void;
 }
 ```
