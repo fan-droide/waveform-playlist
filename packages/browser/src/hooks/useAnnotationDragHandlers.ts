@@ -1,5 +1,9 @@
 import React from 'react';
-import type { DragStartEvent, DragMoveEvent } from '@dnd-kit/core';
+import type {
+  DragStartEvent as DragStartCallback,
+  DragMoveEvent as DragMoveCallback,
+  DragEndEvent as DragEndCallback,
+} from '@dnd-kit/abstract';
 import type { AnnotationData } from '@waveform-playlist/core';
 
 const LINK_THRESHOLD = 0.01; // Consider edges "linked" if within 10ms
@@ -16,7 +20,7 @@ interface UseAnnotationDragHandlersOptions {
 /**
  * Custom hook for handling annotation drag operations (boundary trimming)
  *
- * Provides drag handlers for use with @dnd-kit/core DndContext.
+ * Provides drag handlers for use with @dnd-kit/react DragDropProvider.
  * Handles annotation boundary resizing with linked endpoints support.
  *
  * @example
@@ -31,14 +35,14 @@ interface UseAnnotationDragHandlersOptions {
  * });
  *
  * return (
- *   <DndContext
+ *   <DragDropProvider
  *     onDragStart={onDragStart}
  *     onDragMove={onDragMove}
  *     onDragEnd={onDragEnd}
- *     modifiers={[restrictToHorizontalAxis]}
+ *     modifiers={[RestrictToHorizontalAxis]}
  *   >
  *     {renderAnnotations()}
- *   </DndContext>
+ *   </DragDropProvider>
  * );
  * ```
  */
@@ -58,13 +62,14 @@ export function useAnnotationDragHandlers({
   } | null>(null);
 
   const onDragStart = React.useCallback(
-    (event: DragStartEvent) => {
-      const { active } = event;
-      const data = active.data.current as {
-        annotationId: string;
-        annotationIndex: number;
-        edge: 'start' | 'end';
-      };
+    (event: Parameters<DragStartCallback>[0]) => {
+      const data = event.operation.source?.data as
+        | {
+            annotationId: string;
+            annotationIndex: number;
+            edge: 'start' | 'end';
+          }
+        | undefined;
 
       if (!data || data.annotationIndex === undefined) {
         originalAnnotationStateRef.current = null;
@@ -84,26 +89,30 @@ export function useAnnotationDragHandlers({
   );
 
   const onDragMove = React.useCallback(
-    (event: DragMoveEvent) => {
-      const { active, delta } = event;
-
+    (event: Parameters<DragMoveCallback>[0]) => {
       if (!originalAnnotationStateRef.current) {
         return;
       }
 
-      const data = active.data.current as {
-        annotationId: string;
-        annotationIndex: number;
-        edge: 'start' | 'end';
-      };
+      const data = event.operation.source?.data as
+        | {
+            annotationId: string;
+            annotationIndex: number;
+            edge: 'start' | 'end';
+          }
+        | undefined;
 
       if (!data) return;
 
       const { edge, annotationIndex } = data;
       const originalState = originalAnnotationStateRef.current;
 
-      // Convert pixel delta to time delta
-      const timeDelta = (delta.x * samplesPerPixel) / sampleRate;
+      // The dragmove event is dispatched BEFORE position.current is updated (happens
+      // in a microtask), so the snapshot's position.current is stale. Use event.to
+      // (the pointer's current coordinates from the sensor) for the correct position.
+      const currentX = event.to?.x ?? event.operation.position.current.x;
+      const rawDeltaX = currentX - event.operation.position.initial.x;
+      const timeDelta = (rawDeltaX * samplesPerPixel) / sampleRate;
 
       // Apply delta to original state
       const newTime =
@@ -124,9 +133,21 @@ export function useAnnotationDragHandlers({
     [annotations, onAnnotationsChange, samplesPerPixel, sampleRate, duration, linkEndpoints]
   );
 
-  const onDragEnd = React.useCallback(() => {
-    originalAnnotationStateRef.current = null;
-  }, []);
+  const onDragEnd = React.useCallback(
+    (event: Parameters<DragEndCallback>[0]) => {
+      // Handle canceled drags — revert annotations to pre-drag state
+      if (event.canceled && originalAnnotationStateRef.current) {
+        const { annotationIndex, start, end } = originalAnnotationStateRef.current;
+        const revertedAnnotations = annotations.map((annotation, idx) => {
+          if (idx !== annotationIndex) return annotation;
+          return { ...annotation, start, end };
+        });
+        onAnnotationsChange(revertedAnnotations);
+      }
+      originalAnnotationStateRef.current = null;
+    },
+    [annotations, onAnnotationsChange]
+  );
 
   return {
     onDragStart,

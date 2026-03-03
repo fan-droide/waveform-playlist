@@ -2,16 +2,21 @@
  * Hook for configuring @dnd-kit sensors for clip dragging
  *
  * Provides consistent drag activation behavior across all examples.
- * Supports both desktop (immediate feedback) and mobile (delay-based) interactions.
+ * Always overrides PointerSensor defaults with custom activation constraints:
+ * - Default mode: distance-based activation (1px) for all pointer types
+ * - Touch-optimized mode: delay-based activation for touch (250ms),
+ *   distance-based for mouse/pen
  */
 
-import { useSensor, useSensors, PointerSensor, TouchSensor, MouseSensor } from '@dnd-kit/core';
+import { useMemo } from 'react';
+import { PointerSensor, PointerActivationConstraints } from '@dnd-kit/dom';
+import type { PluginDescriptor } from '@dnd-kit/abstract';
 
 export interface DragSensorOptions {
   /**
    * Enable mobile-optimized touch handling with delay-based activation.
-   * When true, uses TouchSensor with 250ms delay to distinguish drag from scroll.
-   * When false (default), uses PointerSensor with 1px activation for immediate feedback.
+   * When true, touch events get delay-based activation while mouse/pen get distance-based.
+   * When false (default), all pointer types use distance-based activation (1px).
    */
   touchOptimized?: boolean;
   /**
@@ -36,25 +41,20 @@ export interface DragSensorOptions {
  * Returns configured sensors for @dnd-kit drag operations
  *
  * @param options - Configuration options for drag sensors
- * @returns Configured sensors appropriate for the interaction mode
+ * @returns Array of sensor constructors/descriptors for DragDropProvider's sensors prop
  *
  * @example
- * // Desktop-optimized (default)
+ * // Desktop-optimized (default — 1px distance activation for all pointer types)
  * const sensors = useDragSensors();
  *
  * @example
- * // Mobile-optimized with touch delay
- * const sensors = useDragSensors({ touchOptimized: true });
- *
- * @example
- * // Custom touch settings
- * const sensors = useDragSensors({
- *   touchOptimized: true,
- *   touchDelay: 300,
- *   touchTolerance: 8
- * });
+ * // Mobile-optimized with custom touch delay
+ * const sensors = useDragSensors({ touchOptimized: true, touchDelay: 300 });
  */
-export function useDragSensors(options: DragSensorOptions = {}) {
+export function useDragSensors(
+  options: DragSensorOptions = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): (typeof PointerSensor | PluginDescriptor<any, any, any>)[] {
   const {
     touchOptimized = false,
     touchDelay = 250,
@@ -62,36 +62,35 @@ export function useDragSensors(options: DragSensorOptions = {}) {
     mouseDistance = 1,
   } = options;
 
-  // Touch-optimized: Use separate MouseSensor and TouchSensor
-  // This allows different activation constraints for each input type
-  const mouseSensor = useSensor(MouseSensor, {
-    activationConstraint: {
-      distance: mouseDistance,
-    },
-  });
+  return useMemo(() => {
+    if (touchOptimized) {
+      // Custom activation constraints for touch-optimized mode
+      return [
+        PointerSensor.configure({
+          activationConstraints(event) {
+            // Touch events get delay-based activation
+            if (event.pointerType === 'touch') {
+              return [
+                new PointerActivationConstraints.Delay({
+                  value: touchDelay,
+                  tolerance: touchTolerance,
+                }),
+              ];
+            }
+            // Mouse/pen get distance-based activation
+            return [new PointerActivationConstraints.Distance({ value: mouseDistance })];
+          },
+        }),
+      ];
+    }
 
-  const touchSensor = useSensor(TouchSensor, {
-    activationConstraint: touchOptimized
-      ? {
-          // Delay-based activation for mobile - wait before starting drag
-          // This allows users to scroll without accidentally triggering drag
-          delay: touchDelay,
-          tolerance: touchTolerance,
-        }
-      : {
-          // Distance-based activation for non-optimized mode
-          distance: mouseDistance,
-        },
-  });
-
-  // Non-optimized: Use PointerSensor for unified handling (original behavior)
-  const pointerSensor = useSensor(PointerSensor, {
-    activationConstraint: {
-      distance: mouseDistance,
-    },
-  });
-
-  // When touch-optimized, use separate sensors for better control
-  // Otherwise, use unified PointerSensor for backwards compatibility
-  return useSensors(...(touchOptimized ? [mouseSensor, touchSensor] : [pointerSensor]));
+    // Default: PointerSensor with distance-based activation
+    return [
+      PointerSensor.configure({
+        activationConstraints: [
+          new PointerActivationConstraints.Distance({ value: mouseDistance }),
+        ],
+      }),
+    ];
+  }, [touchOptimized, touchDelay, touchTolerance, mouseDistance]);
 }

@@ -1,6 +1,6 @@
 import React, { useContext, useRef, useState, useCallback } from 'react';
-import { DndContext } from '@dnd-kit/core';
-import { restrictToHorizontalAxis } from '@dnd-kit/modifiers';
+import { DragDropProvider } from '@dnd-kit/react';
+import { RestrictToHorizontalAxis } from '@dnd-kit/abstract/modifiers';
 import {
   Playlist,
   Track as TrackComponent,
@@ -22,6 +22,7 @@ import {
   useMediaElementData,
 } from '../MediaElementPlaylistContext';
 import { useAnnotationDragHandlers } from '../hooks/useAnnotationDragHandlers';
+import { noDropAnimationPlugins } from '../plugins/noDropAnimationPlugins';
 import { AnimatedMediaElementPlayhead } from './AnimatedMediaElementPlayhead';
 import { ChannelWithMediaElementProgress } from './ChannelWithMediaElementProgress';
 import type {
@@ -307,11 +308,12 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
               );
             })}
             {annotations.length > 0 && annotationIntegration && (
-              <DndContext
+              <DragDropProvider
                 onDragStart={onDragStart}
                 onDragMove={onDragMove}
                 onDragEnd={onDragEnd}
-                modifiers={editable ? [restrictToHorizontalAxis] : []}
+                modifiers={editable ? [RestrictToHorizontalAxis] : []}
+                plugins={noDropAnimationPlugins}
               >
                 <annotationIntegration.AnnotationBoxesWrapper height={30} width={tracksFullWidth}>
                   {annotations.map((annotation, index) => {
@@ -336,7 +338,7 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
                     );
                   })}
                 </annotationIntegration.AnnotationBoxesWrapper>
-              </DndContext>
+              </DragDropProvider>
             )}
             {selectionStart !== selectionEnd && (
               <Selection

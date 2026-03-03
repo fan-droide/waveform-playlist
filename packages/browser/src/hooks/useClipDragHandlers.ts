@@ -1,14 +1,11 @@
 import React from 'react';
 import type {
-  DragEndEvent,
-  DragStartEvent,
-  DragMoveEvent,
-  DragCancelEvent,
-  Modifier,
-} from '@dnd-kit/core';
+  DragStartEvent as DragStartCallback,
+  DragMoveEvent as DragMoveCallback,
+  DragEndEvent as DragEndCallback,
+} from '@dnd-kit/abstract';
 import type { ClipTrack } from '@waveform-playlist/core';
-import { sortClipsByTime } from '@waveform-playlist/core';
-import { constrainClipDrag, constrainBoundaryTrim } from '@waveform-playlist/engine';
+import { constrainBoundaryTrim } from '@waveform-playlist/engine';
 import type { PlaylistEngine } from '@waveform-playlist/engine';
 
 interface UseClipDragHandlersOptions {
@@ -26,8 +23,10 @@ interface UseClipDragHandlersOptions {
 /**
  * Custom hook for handling clip drag operations (movement and trimming)
  *
- * Provides drag handlers and collision modifier for use with @dnd-kit/core DndContext.
+ * Provides drag handlers for use with @dnd-kit/react DragDropProvider.
  * Handles both clip movement (dragging entire clips) and boundary trimming (adjusting clip edges).
+ *
+ * Collision detection for clip moves is handled by `ClipCollisionModifier` (passed to DragDropProvider).
  *
  * **Move:** `onDragEnd` delegates to `engine.moveClip()` in one shot.
  *
@@ -38,7 +37,7 @@ interface UseClipDragHandlersOptions {
  *
  * @example
  * ```tsx
- * const { onDragStart, onDragMove, onDragEnd, onDragCancel, collisionModifier } = useClipDragHandlers({
+ * const { onDragStart, onDragMove, onDragEnd } = useClipDragHandlers({
  *   tracks,
  *   onTracksChange: setTracks,
  *   samplesPerPixel,
@@ -48,15 +47,14 @@ interface UseClipDragHandlersOptions {
  * });
  *
  * return (
- *   <DndContext
+ *   <DragDropProvider
  *     onDragStart={onDragStart}
  *     onDragMove={onDragMove}
  *     onDragEnd={onDragEnd}
- *     onDragCancel={onDragCancel}
- *     modifiers={[restrictToHorizontalAxis, collisionModifier]}
+ *     modifiers={[RestrictToHorizontalAxis, ClipCollisionModifier.configure({ tracks, samplesPerPixel })]}
  *   >
  *     <Waveform showClipHeaders={true} />
- *   </DndContext>
+ *   </DragDropProvider>
  * );
  * ```
  */
@@ -75,71 +73,30 @@ export function useClipDragHandlers({
     startSample: number;
   } | null>(null);
 
-  // Custom modifier for real-time collision detection during clip movement.
-  // Uses the engine's constrainClipDrag pure function for constraint math.
-  const collisionModifier = React.useCallback(
-    (args: Parameters<Modifier>[0]) => {
-      const { transform, active } = args;
-
-      if (!active?.data?.current) return { ...transform, scaleX: 1, scaleY: 1 };
-
-      const { trackIndex, clipIndex, boundary } = active.data.current as {
-        clipId: string;
-        trackIndex: number;
-        clipIndex: number;
-        boundary?: 'left' | 'right';
-      };
-
-      // For boundary trimming, skip modifier - onDragMove handles constraints
-      if (boundary) {
-        return { ...transform, scaleX: 1, scaleY: 1 };
-      }
-
-      const track = tracks[trackIndex];
-      if (!track) return { ...transform, scaleX: 1, scaleY: 1 };
-
-      const clip = track.clips[clipIndex];
-      if (!clip) return { ...transform, scaleX: 1, scaleY: 1 };
-
-      // Convert pixel delta to samples and use engine's constrainClipDrag
-      const deltaSamples = transform.x * samplesPerPixel;
-      const sortedClips = sortClipsByTime(track.clips);
-      const sortedIndex = sortedClips.findIndex((c) => c.id === clip.id);
-      const constrainedDelta = constrainClipDrag(clip, deltaSamples, sortedClips, sortedIndex);
-
-      // Convert constrained sample delta back to pixel delta
-      const constrainedX = constrainedDelta / samplesPerPixel;
-
-      return {
-        ...transform,
-        x: constrainedX,
-        scaleX: 1,
-        scaleY: 1,
-      };
-    },
-    [tracks, samplesPerPixel]
-  );
+  // Store the last boundary trim delta (samples) so onDragEnd uses the same value
+  // as the last onDragMove visual update, avoiding stale-position mismatches.
+  const lastBoundaryDeltaRef = React.useRef(0);
 
   const onDragStart = React.useCallback(
-    (event: DragStartEvent) => {
-      const { active } = event;
-      const { boundary } = active.data.current as { boundary?: 'left' | 'right' };
+    (event: Parameters<DragStartCallback>[0]) => {
+      const data = event.operation.source?.data as
+        | {
+            boundary?: 'left' | 'right';
+            trackIndex: number;
+            clipIndex: number;
+          }
+        | undefined;
+
+      if (!data) return;
 
       // Only store state for boundary trimming operations
-      if (!boundary) {
+      if (!data.boundary) {
         originalClipStateRef.current = null;
         return;
       }
 
-      const { trackIndex, clipIndex } = active.data.current as {
-        clipId: string;
-        trackIndex: number;
-        clipIndex: number;
-        boundary: 'left' | 'right';
-      };
-
-      const track = tracks[trackIndex];
-      const clip = track?.clips[clipIndex];
+      const track = tracks[data.trackIndex];
+      const clip = track?.clips[data.clipIndex];
 
       if (clip) {
         // Store original clip state for cumulative delta application
@@ -156,25 +113,31 @@ export function useClipDragHandlers({
   );
 
   const onDragMove = React.useCallback(
-    (event: DragMoveEvent) => {
-      const { active, delta } = event;
+    (event: Parameters<DragMoveCallback>[0]) => {
+      const data = event.operation.source?.data as
+        | {
+            boundary?: 'left' | 'right';
+            trackIndex: number;
+            clipIndex: number;
+          }
+        | undefined;
+
+      if (!data) return;
 
       // Only update for boundary trimming operations (not clip movement)
-      const { boundary } = active.data.current as { boundary?: 'left' | 'right' };
-      if (!boundary) return;
+      if (!data.boundary) return;
 
       // Need original clip state to apply cumulative delta
       if (!originalClipStateRef.current) return;
 
-      // Extract clip metadata
-      const { trackIndex, clipIndex } = active.data.current as {
-        clipId: string;
-        trackIndex: number;
-        clipIndex: number;
-        boundary: 'left' | 'right';
-      };
+      const { boundary, trackIndex, clipIndex } = data;
 
-      const sampleDelta = delta.x * samplesPerPixel;
+      // The dragmove event is dispatched BEFORE position.current is updated (happens
+      // in a microtask), so the snapshot's position.current is stale. Use event.to
+      // (the pointer's current coordinates from the sensor) for the correct position.
+      const currentX = event.to?.x ?? event.operation.position.current.x;
+      const rawDeltaX = currentX - event.operation.position.initial.x;
+      const sampleDelta = rawDeltaX * samplesPerPixel;
       const MIN_DURATION_SAMPLES = Math.floor(0.1 * sampleRate); // 0.1 seconds minimum
 
       // Get original clip state (stored on drag start)
@@ -244,24 +207,68 @@ export function useClipDragHandlers({
         return { ...track, clips: newClips };
       });
 
+      lastBoundaryDeltaRef.current = sampleDelta;
       onTracksChange(newTracks);
     },
     [tracks, onTracksChange, samplesPerPixel, sampleRate]
   );
 
   const onDragEnd = React.useCallback(
-    (event: DragEndEvent) => {
-      const { active, delta } = event;
+    (event: Parameters<DragEndCallback>[0]) => {
+      // Handle canceled drags (focus loss, Escape key, component unmount).
+      // Without this, isDraggingRef stays true and loadAudio skips rebuilds permanently.
+      if (event.canceled) {
+        // Revert React state for boundary trims — onDragMove updated tracks per-frame,
+        // but the engine still has original positions (isDraggingRef blocked rebuilds).
+        // For clip moves, originalClipStateRef is null so this block is skipped —
+        // no React state revert needed because the Feedback plugin handles the visual
+        // position (CSS translate removed on cancel) and engine was never mutated.
+        if (originalClipStateRef.current) {
+          const cancelData = event.operation.source?.data as
+            | { trackIndex: number; clipIndex: number }
+            | undefined;
+          if (cancelData) {
+            const { trackIndex, clipIndex } = cancelData;
+            const original = originalClipStateRef.current;
+            const revertedTracks = tracks.map((track, tIdx) => {
+              if (tIdx !== trackIndex) return track;
+              const newClips = track.clips.map((clip, cIdx) => {
+                if (cIdx !== clipIndex) return clip;
+                return {
+                  ...clip,
+                  offsetSamples: original.offsetSamples,
+                  durationSamples: original.durationSamples,
+                  startSample: original.startSample,
+                };
+              });
+              return { ...track, clips: newClips };
+            });
+            onTracksChange(revertedTracks);
+          }
+        }
+        isDraggingRef.current = false;
+        originalClipStateRef.current = null;
+        lastBoundaryDeltaRef.current = 0;
+        return;
+      }
 
-      // Extract clip metadata from drag data
-      const { trackIndex, clipId, boundary } = active.data.current as {
-        clipId: string;
-        trackIndex: number;
-        boundary?: 'left' | 'right';
-      };
+      const data = event.operation.source?.data as
+        | {
+            clipId: string;
+            trackIndex: number;
+            boundary?: 'left' | 'right';
+          }
+        | undefined;
 
-      // Convert pixel delta to samples
-      const sampleDelta = delta.x * samplesPerPixel;
+      if (!data) return;
+
+      const { trackIndex, clipId, boundary } = data;
+
+      // Boundary trims: use the last delta stored by onDragMove (avoids stale snapshot position).
+      // Clip moves: use transform.x (modifier-constrained, cached as plain object in snapshot).
+      const sampleDelta = boundary
+        ? lastBoundaryDeltaRef.current
+        : event.operation.transform.x * samplesPerPixel;
 
       const trackId = tracks[trackIndex]?.id;
 
@@ -281,6 +288,7 @@ export function useClipDragHandlers({
           engineRef.current.trimClip(trackId, clipId, boundary, Math.floor(sampleDelta));
         }
         originalClipStateRef.current = null;
+        lastBoundaryDeltaRef.current = 0;
         return;
       }
 
@@ -295,24 +303,12 @@ export function useClipDragHandlers({
         engineRef.current.moveClip(trackId, clipId, Math.floor(sampleDelta));
       }
     },
-    [tracks, samplesPerPixel, engineRef, isDraggingRef]
-  );
-
-  // Safety reset for cancelled drags (focus loss, Escape key, component unmount).
-  // Without this, isDraggingRef stays true and loadAudio skips rebuilds permanently.
-  const onDragCancel = React.useCallback(
-    (_event: DragCancelEvent) => {
-      isDraggingRef.current = false;
-      originalClipStateRef.current = null;
-    },
-    [isDraggingRef]
+    [tracks, onTracksChange, samplesPerPixel, engineRef, isDraggingRef]
   );
 
   return {
     onDragStart,
     onDragMove,
     onDragEnd,
-    onDragCancel,
-    collisionModifier,
   };
 }

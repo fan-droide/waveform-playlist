@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
-import { DndContext } from '@dnd-kit/core';
-import { restrictToHorizontalAxis } from '@dnd-kit/modifiers';
+import { DragDropProvider } from '@dnd-kit/react';
+import { RestrictToHorizontalAxis } from '@dnd-kit/abstract/modifiers';
 import { getGlobalAudioContext } from '@waveform-playlist/playout';
 import { createTrack, createClipFromSeconds, type ClipTrack } from '@waveform-playlist/core';
 import {
@@ -10,6 +10,8 @@ import {
   usePlaylistControls,
   useClipDragHandlers,
   useDragSensors,
+  ClipCollisionModifier,
+  noDropAnimationPlugins,
   useClipSplitting,
   usePlaybackShortcuts,
   Waveform,
@@ -122,7 +124,7 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({ tracks, onTracksCha
   const { setSelectedTrackId } = usePlaylistControls();
 
   const sensors = useDragSensors();
-  const { onDragStart: handleDragStart, onDragMove, onDragEnd, onDragCancel, collisionModifier } = useClipDragHandlers({
+  const { onDragStart: handleDragStart, onDragMove, onDragEnd } = useClipDragHandlers({
     tracks,
     onTracksChange,
     samplesPerPixel,
@@ -131,8 +133,8 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({ tracks, onTracksCha
     isDraggingRef,
   });
 
-  const onDragStart = (event: any) => {
-    const trackIndex = event.active?.data?.current?.trackIndex;
+  const onDragStart = (event: Parameters<typeof handleDragStart>[0]) => {
+    const trackIndex = event.operation?.source?.data?.trackIndex as number | undefined;
     if (trackIndex !== undefined && tracks[trackIndex]) {
       setSelectedTrackId(tracks[trackIndex].id);
     }
@@ -159,13 +161,13 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({ tracks, onTracksCha
   });
 
   return (
-    <DndContext
+    <DragDropProvider
       sensors={sensors}
       onDragStart={onDragStart}
       onDragMove={onDragMove}
       onDragEnd={onDragEnd}
-      onDragCancel={onDragCancel}
-      modifiers={[restrictToHorizontalAxis, collisionModifier]}
+      modifiers={[RestrictToHorizontalAxis, ClipCollisionModifier.configure({ tracks, samplesPerPixel })]}
+      plugins={noDropAnimationPlugins}
     >
       <Controls>
         <ControlGroup>
@@ -191,7 +193,7 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({ tracks, onTracksCha
       </Controls>
 
       <Waveform showClipHeaders interactiveClips />
-    </DndContext>
+    </DragDropProvider>
   );
 };
 

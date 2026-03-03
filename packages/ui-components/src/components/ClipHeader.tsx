@@ -1,12 +1,9 @@
 import React, { FunctionComponent } from 'react';
 import styled from 'styled-components';
-import type { DraggableAttributes } from '@dnd-kit/core';
-import type { SyntheticListenerMap } from '@dnd-kit/core/dist/hooks/utilities';
 
 export const CLIP_HEADER_HEIGHT = 22; // Height of the clip header in pixels
 
 interface HeaderContainerProps {
-  readonly $isDragging?: boolean;
   readonly $interactive?: boolean; // Whether it's draggable or just presentational
   readonly $isSelected?: boolean; // Whether the track is selected
 }
@@ -22,8 +19,7 @@ const HeaderContainer = styled.div<HeaderContainerProps>`
   display: flex;
   align-items: center;
   padding: 0 8px;
-  cursor: ${(props) =>
-    props.$interactive ? (props.$isDragging ? 'grabbing' : 'grab') : 'default'};
+  cursor: ${(props) => (props.$interactive ? 'grab' : 'default')};
   user-select: none;
   z-index: 110;
   flex-shrink: 0;
@@ -65,16 +61,14 @@ export const ClipHeaderPresentational: FunctionComponent<ClipHeaderPresentationa
   isSelected = false,
 }) => {
   return (
-    <HeaderContainer $isDragging={false} $interactive={false} $isSelected={isSelected}>
+    <HeaderContainer $interactive={false} $isSelected={isSelected}>
       <TrackName>{trackName}</TrackName>
     </HeaderContainer>
   );
 };
 
 export interface DragHandleProps {
-  attributes: DraggableAttributes;
-  listeners: SyntheticListenerMap | undefined;
-  setActivatorNodeRef: (element: HTMLElement | null) => void;
+  handleRef: (element: Element | null) => void;
 }
 
 export interface ClipHeaderProps {
@@ -113,16 +107,14 @@ export const ClipHeader: FunctionComponent<ClipHeaderProps> = ({
     return <ClipHeaderPresentational trackName={trackName} isSelected={isSelected} />;
   }
 
-  const { attributes, listeners, setActivatorNodeRef } = dragHandleProps;
+  const { handleRef } = dragHandleProps;
 
   return (
     <HeaderContainer
-      ref={setActivatorNodeRef}
+      ref={handleRef}
       data-clip-id={clipId}
       $interactive={true}
       $isSelected={isSelected}
-      {...listeners}
-      {...attributes}
     >
       <TrackName>{trackName}</TrackName>
     </HeaderContainer>

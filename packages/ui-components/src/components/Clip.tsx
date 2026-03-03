@@ -1,7 +1,6 @@
 import React, { FunctionComponent, ReactNode } from 'react';
 import styled from 'styled-components';
-import { useDraggable } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
+import { useDraggable } from '@dnd-kit/react';
 import { ClipHeader } from './ClipHeader';
 import { ClipBoundary } from './ClipBoundary';
 import { FadeOverlay } from './FadeOverlay';
@@ -9,10 +8,9 @@ import type { Fade } from '@waveform-playlist/core';
 import { ClipViewportOriginProvider } from '../contexts/ClipViewportOrigin';
 
 interface ClipContainerProps {
-  readonly $left?: number; // Horizontal position in pixels (optional for DragOverlay)
-  readonly $width?: number; // Width in pixels (optional for DragOverlay)
-  readonly $isOverlay?: boolean; // Whether this is rendering in DragOverlay
-  readonly $isDragging?: boolean; // Whether this clip is being dragged
+  readonly $left?: number; // Horizontal position in pixels (optional for overlay)
+  readonly $width?: number; // Width in pixels (optional for overlay)
+  readonly $isOverlay?: boolean; // Whether this is rendering in overlay mode
 }
 
 const ClipContainer = styled.div.attrs<ClipContainerProps>((props) => ({
@@ -61,7 +59,7 @@ export interface ClipProps {
   // Optional header (for multi-clip editing with drag-to-move)
   showHeader?: boolean;
   disableHeaderDrag?: boolean; // Disable drag on header (for presentation-only rendering)
-  isOverlay?: boolean; // Rendering in DragOverlay (disables absolute positioning)
+  isOverlay?: boolean; // Rendering in overlay mode (disables absolute positioning)
   // Track selection
   isSelected?: boolean; // Whether the track is selected
   onMouseDown?: (e: React.MouseEvent<HTMLDivElement>) => void; // Called when clip is pressed (for track selection - fires before drag)
@@ -78,7 +76,7 @@ export interface ClipProps {
 /**
  * Clip component for rendering individual audio clips within a track
  *
- * Each clip is positioned based on its startTime and has a width based on its duration.
+ * Each clip is positioned based on its startSample and has a width based on its durationSamples.
  * This allows multiple clips to be arranged on a single track with gaps or overlaps.
  *
  * Includes a draggable ClipHeader at the top for repositioning clips on the timeline.
@@ -119,50 +117,42 @@ export const Clip: FunctionComponent<ClipProps> = ({
 
   // Main clip draggable (for moving entire clip)
   const draggableId = `clip-${trackIndex}-${clipIndex}`;
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, isDragging } =
-    useDraggable({
-      id: draggableId,
-      data: { clipId, trackIndex, clipIndex },
-      disabled: !enableDrag,
-    });
+  const {
+    ref: clipRef,
+    handleRef,
+    isDragSource,
+  } = useDraggable({
+    id: draggableId,
+    data: { clipId, trackIndex, clipIndex },
+    disabled: !enableDrag,
+  });
 
   // Left boundary draggable (for trimming start)
+  // feedback: 'none' disables the Feedback plugin for this draggable — trim visual feedback
+  // comes from React state updates resizing the clip, not CSS translate.
   const leftBoundaryId = `clip-boundary-left-${trackIndex}-${clipIndex}`;
-  const {
-    attributes: leftBoundaryAttributes,
-    listeners: leftBoundaryListeners,
-    setActivatorNodeRef: setLeftBoundaryActivatorRef,
-    isDragging: isLeftBoundaryDragging,
-  } = useDraggable({
+  const { ref: leftBoundaryRef, isDragSource: isLeftBoundaryDragging } = useDraggable({
     id: leftBoundaryId,
     data: { clipId, trackIndex, clipIndex, boundary: 'left' },
     disabled: !enableDrag,
+    feedback: 'none',
   });
 
   // Right boundary draggable (for trimming end)
   const rightBoundaryId = `clip-boundary-right-${trackIndex}-${clipIndex}`;
-  const {
-    attributes: rightBoundaryAttributes,
-    listeners: rightBoundaryListeners,
-    setActivatorNodeRef: setRightBoundaryActivatorRef,
-    isDragging: isRightBoundaryDragging,
-  } = useDraggable({
+  const { ref: rightBoundaryRef, isDragSource: isRightBoundaryDragging } = useDraggable({
     id: rightBoundaryId,
     data: { clipId, trackIndex, clipIndex, boundary: 'right' },
     disabled: !enableDrag,
+    feedback: 'none',
   });
 
-  // Apply transform for dragging
-  const style = transform
-    ? {
-        transform: CSS.Translate.toString(transform),
-        zIndex: isDragging ? 100 : undefined, // Below controls (z-index: 999) but above other clips
-      }
-    : undefined;
+  // Elevate z-index during drag (below controls z-index: 999, above other clips)
+  const style = isDragSource ? { zIndex: 100 } : undefined;
 
   return (
     <ClipContainer
-      ref={setNodeRef}
+      ref={clipRef}
       style={style}
       className={className}
       $left={left}
@@ -180,7 +170,7 @@ export const Clip: FunctionComponent<ClipProps> = ({
           trackName={trackName}
           isSelected={isSelected}
           disableDrag={disableHeaderDrag}
-          dragHandleProps={enableDrag ? { attributes, listeners, setActivatorNodeRef } : undefined}
+          dragHandleProps={enableDrag ? { handleRef } : undefined}
         />
       )}
       <ClipViewportOriginProvider originX={left}>
@@ -215,9 +205,7 @@ export const Clip: FunctionComponent<ClipProps> = ({
             edge="left"
             touchOptimized={touchOptimized}
             dragHandleProps={{
-              attributes: leftBoundaryAttributes,
-              listeners: leftBoundaryListeners,
-              setActivatorNodeRef: setLeftBoundaryActivatorRef,
+              ref: leftBoundaryRef,
               isDragging: isLeftBoundaryDragging,
             }}
           />
@@ -228,9 +216,7 @@ export const Clip: FunctionComponent<ClipProps> = ({
             edge="right"
             touchOptimized={touchOptimized}
             dragHandleProps={{
-              attributes: rightBoundaryAttributes,
-              listeners: rightBoundaryListeners,
-              setActivatorNodeRef: setRightBoundaryActivatorRef,
+              ref: rightBoundaryRef,
               isDragging: isRightBoundaryDragging,
             }}
           />
