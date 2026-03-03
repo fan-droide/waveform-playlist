@@ -535,6 +535,39 @@ describe('PlaylistEngine', () => {
       engine.dispose();
     });
 
+    it('persists track audio state into _tracks for adapter rebuilds', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [
+          makeClip({ id: 'c1', startSample: 44100, durationSamples: 88200 }),
+        ]),
+      ]);
+
+      // Set audio state via engine methods
+      engine.setTrackVolume('t1', 0.5);
+      engine.setTrackMute('t1', true);
+      engine.setTrackSolo('t1', true);
+      engine.setTrackPan('t1', -0.7);
+
+      // moveClip triggers adapter.setTracks(this._tracks) — verify
+      // the tracks carry the updated audio state
+      engine.moveClip('t1', 'c1', 1000);
+
+      const setTracksCalls = (adapter.setTracks as ReturnType<typeof vi.fn>).mock.calls;
+      // Last call is from moveClip (first was from setTracks above)
+      const tracksPassedToAdapter = setTracksCalls[setTracksCalls.length - 1][0] as ClipTrack[];
+      const track = tracksPassedToAdapter.find((t) => t.id === 't1');
+
+      expect(track).toBeDefined();
+      expect(track!.volume).toBe(0.5);
+      expect(track!.muted).toBe(true);
+      expect(track!.soloed).toBe(true);
+      expect(track!.pan).toBe(-0.7);
+
+      engine.dispose();
+    });
+
     it('delegates setMasterVolume to adapter', () => {
       const adapter = createMockAdapter();
       const engine = new PlaylistEngine({ adapter });

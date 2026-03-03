@@ -406,18 +406,26 @@ export class PlaylistEngine {
   // ---------------------------------------------------------------------------
 
   setTrackVolume(trackId: string, volume: number): void {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (track) track.volume = volume;
     this._adapter?.setTrackVolume(trackId, volume);
   }
 
   setTrackMute(trackId: string, muted: boolean): void {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (track) track.muted = muted;
     this._adapter?.setTrackMute(trackId, muted);
   }
 
   setTrackSolo(trackId: string, soloed: boolean): void {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (track) track.soloed = soloed;
     this._adapter?.setTrackSolo(trackId, soloed);
   }
 
   setTrackPan(trackId: string, pan: number): void {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (track) track.pan = pan;
     this._adapter?.setTrackPan(trackId, pan);
   }
 
