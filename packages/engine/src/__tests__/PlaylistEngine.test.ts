@@ -714,6 +714,74 @@ describe('PlaylistEngine', () => {
       expect(setLoopOrder).toBeLessThan(stopOrder);
       engine.dispose();
     });
+
+    it('setLoopEnabled(true) during playback does not activate Transport loop when outside region', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      // Start playing at 0 (outside doesn't matter, loop not enabled yet)
+      engine.play(0);
+      // Simulate adapter reporting position past loop end
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(5.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.setLoopEnabled(true);
+      // Should NOT activate Transport loop — playback is past loopEnd
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('setLoopEnabled(true) during playback activates Transport loop when inside region', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.play(0);
+      // Simulate adapter reporting position inside loop region
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(2.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.setLoopEnabled(true);
+      // Should activate — playback is inside the loop region
+      expect(adapter.setLoop).toHaveBeenCalledWith(true, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('setLoopRegion() during playback does not activate Transport loop when position outside new region', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      engine.play(0);
+      // Position is past the new loop region
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(6.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      // Shrink the region — position is now outside
+      engine.setLoopRegion(1.0, 4.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 4.0);
+      engine.dispose();
+    });
+
+    it('setLoopEnabled(true) when not playing always activates Transport loop', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setLoopRegion(1.0, 3.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      // Not playing — should always pass enabled=true regardless of _currentTime
+      engine.setLoopEnabled(true);
+      expect(adapter.setLoop).toHaveBeenCalledWith(true, 1.0, 3.0);
+      engine.dispose();
+    });
   });
 
   describe('getCurrentTime', () => {

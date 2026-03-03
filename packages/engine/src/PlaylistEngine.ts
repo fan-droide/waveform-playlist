@@ -296,7 +296,7 @@ export class PlaylistEngine {
         this._adapter.setLoop(false, this._loopStart, this._loopEnd);
       } else if (this._isLoopEnabled) {
         // Only enable Transport loop if starting within the loop region.
-        // Starting outside plays normally to the end (Audacity/DAW behavior).
+        // Starting outside plays normally to the end (DAW behavior).
         const inLoopRegion =
           this._currentTime >= this._loopStart && this._currentTime < this._loopEnd;
         this._adapter.setLoop(inLoopRegion, this._loopStart, this._loopEnd);
@@ -371,14 +371,22 @@ export class PlaylistEngine {
     if (s === this._loopStart && e === this._loopEnd) return;
     this._loopStart = s;
     this._loopEnd = e;
-    this._adapter?.setLoop(this._isLoopEnabled, this._loopStart, this._loopEnd);
+    this._adapter?.setLoop(
+      this._isLoopEnabled && this._isInLoopRegion(),
+      this._loopStart,
+      this._loopEnd
+    );
     this._emitStateChange();
   }
 
   setLoopEnabled(enabled: boolean): void {
     if (enabled === this._isLoopEnabled) return;
     this._isLoopEnabled = enabled;
-    this._adapter?.setLoop(this._isLoopEnabled, this._loopStart, this._loopEnd);
+    this._adapter?.setLoop(
+      enabled && this._isInLoopRegion(),
+      this._loopStart,
+      this._loopEnd
+    );
     this._emitStateChange();
   }
 
@@ -473,6 +481,17 @@ export class PlaylistEngine {
 
   private _emitStateChange(): void {
     this._emit('statechange', this.getState());
+  }
+
+  /**
+   * Check if the current playback position is inside the loop region.
+   * During playback, reads the adapter's live position; otherwise uses
+   * the engine's stored _currentTime.
+   */
+  private _isInLoopRegion(): boolean {
+    if (!this._isPlaying) return true;
+    const t = this._adapter?.getCurrentTime() ?? this._currentTime;
+    return t >= this._loopStart && t < this._loopEnd;
   }
 
   private _startTimeUpdateLoop(): void {
