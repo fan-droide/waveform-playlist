@@ -539,9 +539,7 @@ describe('PlaylistEngine', () => {
       const adapter = createMockAdapter();
       const engine = new PlaylistEngine({ adapter });
       engine.setTracks([
-        makeTrack('t1', [
-          makeClip({ id: 'c1', startSample: 44100, durationSamples: 88200 }),
-        ]),
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 44100, durationSamples: 88200 })]),
       ]);
 
       // Set audio state via engine methods
