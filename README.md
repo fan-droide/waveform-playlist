@@ -109,13 +109,16 @@ const { tracks, loading, error } = useAudioTracks([
 ]);
 
 // Playback controls
-const { play, pause, stop, seek, isPlaying } = usePlaylistControls();
+const { play, pause, stop, seekTo } = usePlaylistControls();
+
+// Playback animation (60fps updates)
+const { currentTime, isPlaying } = usePlaybackAnimation();
 
 // Zoom controls
 const { zoomIn, zoomOut, samplesPerPixel } = useZoomControls();
 
 // Master effects chain
-const { masterEffectsFunction, toggleEffect, updateParameter } = useDynamicEffects();
+const { masterEffects, toggleBypass, updateParameter } = useDynamicEffects();
 
 // WAV export
 const { exportWav, isExporting, progress } = useExportWav();
