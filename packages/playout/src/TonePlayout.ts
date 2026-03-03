@@ -31,7 +31,6 @@ export class TonePlayout {
   private effectsCleanup?: () => void;
   private onPlaybackCompleteCallback?: () => void;
   private _completionEventId: number | null = null;
-  private _deferredLoopTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private _loopHandler: (() => void) | null = null;
   private _loopEnabled = false;
   private _loopStart = 0;
@@ -70,13 +69,6 @@ export class TonePlayout {
         console.warn('[waveform-playlist] Error clearing Transport completion event:', err);
       }
       this._completionEventId = null;
-    }
-  }
-
-  private clearDeferredLoopTimeout(): void {
-    if (this._deferredLoopTimeoutId !== null) {
-      clearTimeout(this._deferredLoopTimeoutId);
-      this._deferredLoopTimeoutId = null;
     }
   }
 
@@ -160,17 +152,12 @@ export class TonePlayout {
         transport.stop();
       }
       this.tracks.forEach((track) => track.stopAllSources());
-      this.clearDeferredLoopTimeout();
 
-      // Always start with loop DISABLED. After stop/start cycles,
-      // Clock._lastUpdate is stale — the first tick batch processes
-      // "ghost ticks" from the previous TickSource state that can be
-      // >= _loopEnd, triggering an immediate wrap to loopStart via
-      // _processTick. Deferring loop enable (setTimeout below) ensures
-      // _loop.get() returns false for the stale-tick range.
+      // Set loop boundaries BEFORE enabling loop. _processTick checks
+      // `ticks >= _loopEnd` every tick; _loopEnd defaults to 0.
       transport.loopStart = this._loopStart;
       transport.loopEnd = this._loopEnd;
-      transport.loop = false;
+      transport.loop = this._loopEnabled;
 
       // Set schedule guard BEFORE transport.start(). Ghost ticks from stale
       // Clock._lastUpdate can fire schedule callbacks at past positions;
@@ -184,30 +171,29 @@ export class TonePlayout {
         transport.start(startTime);
       }
 
+      // Advance Clock._lastUpdate past the stop/start boundary.
+      //
+      // After stop/start cycles, _lastUpdate is stale (set by the previous
+      // context tick, before our stop/start). The next Clock._loop() processes
+      // ticks from [_lastUpdate, now()]. In the gap [_lastUpdate, startTime),
+      // the TickSource is still "started" from the PREVIOUS play cycle with
+      // its old tick offset. Those accumulated ticks can exceed _loopEnd,
+      // causing _processTick to wrap immediately to loopStart.
+      //
+      // By advancing _lastUpdate to startTime, we skip the stale range.
+      // The next Clock._loop() only processes [startTime, now()] — ticks
+      // from the current play cycle with the correct offset.
+      (transport as any)._clock._lastUpdate = startTime;
+
       // Start sources for clips that span the current Transport position.
       // Transport.schedule() only fires for clips at/after the offset;
       // clips whose start time is before the offset need manual creation.
       this.tracks.forEach((track) => {
         track.startMidClipSources(transportOffset, startTime);
       });
-
-      // Defer loop enable to after the first tick processing cycle.
-      // setTimeout(0) runs after the current call stack AND any pending
-      // audio callbacks, so the initial _processTick batch sees loop=false.
-      if (this._loopEnabled) {
-        this._deferredLoopTimeoutId = setTimeout(() => {
-          this._deferredLoopTimeoutId = null;
-          try {
-            getTransport().loop = true;
-          } catch (err) {
-            console.warn('[waveform-playlist] Error enabling deferred loop:', err);
-          }
-        }, 0);
-      }
     } catch (err) {
       // Clean up scheduled events since Transport failed to start
       this.clearCompletionEvent();
-      this.clearDeferredLoopTimeout();
       this.tracks.forEach((track) => track.cancelFades());
       console.warn(
         '[waveform-playlist] Transport.start() failed. Audio playback could not begin.',
@@ -218,7 +204,6 @@ export class TonePlayout {
   }
 
   pause(): void {
-    this.clearDeferredLoopTimeout();
     const transport = getTransport();
     try {
       transport.pause();
@@ -233,7 +218,6 @@ export class TonePlayout {
   }
 
   stop(): void {
-    this.clearDeferredLoopTimeout();
     const transport = getTransport();
     try {
       transport.stop();
@@ -354,7 +338,6 @@ export class TonePlayout {
 
   dispose(): void {
     this.clearCompletionEvent();
-    this.clearDeferredLoopTimeout();
 
     if (this._loopHandler) {
       try {
