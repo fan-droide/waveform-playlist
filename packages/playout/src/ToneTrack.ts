@@ -49,6 +49,13 @@ export class ToneTrack {
   private muteGain: Gain;
   private track: Track;
   private effectsCleanup?: () => void;
+  // Guard against ghost tick schedule callbacks. After stop/start cycles with
+  // loops, stale Clock._lastUpdate causes ticks from the previous cycle to fire
+  // Transport.schedule() callbacks at past positions (e.g., time 0 clips fire
+  // when starting at offset 5s). Clips before this offset are handled by
+  // startMidClipSources(); schedule callbacks should only create sources for
+  // clips at/after this offset.
+  private _scheduleGuardOffset = 0;
 
   constructor(options: ToneTrackOptions) {
     this.track = options.track;
@@ -109,6 +116,12 @@ export class ToneTrack {
       // passes this point — no StateTimeline, no sync() bugs.
       const absTransportTime = this.track.startTime + clipInfo.startTime;
       const scheduleId = transport.schedule((audioContextTime: number) => {
+        // Guard: ghost ticks from stale Clock._lastUpdate can fire this callback
+        // at past positions (see Tone.js #1419). Clips before the play/loop offset
+        // are already handled by startMidClipSources().
+        if (absTransportTime < this._scheduleGuardOffset) {
+          return;
+        }
         this.startClipSource(clipInfo, fadeGainNode, audioContextTime);
       }, absTransportTime);
 
@@ -161,6 +174,16 @@ export class ToneTrack {
    * Uses strict < for absClipStart to avoid double-creation with
    * schedule callbacks at exact Transport position (e.g., loopStart).
    */
+
+  /**
+   * Set the schedule guard offset. Schedule callbacks for clips before this
+   * offset are suppressed (already handled by startMidClipSources).
+   * Must be called before transport.start() and in the loop handler.
+   */
+  setScheduleGuardOffset(offset: number): void {
+    this._scheduleGuardOffset = offset;
+  }
+
   startMidClipSources(transportOffset: number, audioContextTime: number): void {
     for (const { clipInfo, fadeGainNode } of this.scheduledClips) {
       const absClipStart = this.track.startTime + clipInfo.startTime;

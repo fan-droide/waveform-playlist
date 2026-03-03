@@ -174,6 +174,12 @@ export class TonePlayout {
       transport.loopEnd = this._loopEnd;
       transport.loop = false;
 
+      // Set schedule guard BEFORE transport.start(). Ghost ticks from stale
+      // Clock._lastUpdate can fire schedule callbacks at past positions;
+      // the guard suppresses callbacks for clips before the play offset
+      // (those are handled by startMidClipSources below).
+      this.tracks.forEach((track) => track.setScheduleGuardOffset(transportOffset));
+
       if (offset !== undefined) {
         transport.start(startTime, offset);
       } else {
@@ -318,6 +324,7 @@ export class TonePlayout {
           try {
             track.stopAllSources();
             track.cancelFades();
+            track.setScheduleGuardOffset(this._loopStart);
             track.startMidClipSources(this._loopStart, currentTime);
             track.prepareFades(currentTime, this._loopStart);
           } catch (err) {
