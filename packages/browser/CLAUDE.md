@@ -101,11 +101,15 @@ const rebuildChain = useCallback(() => {
 
 **Problem:** React state updates during playback cause flickering. Components need 60fps updates.
 
-**Solution:** `requestAnimationFrame` + direct DOM manipulation via refs. Calculate time from `getContext().currentTime` (Tone.js) for perfect audio sync. No `setState` in the loop.
+**Solution:** `requestAnimationFrame` + direct DOM manipulation via refs. Read time via `getPlaybackTime()` which delegates to `Transport.seconds` for perfect audio sync. No `setState` in the loop.
 
-**Key points:** Compute elapsed = `audioContext.currentTime - playbackStartTimeRef`, add `audioStartPositionRef`. Update DOM directly. Cancel animation frame on cleanup.
+**Key points:** Use `getPlaybackTime()` (from `usePlaybackAnimation()`) — delegates to `engine.getCurrentTime()` which reads `Transport.seconds` (auto-wraps at loop boundaries). Fallback: manual elapsed calculation from `audioContext.currentTime`. Update DOM directly. Cancel animation frame on cleanup.
 
 **Reference implementation:** `AnimatedPlayhead` component. Also used by `ChannelWithProgress`, `AudioPosition`, `PlayheadWithMarker`.
+
+**Loop handling:** Looping is handled natively by Tone.js Transport (`Transport.loop`/`loopStart`/`loopEnd`). The animation loop does NOT detect loop boundaries — `Transport.seconds` auto-wraps, so `getPlaybackTime()` returns the correct position. Selection/annotation playback disables Transport loop; `stop()` disables it before stopping.
+
+**AudioContext Init Pattern:** `audioInitializedRef` guards `engine.init()` (AudioContext resume via `Tone.start()`). Only the first play call awaits init; subsequent plays skip it entirely — no microtask yield. Reset to `false` when engine is rebuilt in `loadAudio`. This keeps the stop→play path fully synchronous after first play, preventing audio layering race conditions.
 
 ## Engine State Subscription Pattern
 
@@ -118,7 +122,7 @@ const rebuildChain = useCallback(() => {
 - `useZoomControls` — samplesPerPixel, canZoomIn, canZoomOut
 - `useMasterVolume` — masterVolume
 
-**Still React-only:** currentTime, isPlaying (animation loop timing), tracks (loaded via useAudioTracks)
+**Still React-only:** isPlaying (animation loop timing), tracks (loaded via useAudioTracks). `currentTime` is read from engine during playback via `getPlaybackTime()` (→ `engine.getCurrentTime()` → `Transport.seconds`).
 
 **Subscription location:** Inside `loadAudio()` after `engineRef.current = engine`, the statechange handler calls each hook's `onEngineState(state)`.
 
@@ -142,6 +146,11 @@ const rebuildChain = useCallback(() => {
 **`isDraggingRef` lifecycle:** Set `true` in `onDragStart` (boundary trim only), set `false` in `onDragEnd` before `engine.trimClip()`. Guards two places in the provider: (1) `loadAudio` effect body skips full rebuild, (2) `skipEngineDisposeRef` prevents the previous effect cleanup from disposing the engine mid-drag.
 
 **`skipEngineDisposeRef` must include `isDraggingRef`:** During drag, `onDragMove` triggers `loadAudio` re-runs (because `tracks` is in deps). The previous effect's cleanup checks `skipEngineDisposeRef` — if it only checks `isEngineTracks` (which is `false` during drag), it disposes the engine on the first drag move.
+
+## Error Handling in Playback Callbacks
+
+- **`engine.play()` try-catch in play callback** — `engine.play()` is synchronous but can throw (adapter failures). Wrap in try-catch; on error, `stopAnimationLoop()` and return early to avoid `setIsPlaying(true)` with no audio.
+- **Fire-and-forget async `.catch()` handlers** — `reschedulePlayback()` and `resumePlayback()` are async functions called without `await` in useEffect callbacks. Without `.catch()`, throws become unhandled promise rejections. Each `.catch()` resets UI state (`setIsPlaying(false)`, `stopAnimationLoop()`).
 
 ## Important Patterns (Browser-Specific)
 

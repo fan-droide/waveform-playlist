@@ -30,6 +30,7 @@ type EventName = keyof EngineEvents;
 export class PlaylistEngine {
   private _tracks: ClipTrack[] = [];
   private _currentTime = 0;
+  private _playStartPosition = 0;
   private _isPlaying = false;
   private _selectedTrackId: string | null = null;
   private _sampleRate: number;
@@ -270,18 +271,52 @@ export class PlaylistEngine {
   // Playback (delegates to adapter, no-ops without adapter)
   // ---------------------------------------------------------------------------
 
-  async play(startTime?: number, endTime?: number): Promise<void> {
+  async init(): Promise<void> {
+    if (this._adapter) {
+      await this._adapter.init();
+    }
+  }
+
+  play(startTime?: number, endTime?: number): void {
+    const prevCurrentTime = this._currentTime;
+    const prevPlayStartPosition = this._playStartPosition;
+
     if (startTime !== undefined) {
       const duration = calculateDuration(this._tracks);
       this._currentTime = clampSeekPosition(startTime, duration);
     }
 
+    // Remember where playback started (Audacity-style: stop returns here)
+    this._playStartPosition = this._currentTime;
+
     if (this._adapter) {
-      await this._adapter.play(this._currentTime, endTime);
-      this._startTimeUpdateLoop();
+      // Configure loop state BEFORE play(). The adapter caches loopStart/
+      // loopEnd/enabled from setLoop(), then TonePlayout.play() applies
+      // them to the Transport before transport.start() and advances
+      // Clock._lastUpdate to skip stale ghost ticks.
+      if (endTime !== undefined) {
+        // Disable Transport loop for duration-limited playback (selection/annotation)
+        this._adapter.setLoop(false, this._loopStart, this._loopEnd);
+      } else if (this._isLoopEnabled) {
+        // Only enable Transport loop if starting within the loop region.
+        // Starting outside plays normally to the end (DAW behavior).
+        const inLoopRegion =
+          this._currentTime >= this._loopStart && this._currentTime < this._loopEnd;
+        this._adapter.setLoop(inLoopRegion, this._loopStart, this._loopEnd);
+      }
+      try {
+        this._adapter.play(this._currentTime, endTime);
+      } catch (err) {
+        // Restore state so the engine isn't left with a moved playhead
+        // but no audio. The throw propagates to the caller.
+        this._currentTime = prevCurrentTime;
+        this._playStartPosition = prevPlayStartPosition;
+        throw err;
+      }
     }
 
     this._isPlaying = true;
+    this._startTimeUpdateLoop();
     this._emit('play');
     this._emitStateChange();
   }
@@ -299,8 +334,9 @@ export class PlaylistEngine {
 
   stop(): void {
     this._isPlaying = false;
-    this._currentTime = 0;
+    this._currentTime = this._playStartPosition;
     this._stopTimeUpdateLoop();
+    this._adapter?.setLoop(false, this._loopStart, this._loopEnd);
     this._adapter?.stop();
     this._emit('stop');
     this._emitStateChange();
@@ -318,6 +354,13 @@ export class PlaylistEngine {
     this._masterVolume = volume;
     this._adapter?.setMasterVolume(volume);
     this._emitStateChange();
+  }
+
+  getCurrentTime(): number {
+    if (this._isPlaying && this._adapter) {
+      return this._adapter.getCurrentTime();
+    }
+    return this._currentTime;
   }
 
   // ---------------------------------------------------------------------------
@@ -339,12 +382,22 @@ export class PlaylistEngine {
     if (s === this._loopStart && e === this._loopEnd) return;
     this._loopStart = s;
     this._loopEnd = e;
+    this._adapter?.setLoop(
+      this._isLoopEnabled && this._shouldActivateTransportLoop(),
+      this._loopStart,
+      this._loopEnd
+    );
     this._emitStateChange();
   }
 
   setLoopEnabled(enabled: boolean): void {
     if (enabled === this._isLoopEnabled) return;
     this._isLoopEnabled = enabled;
+    this._adapter?.setLoop(
+      enabled && this._shouldActivateTransportLoop(),
+      this._loopStart,
+      this._loopEnd
+    );
     this._emitStateChange();
   }
 
@@ -353,18 +406,26 @@ export class PlaylistEngine {
   // ---------------------------------------------------------------------------
 
   setTrackVolume(trackId: string, volume: number): void {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (track) track.volume = volume;
     this._adapter?.setTrackVolume(trackId, volume);
   }
 
   setTrackMute(trackId: string, muted: boolean): void {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (track) track.muted = muted;
     this._adapter?.setTrackMute(trackId, muted);
   }
 
   setTrackSolo(trackId: string, soloed: boolean): void {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (track) track.soloed = soloed;
     this._adapter?.setTrackSolo(trackId, soloed);
   }
 
   setTrackPan(trackId: string, pan: number): void {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (track) track.pan = pan;
     this._adapter?.setTrackPan(trackId, pan);
   }
 
@@ -416,7 +477,11 @@ export class PlaylistEngine {
     if (this._disposed) return;
     this._disposed = true;
     this._stopTimeUpdateLoop();
-    this._adapter?.dispose();
+    try {
+      this._adapter?.dispose();
+    } catch (err) {
+      console.warn('[waveform-playlist/engine] Error disposing adapter:', err);
+    }
     this._listeners.clear();
   }
 
@@ -439,6 +504,19 @@ export class PlaylistEngine {
 
   private _emitStateChange(): void {
     this._emit('statechange', this.getState());
+  }
+
+  /**
+   * Returns whether Transport loop should be active right now.
+   * When not playing, returns true unconditionally — the intent to loop
+   * should be honored when playback starts (play() has its own position
+   * check). During playback, checks if the live position is within the
+   * loop region [loopStart, loopEnd).
+   */
+  private _shouldActivateTransportLoop(): boolean {
+    if (!this._isPlaying) return true;
+    const t = this._adapter?.getCurrentTime() ?? this._currentTime;
+    return t >= this._loopStart && t < this._loopEnd;
   }
 
   private _startTimeUpdateLoop(): void {

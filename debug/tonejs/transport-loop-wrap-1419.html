@@ -44,6 +44,7 @@
       <button onclick="testNearLoopEnd()">7. Near loopEnd (trigger wrap)</button>
       <button onclick="testFreshContext()">8. Fresh context (first play)</button>
       <button onclick="testFreshContextDeferred()">9. Fresh + deferred (fix)</button>
+      <button onclick="testScheduleDoubleFire()">10. Schedule double-fire (ghost ticks fire past callbacks)</button>
     </div>
   </details>
   <div>
@@ -741,6 +742,112 @@
           log('Stopped.');
         }, 300);
       }, 0);
+    }
+
+    // Test 10: Ghost ticks fire schedule callbacks at past positions
+    // After a loop iteration resets ticks to ~0, ghost ticks include near-0 values.
+    // Transport.schedule(cb, 0) fires during the ghost tick range, even though
+    // the transport is starting at a later offset. This causes duplicate sources
+    // when combined with startMidClipSources() (our manual mid-clip handler).
+    async function testScheduleDoubleFire() {
+      var transport = Tone.getTransport();
+
+      log('\n=== TEST 10: Schedule callback double-fire (ghost ticks) ===', 'section');
+      log('After loop play → stop → play at offset, schedule callbacks at time 0');
+      log('fire due to ghost ticks, even though the transport starts past them.\n');
+
+      clearSchedules();
+
+      // Track how many times each schedule callback fires per play cycle
+      var fireCount = { clip0: 0, clip3: 0 };
+      var playGeneration = 0;
+      var generationAtFire = { clip0: [], clip3: [] };
+
+      // Register schedule events at time 0 and time 3 (like real clips)
+      var id0 = transport.schedule(function(time) {
+        fireCount.clip0++;
+        generationAtFire.clip0.push(playGeneration);
+        var msg = '  [schedule t=0] fire #' + fireCount.clip0 +
+          ' gen=' + playGeneration +
+          ' ctxTime=' + time.toFixed(4) +
+          ' transport.seconds=' + transport.seconds.toFixed(4);
+        if (playGeneration > 1 && transport.seconds < 0.5) {
+          log(msg + '  >>> GHOST TICK FIRE!', 'error');
+        } else {
+          log(msg, 'warn');
+        }
+      }, 0);
+      scheduleIds.push(id0);
+
+      var id3 = transport.schedule(function(time) {
+        fireCount.clip3++;
+        generationAtFire.clip3.push(playGeneration);
+        log('  [schedule t=3] fire #' + fireCount.clip3 +
+          ' gen=' + playGeneration +
+          ' ctxTime=' + time.toFixed(4), 'warn');
+      }, 3);
+      scheduleIds.push(id3);
+
+      log('Registered schedule events at t=0 and t=3\n');
+
+      // --- Step 1: Play with loop from offset 0 ---
+      log('--- Step 1: Play with loop (offset=0, loop 0-5s) ---', 'section');
+      playGeneration = 1;
+      fireCount = { clip0: 0, clip3: 0 };
+      transport.loopStart = 0;
+      transport.loopEnd = 5;
+      transport.loop = false;
+      transport.start(Tone.now(), 0);
+      setTimeout(function() { transport.loop = true; }, 0);
+
+      // Let it play past the loop boundary once (6s of playback)
+      await new Promise(function(r) { setTimeout(r, 6000); });
+
+      log('\nAfter 6s: transport.seconds=' + transport.seconds.toFixed(4));
+      log('  clip0 fires: ' + fireCount.clip0 + ', clip3 fires: ' + fireCount.clip3);
+
+      // --- Step 2: Stop ---
+      log('\n--- Step 2: Stop ---', 'section');
+      transport.stop();
+      transport.loop = false;
+      log('  Stopped. clock._lastUpdate=' + transport._clock._lastUpdate.toFixed(4));
+
+      await new Promise(function(r) { setTimeout(r, 100); });
+
+      // --- Step 3: Replay from offset 1.5 (past time=0 clip) ---
+      log('\n--- Step 3: Play from offset 1.5s (past time-0 clip) ---', 'section');
+      log('  Expected: schedule callback at t=0 should NOT fire');
+      log('  Bug: ghost ticks include near-0 values → callback fires\n');
+
+      playGeneration = 2;
+      var clip0Before = fireCount.clip0;
+
+      transport.loopStart = 0;
+      transport.loopEnd = 5;
+      transport.loop = false;
+      transport.start(Tone.now(), 1.5);
+      setTimeout(function() { transport.loop = true; }, 0);
+
+      // Wait just enough for the initial tick batch
+      await new Promise(function(r) { setTimeout(r, 200); });
+
+      var clip0After = fireCount.clip0;
+      var ghostFires = clip0After - clip0Before;
+
+      log('\n--- Results ---', 'section');
+      log('  clip0 fires during step 3: ' + ghostFires);
+      if (ghostFires > 0) {
+        log('  BUG CONFIRMED: schedule callback at t=0 fired ' + ghostFires +
+          ' time(s) when starting at offset 1.5s', 'error');
+        log('  This creates duplicate audio sources (double playback)', 'error');
+      } else {
+        log('  No ghost fires — bug may not reproduce (try again or warm up context first)', 'warn');
+      }
+
+      transport.stop();
+      transport.loop = false;
+      clearSchedules();
+      log('\nStopped and cleared.');
     }
 
     async function testLoopAfterStart() {

@@ -21,6 +21,7 @@ vi.mock('../TonePlayout', () => {
       }),
       dispose: vi.fn(),
       setOnPlaybackComplete: vi.fn(),
+      setLoop: vi.fn(),
     })),
   };
 });
@@ -163,7 +164,7 @@ describe('createToneAdapter', () => {
       const effectsFn = vi.fn();
       const clip = makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 });
       const track = makeTrack('t1', [clip]);
-      (track as Record<string, unknown>).effects = effectsFn;
+      (track as unknown as Record<string, unknown>).effects = effectsFn;
       adapter.setTracks([track]);
 
       const mockInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[0]
@@ -174,47 +175,46 @@ describe('createToneAdapter', () => {
   });
 
   describe('play', () => {
-    it('calls init then playout.play with converted args', async () => {
+    it('calls playout.play with converted args', () => {
       const adapter = createToneAdapter();
       adapter.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
       ]);
-      await adapter.play(1.5);
+      adapter.play(1.5);
 
       const mockInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[0]
         .value;
-      expect(mockInstance.init).toHaveBeenCalled();
       // play(when, offset, duration) -- when=now(), offset=startTime, duration=undefined
       expect(mockInstance.play).toHaveBeenCalledWith(expect.any(Number), 1.5, undefined);
     });
 
-    it('computes duration from endTime - startTime', async () => {
+    it('computes duration from endTime - startTime', () => {
       const adapter = createToneAdapter();
       adapter.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
       ]);
-      await adapter.play(1.0, 3.0);
+      adapter.play(1.0, 3.0);
 
       const mockInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[0]
         .value;
       expect(mockInstance.play).toHaveBeenCalledWith(expect.any(Number), 1.0, 2.0);
     });
 
-    it('sets isPlaying to true', async () => {
+    it('sets isPlaying to true', () => {
       const adapter = createToneAdapter();
       adapter.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 })]),
       ]);
-      await adapter.play(0);
+      adapter.play(0);
       expect(adapter.isPlaying()).toBe(true);
     });
 
-    it('sets isPlaying to false on natural playback completion', async () => {
+    it('sets isPlaying to false on natural playback completion', () => {
       const adapter = createToneAdapter();
       adapter.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 })]),
       ]);
-      await adapter.play(0);
+      adapter.play(0);
       expect(adapter.isPlaying()).toBe(true);
 
       // Simulate natural playback completion via the callback
@@ -226,11 +226,11 @@ describe('createToneAdapter', () => {
       expect(adapter.isPlaying()).toBe(false);
     });
 
-    it('ignores stale completion callback after setTracks rebuild', async () => {
+    it('ignores stale completion callback after setTracks rebuild', () => {
       const adapter = createToneAdapter();
       const clip = makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 });
       adapter.setTracks([makeTrack('t1', [clip])]);
-      await adapter.play(0);
+      adapter.play(0);
       expect(adapter.isPlaying()).toBe(true);
 
       // Capture the old playout's completion callback
@@ -240,22 +240,34 @@ describe('createToneAdapter', () => {
 
       // Rebuild with new tracks (simulates setTracks during playback)
       adapter.setTracks([makeTrack('t2', [clip])]);
-      await adapter.play(0);
+      adapter.play(0);
       expect(adapter.isPlaying()).toBe(true);
 
       // Old callback fires (stale) — should NOT reset isPlaying
       oldCallback();
       expect(adapter.isPlaying()).toBe(true);
     });
-  });
 
-  describe('pause', () => {
-    it('delegates to playout.pause and sets isPlaying false', async () => {
+    it('delegates init to playout.init', async () => {
       const adapter = createToneAdapter();
       adapter.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 })]),
       ]);
-      await adapter.play(0);
+      await adapter.init();
+
+      const mockInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[0]
+        .value;
+      expect(mockInstance.init).toHaveBeenCalled();
+    });
+  });
+
+  describe('pause', () => {
+    it('delegates to playout.pause and sets isPlaying false', () => {
+      const adapter = createToneAdapter();
+      adapter.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 })]),
+      ]);
+      adapter.play(0);
       adapter.pause();
 
       const mockInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[0]
@@ -266,12 +278,12 @@ describe('createToneAdapter', () => {
   });
 
   describe('stop', () => {
-    it('delegates to playout.stop and sets isPlaying false', async () => {
+    it('delegates to playout.stop and sets isPlaying false', () => {
       const adapter = createToneAdapter();
       adapter.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 })]),
       ]);
-      await adapter.play(0);
+      adapter.play(0);
       adapter.stop();
 
       const mockInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[0]
@@ -373,6 +385,89 @@ describe('createToneAdapter', () => {
       expect(mockInstance.getTrack).toHaveBeenCalledWith('t1');
       const mockTrack = mockInstance.getTrack.mock.results[0].value;
       expect(mockTrack.setPan).toHaveBeenCalledWith(-0.5);
+    });
+  });
+
+  describe('setLoop', () => {
+    it('delegates to playout.setLoop', () => {
+      const adapter = createToneAdapter();
+      adapter.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 })]),
+      ]);
+      adapter.setLoop(true, 1.0, 3.0);
+
+      const mockInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[0]
+        .value;
+      expect(mockInstance.setLoop).toHaveBeenCalledWith(true, 1.0, 3.0);
+    });
+
+    it('is safe to call without setTracks', () => {
+      const adapter = createToneAdapter();
+      expect(() => adapter.setLoop(true, 0, 5)).not.toThrow();
+    });
+
+    it('persists loop state across setTracks rebuilds', () => {
+      const adapter = createToneAdapter();
+      const clip = makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 });
+
+      adapter.setTracks([makeTrack('t1', [clip])]);
+      adapter.setLoop(true, 2.0, 6.0);
+
+      // Rebuild with new tracks — loop state should be re-applied
+      adapter.setTracks([makeTrack('t2', [clip])]);
+
+      // The second TonePlayout instance should have setLoop called during buildPlayout
+      const secondInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[1]
+        .value;
+      expect(secondInstance.setLoop).toHaveBeenCalledWith(true, 2.0, 6.0);
+    });
+  });
+
+  describe('audioInitialized persistence', () => {
+    it('calls init on new playout after setTracks rebuild when previously initialized', async () => {
+      const adapter = createToneAdapter();
+      const clip = makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 });
+
+      adapter.setTracks([makeTrack('t1', [clip])]);
+      await adapter.init();
+
+      const firstInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[0]
+        .value;
+      expect(firstInstance.init).toHaveBeenCalled();
+
+      // Rebuild with new tracks — init should be called on the new instance
+      adapter.setTracks([makeTrack('t2', [clip])]);
+
+      const secondInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[1]
+        .value;
+      expect(secondInstance.init).toHaveBeenCalled();
+    });
+
+    it('does not call init on new playout if never initialized', () => {
+      const adapter = createToneAdapter();
+      const clip = makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 });
+
+      adapter.setTracks([makeTrack('t1', [clip])]);
+      // No init() call
+
+      adapter.setTracks([makeTrack('t2', [clip])]);
+
+      const secondInstance = (TonePlayout as unknown as ReturnType<typeof vi.fn>).mock.results[1]
+        .value;
+      expect(secondInstance.init).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('play guards', () => {
+    it('play() before setTracks is a no-op (isPlaying stays false)', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const adapter = createToneAdapter();
+      adapter.play(0);
+      expect(adapter.isPlaying()).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('adapter.play() called but no playout is available')
+      );
+      warnSpy.mockRestore();
     });
   });
 

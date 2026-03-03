@@ -1,9 +1,15 @@
-// Named imports for tree-shaking
-import { Player, Volume, Gain, Panner, ToneAudioNode, getDestination, now } from 'tone';
+import {
+  Volume,
+  Gain,
+  Panner,
+  ToneAudioNode,
+  getDestination,
+  getTransport,
+  getContext,
+} from 'tone';
 import { Track, type Fade } from '@waveform-playlist/core';
 import { applyFadeIn, applyFadeOut, getUnderlyingAudioParam } from './fades';
 
-// Effects function no longer receives ToneLib - effects should import Tone themselves
 export type TrackEffectsFunction = (
   graphEnd: Gain,
   masterGainNode: ToneAudioNode,
@@ -28,31 +34,39 @@ export interface ToneTrackOptions {
   destination?: ToneAudioNode;
 }
 
-interface ClipPlayer {
-  player: Player;
+/** Per-clip scheduling info and audio nodes */
+interface ScheduledClip {
   clipInfo: ClipInfo;
-  fadeGain: Gain;
-  pausedPosition: number;
-  playStartTime: number;
+  fadeGainNode: GainNode; // Native GainNode for per-clip fade envelope
+  scheduleId: number; // Transport.schedule() event ID
 }
 
 export class ToneTrack {
-  private clips: ClipPlayer[]; // Array of clip players
+  private scheduledClips: ScheduledClip[];
+  private activeSources: Set<AudioBufferSourceNode> = new Set();
   private volumeNode: Volume;
   private panNode: Panner;
   private muteGain: Gain;
   private track: Track;
   private effectsCleanup?: () => void;
-  private onStopCallback?: () => void;
-  private activePlayers: number = 0; // Count of currently playing clips
+  // Guard against ghost tick schedule callbacks. After stop/start cycles with
+  // loops, stale Clock._lastUpdate causes ticks from the previous cycle to fire
+  // Transport.schedule() callbacks at past positions (e.g., time 0 clips fire
+  // when starting at offset 5s). Clips before this offset are handled by
+  // startMidClipSources(); schedule callbacks should only create sources for
+  // clips at/after this offset.
+  private _scheduleGuardOffset = 0;
 
   constructor(options: ToneTrackOptions) {
     this.track = options.track;
 
-    // Create shared track-level nodes
+    // Create shared track-level Tone.js nodes
     this.volumeNode = new Volume(this.gainToDb(options.track.gain));
     this.panNode = new Panner(options.track.stereoPan);
     this.muteGain = new Gain(options.track.muted ? 0 : 1);
+
+    // Chain shared Tone.js nodes: Volume → Pan → MuteGain
+    this.volumeNode.chain(this.panNode, this.muteGain);
 
     // Connect to destination or apply effects chain
     const destination = options.destination || getDestination();
@@ -72,8 +86,8 @@ export class ToneTrack {
         ? [
             {
               buffer: options.buffer,
-              startTime: 0, // Legacy: single buffer starts at timeline position 0
-              duration: options.buffer.duration, // Legacy: play full buffer duration
+              startTime: 0,
+              duration: options.buffer.duration,
               offset: 0,
               fadeIn: options.track.fadeIn,
               fadeOut: options.track.fadeOut,
@@ -82,49 +96,142 @@ export class ToneTrack {
           ]
         : []);
 
-    // Create ClipPlayer for each clip
-    this.clips = clipInfos.map((clipInfo) => {
-      const player = new Player({
-        url: clipInfo.buffer,
-        loop: false,
-        onstop: () => {
-          this.activePlayers--;
-          if (this.activePlayers === 0 && this.onStopCallback) {
-            this.onStopCallback();
-          }
-        },
-      });
+    const transport = getTransport();
+    const rawContext = getContext().rawContext as AudioContext;
 
-      const fadeGain = new Gain(clipInfo.gain);
+    // Get the native AudioNode input of the Volume for native→Tone connection.
+    // Volume.input is a Tone.js Gain<"decibels"> whose .input is the native GainNode.
+    // Cast through unknown since Gain<"decibels"> and Gain<"gain"> don't overlap.
+    const volumeNativeInput = (this.volumeNode.input as unknown as Gain).input;
 
-      // Chain: Player -> FadeGain -> Volume -> Pan -> MuteGain
-      player.connect(fadeGain);
-      fadeGain.chain(this.volumeNode, this.panNode, this.muteGain);
+    // Schedule each clip via Transport.schedule() with native AudioBufferSourceNode
+    this.scheduledClips = clipInfos.map((clipInfo) => {
+      // Native GainNode for per-clip fade envelope — created once, reused across play cycles
+      const fadeGainNode = rawContext.createGain();
+      fadeGainNode.gain.value = clipInfo.gain;
+      fadeGainNode.connect(volumeNativeInput);
 
-      // Note: Fades are scheduled in play() method, not here in constructor,
-      // because AudioParam automation requires absolute AudioContext time
+      // Schedule a permanent Transport event at the clip's absolute timeline position.
+      // This callback fires on every play and every loop iteration when Transport
+      // passes this point.
+      const absTransportTime = this.track.startTime + clipInfo.startTime;
+      const scheduleId = transport.schedule((audioContextTime: number) => {
+        // Guard: ghost ticks from stale Clock._lastUpdate can fire this callback
+        // at past positions (see Tone.js #1419). Clips before the play/loop offset
+        // are already handled by startMidClipSources().
+        if (absTransportTime < this._scheduleGuardOffset) {
+          return;
+        }
+        this.startClipSource(clipInfo, fadeGainNode, audioContextTime);
+      }, absTransportTime);
 
-      return {
-        player,
-        clipInfo,
-        fadeGain,
-        pausedPosition: 0,
-        playStartTime: 0,
-      };
+      return { clipInfo, fadeGainNode, scheduleId };
     });
   }
 
   /**
-   * Schedule fade envelopes for a clip at the given start time
+   * Create and start an AudioBufferSourceNode for a clip.
+   * Sources are one-shot: each play or loop iteration creates a fresh one.
+   */
+  private startClipSource(
+    clipInfo: ClipInfo,
+    fadeGainNode: GainNode,
+    audioContextTime: number,
+    bufferOffset?: number,
+    playDuration?: number
+  ): void {
+    const rawContext = getContext().rawContext as AudioContext;
+    const source = rawContext.createBufferSource();
+    source.buffer = clipInfo.buffer;
+    source.connect(fadeGainNode);
+
+    const offset = bufferOffset ?? clipInfo.offset;
+    const duration = playDuration ?? clipInfo.duration;
+
+    try {
+      source.start(audioContextTime, offset, duration);
+    } catch (err) {
+      console.warn(
+        `[waveform-playlist] Failed to start source on track "${this.id}" ` +
+          `(time=${audioContextTime}, offset=${offset}, duration=${duration}):`,
+        err
+      );
+      source.disconnect();
+      return;
+    }
+
+    this.activeSources.add(source);
+    source.onended = () => {
+      this.activeSources.delete(source);
+    };
+  }
+
+  /**
+   * Set the schedule guard offset. Schedule callbacks for clips before this
+   * offset are suppressed (already handled by startMidClipSources).
+   * Must be called before transport.start() and in the loop handler.
+   */
+  setScheduleGuardOffset(offset: number): void {
+    this._scheduleGuardOffset = offset;
+  }
+
+  /**
+   * Start sources for clips that span the given Transport position.
+   * Used for mid-playback seeking and loop boundary handling where
+   * Transport.schedule() callbacks have already passed.
+   *
+   * Uses strict < for absClipStart to avoid double-creation with
+   * schedule callbacks at exact Transport position (e.g., loopStart).
+   */
+  startMidClipSources(transportOffset: number, audioContextTime: number): void {
+    for (const { clipInfo, fadeGainNode } of this.scheduledClips) {
+      const absClipStart = this.track.startTime + clipInfo.startTime;
+      const absClipEnd = absClipStart + clipInfo.duration;
+
+      // Only handle clips that started before the transport position
+      // but haven't ended yet (i.e., the transport is "inside" the clip)
+      if (absClipStart < transportOffset && absClipEnd > transportOffset) {
+        const elapsed = transportOffset - absClipStart;
+        const adjustedOffset = clipInfo.offset + elapsed;
+        const remainingDuration = clipInfo.duration - elapsed;
+        this.startClipSource(
+          clipInfo,
+          fadeGainNode,
+          audioContextTime,
+          adjustedOffset,
+          remainingDuration
+        );
+      }
+    }
+  }
+
+  /**
+   * Stop all active AudioBufferSourceNodes and clear the set.
+   * Native AudioBufferSourceNodes ignore Transport state changes —
+   * they must be explicitly stopped.
+   */
+  stopAllSources(): void {
+    this.activeSources.forEach((source) => {
+      try {
+        source.stop();
+      } catch (err) {
+        console.warn(`[waveform-playlist] Error stopping source on track "${this.id}":`, err);
+      }
+    });
+    this.activeSources.clear();
+  }
+
+  /**
+   * Schedule fade envelopes for a clip at the given AudioContext time.
+   * Uses native GainNode.gain (AudioParam) directly — no _param workaround needed.
    */
   private scheduleFades(
-    clipPlayer: ClipPlayer,
+    scheduled: ScheduledClip,
     clipStartTime: number,
     clipOffset: number = 0
   ): void {
-    const { clipInfo, fadeGain } = clipPlayer;
-    const audioParam = getUnderlyingAudioParam(fadeGain.gain);
-    if (!audioParam) return;
+    const { clipInfo, fadeGainNode } = scheduled;
+    const audioParam = fadeGainNode.gain;
 
     // Cancel any previous automation
     audioParam.cancelScheduledValues(0);
@@ -137,7 +244,6 @@ export class ToneTrack {
       const fadeInDuration = clipInfo.fadeIn.duration;
 
       if (skipTime <= 0) {
-        // Starting from the beginning - full fade in
         applyFadeIn(
           audioParam,
           clipStartTime,
@@ -147,10 +253,9 @@ export class ToneTrack {
           clipInfo.gain
         );
       } else {
-        // Starting partway through fade in - calculate partial fade
         const remainingFadeDuration = fadeInDuration - skipTime;
         const fadeProgress = skipTime / fadeInDuration;
-        const startValue = clipInfo.gain * fadeProgress; // Approximate current fade value
+        const startValue = clipInfo.gain * fadeProgress;
         applyFadeIn(
           audioParam,
           clipStartTime,
@@ -161,17 +266,15 @@ export class ToneTrack {
         );
       }
     } else {
-      // No fade in or skipped past it - set to full gain
       audioParam.setValueAtTime(clipInfo.gain, clipStartTime);
     }
 
     // Apply fade out if it exists
     if (clipInfo.fadeOut) {
       const fadeOutStart = clipInfo.duration - clipInfo.fadeOut.duration;
-      const fadeOutStartInClip = fadeOutStart - skipTime; // Relative to where we're starting
+      const fadeOutStartInClip = fadeOutStart - skipTime;
 
       if (fadeOutStartInClip > 0) {
-        // Fade out hasn't started yet
         const absoluteFadeOutStart = clipStartTime + fadeOutStartInClip;
         applyFadeOut(
           audioParam,
@@ -182,11 +285,10 @@ export class ToneTrack {
           0
         );
       } else if (fadeOutStartInClip > -clipInfo.fadeOut.duration) {
-        // We're starting partway through the fade out
         const elapsedFadeOut = -fadeOutStartInClip;
         const remainingFadeDuration = clipInfo.fadeOut.duration - elapsedFadeOut;
         const fadeProgress = elapsedFadeOut / clipInfo.fadeOut.duration;
-        const startValue = clipInfo.gain * (1 - fadeProgress); // Approximate current fade value
+        const startValue = clipInfo.gain * (1 - fadeProgress);
         applyFadeOut(
           audioParam,
           clipStartTime,
@@ -196,8 +298,42 @@ export class ToneTrack {
           0
         );
       }
-      // If fadeOutStartInClip <= -duration, we've skipped past the entire fade out
     }
+  }
+
+  /**
+   * Prepare fade envelopes for all clips based on Transport offset.
+   * Called before Transport.start() to schedule fades at correct AudioContext times.
+   */
+  prepareFades(when: number, transportOffset: number): void {
+    this.scheduledClips.forEach((scheduled) => {
+      const absClipStart = this.track.startTime + scheduled.clipInfo.startTime;
+      const absClipEnd = absClipStart + scheduled.clipInfo.duration;
+
+      if (transportOffset >= absClipEnd) return; // clip already finished
+
+      if (transportOffset >= absClipStart) {
+        // Mid-clip: playing now
+        const clipOffset = transportOffset - absClipStart + scheduled.clipInfo.offset;
+        this.scheduleFades(scheduled, when, clipOffset);
+      } else {
+        // Clip starts later
+        const delay = absClipStart - transportOffset;
+        this.scheduleFades(scheduled, when + delay, scheduled.clipInfo.offset);
+      }
+    });
+  }
+
+  /**
+   * Cancel all scheduled fade automation and reset to nominal gain.
+   * Called on pause/stop to prevent stale fade envelopes.
+   */
+  cancelFades(): void {
+    this.scheduledClips.forEach(({ fadeGainNode, clipInfo }) => {
+      const audioParam = fadeGainNode.gain;
+      audioParam.cancelScheduledValues(0);
+      audioParam.setValueAtTime(clipInfo.gain, 0);
+    });
   }
 
   private gainToDb(gain: number): number {
@@ -231,129 +367,54 @@ export class ToneTrack {
     this.track.soloed = soloed;
   }
 
-  play(when?: number, offset: number = 0, duration?: number): void {
-    // Recreate all players to avoid Tone.js StateTimeline issues when seeking
-    // See: https://github.com/Tonejs/Tone.js/issues/1076
-    // The Player's internal StateTimeline doesn't properly clear on stop(),
-    // so we need fresh Player instances when rescheduling
-    this.clips.forEach((clipPlayer) => {
-      // Dispose old player
-      clipPlayer.player.stop();
-      clipPlayer.player.disconnect();
-      clipPlayer.player.dispose();
-
-      // Create new player with same buffer
-      const newPlayer = new Player({
-        url: clipPlayer.clipInfo.buffer,
-        loop: false,
-        onstop: () => {
-          this.activePlayers--;
-          if (this.activePlayers === 0 && this.onStopCallback) {
-            this.onStopCallback();
-          }
-        },
-      });
-
-      // Reconnect to audio graph
-      newPlayer.connect(clipPlayer.fadeGain);
-
-      // Update reference
-      clipPlayer.player = newPlayer;
-      clipPlayer.pausedPosition = 0;
-    });
-
-    this.activePlayers = 0;
-    // Play each clip that should be active at this offset
-    this.clips.forEach((clipPlayer) => {
-      const { player, clipInfo } = clipPlayer;
-
-      // Calculate absolute timeline position we're starting from
-      const playbackPosition = offset;
-
-      // Check if this clip should be playing at this position
-      const clipStart = clipInfo.startTime;
-      const clipEnd = clipInfo.startTime + clipInfo.duration;
-
-      if (playbackPosition < clipEnd) {
-        // This clip should play
-        this.activePlayers++;
-
-        // Get fresh now() for each clip to avoid "time in the past" errors
-        // This is important when seeking during playback - time passes between scheduling clips
-        const currentTime = when ?? now();
-        clipPlayer.playStartTime = currentTime;
-
-        if (playbackPosition >= clipStart) {
-          // We're starting in the middle of this clip
-          const clipOffset = playbackPosition - clipStart + clipInfo.offset;
-          const remainingDuration = clipInfo.duration - (playbackPosition - clipStart);
-          const clipDuration = duration ? Math.min(duration, remainingDuration) : remainingDuration;
-
-          clipPlayer.pausedPosition = clipOffset;
-          // Schedule fades at the actual playback start time
-          this.scheduleFades(clipPlayer, currentTime, clipOffset);
-          player.start(currentTime, clipOffset, clipDuration);
-        } else {
-          // This clip starts later - schedule it
-          const delay = clipStart - playbackPosition;
-          const clipDuration = duration
-            ? Math.min(duration - delay, clipInfo.duration)
-            : clipInfo.duration;
-
-          if (delay < (duration ?? Infinity)) {
-            clipPlayer.pausedPosition = clipInfo.offset;
-            // Schedule fades at the delayed start time
-            this.scheduleFades(clipPlayer, currentTime + delay, clipInfo.offset);
-            player.start(currentTime + delay, clipInfo.offset, clipDuration);
-          } else {
-            this.activePlayers--;
-          }
-        }
-      }
-    });
-  }
-
-  pause(): void {
-    // Stop all clips - both started and scheduled
-    // Scheduled clips have state 'stopped' but still need to be cancelled
-    this.clips.forEach((clipPlayer) => {
-      if (clipPlayer.player.state === 'started') {
-        const elapsed = (now() - clipPlayer.playStartTime) * clipPlayer.player.playbackRate;
-        clipPlayer.pausedPosition = clipPlayer.pausedPosition + elapsed;
-      }
-      // Always call stop() to cancel any scheduled playback
-      clipPlayer.player.stop();
-    });
-
-    this.activePlayers = 0;
-  }
-
-  stop(when?: number): void {
-    // Evaluate now() inside function body, not in parameter default (which is evaluated at module load time)
-    const stopWhen = when ?? now();
-    this.clips.forEach((clipPlayer) => {
-      clipPlayer.player.stop(stopWhen);
-      clipPlayer.pausedPosition = 0;
-    });
-    this.activePlayers = 0;
-  }
-
   dispose(): void {
-    // Clean up effects if cleanup function was provided
+    const transport = getTransport();
+
     if (this.effectsCleanup) {
-      this.effectsCleanup();
+      try {
+        this.effectsCleanup();
+      } catch (err) {
+        console.warn(`[waveform-playlist] Error during track "${this.id}" effects cleanup:`, err);
+      }
     }
 
-    // Dispose all clip players
-    this.clips.forEach((clipPlayer) => {
-      clipPlayer.player.dispose();
-      clipPlayer.fadeGain.dispose();
+    this.stopAllSources();
+
+    // Clear Transport schedule events and disconnect native fade gain nodes
+    this.scheduledClips.forEach((scheduled, index) => {
+      try {
+        transport.clear(scheduled.scheduleId);
+      } catch (err) {
+        console.warn(
+          `[waveform-playlist] Error clearing schedule ${index} on track "${this.id}":`,
+          err
+        );
+      }
+      try {
+        scheduled.fadeGainNode.disconnect();
+      } catch (err) {
+        console.warn(
+          `[waveform-playlist] Error disconnecting fadeGain ${index} on track "${this.id}":`,
+          err
+        );
+      }
     });
 
-    // Dispose shared track nodes
-    this.volumeNode.dispose();
-    this.panNode.dispose();
-    this.muteGain.dispose();
+    try {
+      this.volumeNode.dispose();
+    } catch (err) {
+      console.warn(`[waveform-playlist] Error disposing volumeNode on track "${this.id}":`, err);
+    }
+    try {
+      this.panNode.dispose();
+    } catch (err) {
+      console.warn(`[waveform-playlist] Error disposing panNode on track "${this.id}":`, err);
+    }
+    try {
+      this.muteGain.dispose();
+    } catch (err) {
+      console.warn(`[waveform-playlist] Error disposing muteGain on track "${this.id}":`, err);
+    }
   }
 
   get id(): string {
@@ -361,20 +422,13 @@ export class ToneTrack {
   }
 
   get duration(): number {
-    // Return the end time of the last clip
-    if (this.clips.length === 0) return 0;
-    const lastClip = this.clips[this.clips.length - 1];
+    if (this.scheduledClips.length === 0) return 0;
+    const lastClip = this.scheduledClips[this.scheduledClips.length - 1];
     return lastClip.clipInfo.startTime + lastClip.clipInfo.duration;
   }
 
   get buffer(): AudioBuffer {
-    // For backward compatibility, return the first clip's buffer
-    return this.clips[0]?.clipInfo.buffer;
-  }
-
-  get isPlaying(): boolean {
-    // Track is playing if any clip is playing
-    return this.clips.some((clipPlayer) => clipPlayer.player.state === 'started');
+    return this.scheduledClips[0]?.clipInfo.buffer;
   }
 
   get muted(): boolean {
@@ -382,12 +436,6 @@ export class ToneTrack {
   }
 
   get startTime(): number {
-    // Return the track's start time from the Track object
-    // This is the absolute timeline position where the track starts
     return this.track.startTime;
-  }
-
-  setOnStopCallback(callback: () => void): void {
-    this.onStopCallback = callback;
   }
 }

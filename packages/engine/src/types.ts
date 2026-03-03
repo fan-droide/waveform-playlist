@@ -8,7 +8,7 @@ import type { ClipTrack } from '@waveform-playlist/core';
 export interface PlayoutAdapter {
   init(): Promise<void>;
   setTracks(tracks: ClipTrack[]): void;
-  play(startTime: number, endTime?: number): Promise<void>;
+  play(startTime: number, endTime?: number): void;
   pause(): void;
   stop(): void;
   seek(time: number): void;
@@ -19,6 +19,7 @@ export interface PlayoutAdapter {
   setTrackMute(trackId: string, muted: boolean): void;
   setTrackSolo(trackId: string, soloed: boolean): void;
   setTrackPan(trackId: string, pan: number): void;
+  setLoop(enabled: boolean, start: number, end: number): void;
   dispose(): void;
 }
 

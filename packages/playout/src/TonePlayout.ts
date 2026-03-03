@@ -1,4 +1,3 @@
-// Named imports for tree-shaking
 import {
   Volume,
   ToneAudioNode,
@@ -11,7 +10,6 @@ import {
 } from 'tone';
 import { ToneTrack, ToneTrackOptions } from './ToneTrack';
 
-// Effects function no longer receives ToneLib - effects should import Tone themselves
 export type EffectsFunction = (
   masterGainNode: Volume,
   destination: ToneAudioNode,
@@ -32,8 +30,11 @@ export class TonePlayout {
   private manualMuteState: Map<string, boolean> = new Map();
   private effectsCleanup?: () => void;
   private onPlaybackCompleteCallback?: () => void;
-  private activeTracks: Map<string, number> = new Map(); // Map track ID to session ID
-  private playbackSessionId: number = 0;
+  private _completionEventId: number | null = null;
+  private _loopHandler: (() => void) | null = null;
+  private _loopEnabled = false;
+  private _loopStart = 0;
+  private _loopEnd = 0;
 
   constructor(options: TonePlayoutOptions = {}) {
     this.masterVolume = new Volume(this.gainToDb(options.masterGain ?? 1));
@@ -51,7 +52,6 @@ export class TonePlayout {
     if (options.tracks) {
       options.tracks.forEach((track) => {
         this.tracks.set(track.id, track);
-        // Initialize manual mute state for constructor-provided tracks
         this.manualMuteState.set(track.id, track.muted);
       });
     }
@@ -59,6 +59,17 @@ export class TonePlayout {
 
   private gainToDb(gain: number): number {
     return 20 * Math.log10(gain);
+  }
+
+  private clearCompletionEvent(): void {
+    if (this._completionEventId !== null) {
+      try {
+        getTransport().clear(this._completionEventId);
+      } catch (err) {
+        console.warn('[waveform-playlist] Error clearing Transport completion event:', err);
+      }
+      this._completionEventId = null;
+    }
   }
 
   async init(): Promise<void> {
@@ -76,9 +87,7 @@ export class TonePlayout {
     };
     const toneTrack = new ToneTrack(optionsWithDestination);
     this.tracks.set(toneTrack.id, toneTrack);
-    // Initialize manual mute state from track options
     this.manualMuteState.set(toneTrack.id, trackOptions.track.muted ?? false);
-    // Initialize solo state from track options
     if (trackOptions.track.soloed) {
       this.soloedTracks.add(toneTrack.id);
     }
@@ -109,86 +118,116 @@ export class TonePlayout {
 
   play(when?: number, offset?: number, duration?: number): void {
     if (!this.isInitialized) {
-      console.warn('TonePlayout not initialized. Call init() first.');
-      return;
+      throw new Error('[waveform-playlist] TonePlayout not initialized. Call init() first.');
     }
 
-    // Use now() as default, but call it here after init check (not in function signature)
     const startTime = when ?? now();
-    const playbackPosition = offset ?? 0;
+    const transport = getTransport();
 
-    // Increment session ID to invalidate old callbacks
-    this.playbackSessionId++;
-    const currentSessionId = this.playbackSessionId;
+    this.clearCompletionEvent();
 
-    // Clear active tracks and set up stop callbacks if duration is specified
-    this.activeTracks.clear();
-
-    // Play tracks based on their individual start times
-    this.tracks.forEach((toneTrack) => {
-      const trackStartTime = toneTrack.startTime;
-
-      if (playbackPosition >= trackStartTime) {
-        // Track should be playing - calculate buffer offset and start immediately
-        const bufferOffset = playbackPosition - trackStartTime;
-
-        if (duration !== undefined) {
-          this.activeTracks.set(toneTrack.id, currentSessionId);
-          toneTrack.setOnStopCallback(() => {
-            // Only process if this track is still in activeTracks with matching session ID
-            if (this.activeTracks.get(toneTrack.id) === currentSessionId) {
-              this.activeTracks.delete(toneTrack.id);
-              if (this.activeTracks.size === 0 && this.onPlaybackCompleteCallback) {
-                this.onPlaybackCompleteCallback();
-              }
-            }
-          });
-        }
-
-        toneTrack.play(startTime, bufferOffset, duration);
-      } else {
-        // Track should start later - schedule it to start when playback reaches its start time
-        const delay = trackStartTime - playbackPosition;
-
-        if (duration !== undefined) {
-          this.activeTracks.set(toneTrack.id, currentSessionId);
-          toneTrack.setOnStopCallback(() => {
-            // Only process if this track is still in activeTracks with matching session ID
-            if (this.activeTracks.get(toneTrack.id) === currentSessionId) {
-              this.activeTracks.delete(toneTrack.id);
-              if (this.activeTracks.size === 0 && this.onPlaybackCompleteCallback) {
-                this.onPlaybackCompleteCallback();
-              }
-            }
-          });
-        }
-
-        toneTrack.play(startTime + delay, 0, duration);
-      }
+    const transportOffset = offset ?? 0;
+    this.tracks.forEach((track) => {
+      track.cancelFades();
+      track.prepareFades(startTime, transportOffset);
     });
 
-    // Start transport
-    if (offset !== undefined) {
-      // Explicit offset provided - seek to that position
-      getTransport().start(startTime, offset);
-    } else {
-      // No offset - resume from pause (Transport resumes from current position)
-      getTransport().start(startTime);
+    // Schedule duration-limited stop via Transport
+    if (duration !== undefined) {
+      this._completionEventId = transport.scheduleOnce(() => {
+        this._completionEventId = null;
+        try {
+          this.onPlaybackCompleteCallback?.();
+        } catch (err) {
+          console.warn('[waveform-playlist] Error in playback completion callback:', err);
+        }
+      }, transportOffset + duration);
+    }
+
+    // Start Transport — triggers schedule() callbacks for clips at/after offset
+    try {
+      // Stop all active native sources before restarting to prevent layered audio.
+      // Native AudioBufferSourceNodes don't respond to Transport state changes.
+      if (transport.state !== 'stopped') {
+        transport.stop();
+      }
+      this.tracks.forEach((track) => track.stopAllSources());
+
+      // Set loop boundaries BEFORE enabling loop. _processTick checks
+      // `ticks >= _loopEnd` every tick; _loopEnd defaults to 0.
+      transport.loopStart = this._loopStart;
+      transport.loopEnd = this._loopEnd;
+      transport.loop = this._loopEnabled;
+
+      // Set schedule guard BEFORE transport.start(). Ghost ticks from stale
+      // Clock._lastUpdate can fire schedule callbacks at past positions;
+      // the guard suppresses callbacks for clips before the play offset
+      // (those are handled by startMidClipSources below).
+      this.tracks.forEach((track) => track.setScheduleGuardOffset(transportOffset));
+
+      if (offset !== undefined) {
+        transport.start(startTime, offset);
+      } else {
+        transport.start(startTime);
+      }
+
+      // Advance Clock._lastUpdate past the stop/start boundary.
+      //
+      // After stop/start cycles, _lastUpdate is stale (set by the previous
+      // context tick, before our stop/start). The next Clock._loop() processes
+      // ticks from [_lastUpdate, now()]. In the gap [_lastUpdate, startTime),
+      // the TickSource is still "started" from the PREVIOUS play cycle with
+      // its old tick offset. Those accumulated ticks can exceed _loopEnd,
+      // causing _processTick to wrap immediately to loopStart.
+      //
+      // By advancing _lastUpdate to startTime, we skip the stale range.
+      // The next Clock._loop() only processes [startTime, now()] — ticks
+      // from the current play cycle with the correct offset.
+      (transport as any)._clock._lastUpdate = startTime;
+
+      // Start sources for clips that span the current Transport position.
+      // Transport.schedule() only fires for clips at/after the offset;
+      // clips whose start time is before the offset need manual creation.
+      this.tracks.forEach((track) => {
+        track.startMidClipSources(transportOffset, startTime);
+      });
+    } catch (err) {
+      // Clean up scheduled events since Transport failed to start
+      this.clearCompletionEvent();
+      this.tracks.forEach((track) => track.cancelFades());
+      console.warn(
+        '[waveform-playlist] Transport.start() failed. Audio playback could not begin.',
+        err
+      );
+      throw err;
     }
   }
 
   pause(): void {
-    getTransport().pause();
-    this.tracks.forEach((track) => {
-      track.pause();
-    });
+    const transport = getTransport();
+    try {
+      transport.pause();
+    } catch (err) {
+      console.warn('[waveform-playlist] Transport.pause() failed:', err);
+    }
+    // Native AudioBufferSourceNodes ignore Transport state changes —
+    // they must be explicitly stopped.
+    this.tracks.forEach((track) => track.stopAllSources());
+    this.tracks.forEach((track) => track.cancelFades());
+    this.clearCompletionEvent();
   }
 
   stop(): void {
-    getTransport().stop();
-    this.tracks.forEach((track) => {
-      track.stop();
-    });
+    const transport = getTransport();
+    try {
+      transport.stop();
+    } catch (err) {
+      console.warn('[waveform-playlist] Transport.stop() failed:', err);
+    }
+    // Stop all native sources explicitly
+    this.tracks.forEach((track) => track.stopAllSources());
+    this.tracks.forEach((track) => track.cancelFades());
+    this.clearCompletionEvent();
   }
 
   setMasterGain(gain: number): void {
@@ -204,8 +243,6 @@ export class TonePlayout {
       } else {
         this.soloedTracks.delete(trackId);
       }
-
-      // Update mute state of all tracks based on solo logic
       this.updateSoloMuting();
     }
   }
@@ -215,16 +252,13 @@ export class TonePlayout {
 
     this.tracks.forEach((track, id) => {
       if (hasSoloedTracks) {
-        // If there are soloed tracks, mute all non-soloed tracks
         if (!this.soloedTracks.has(id)) {
           track.setMute(true);
         } else {
-          // Restore manual mute state for soloed tracks
           const manuallyMuted = this.manualMuteState.get(id) ?? false;
           track.setMute(manuallyMuted);
         }
       } else {
-        // No soloed tracks, restore original manual mute state for all tracks
         const manuallyMuted = this.manualMuteState.get(id) ?? false;
         track.setMute(manuallyMuted);
       }
@@ -234,9 +268,63 @@ export class TonePlayout {
   setMute(trackId: string, muted: boolean): void {
     const track = this.tracks.get(trackId);
     if (track) {
-      // Store the manual mute state
       this.manualMuteState.set(trackId, muted);
       track.setMute(muted);
+    }
+  }
+
+  setLoop(enabled: boolean, loopStart: number, loopEnd: number): void {
+    // Update cached state first — play() uses these values to configure
+    // the Transport on next start, so they must reflect the caller's intent
+    // regardless of whether Transport property setting succeeds.
+    this._loopEnabled = enabled;
+    this._loopStart = loopStart;
+    this._loopEnd = loopEnd;
+
+    const transport = getTransport();
+    try {
+      // Set boundaries BEFORE enabling loop. Tone.js's _processTick checks
+      // `ticks >= _loopEnd` on every tick. If we set transport.loop = true
+      // first, a tick could fire before loopEnd is updated, seeing the stale
+      // _loopEnd value (0 from Transport default) and wrapping immediately.
+      transport.loopStart = loopStart;
+      transport.loopEnd = loopEnd;
+      transport.loop = enabled;
+    } catch (err) {
+      console.warn('[waveform-playlist] Error configuring Transport loop:', err);
+      return;
+    }
+
+    if (enabled && !this._loopHandler) {
+      this._loopHandler = () => {
+        // On loop boundary: stop old sources, re-schedule fades, start mid-clip sources.
+        // Event ordering in Transport's tick processing (Tone.js 15.x _processTick):
+        //   loopEnd → ticks reset → loopStart → loop → forEachAtTime(ticks)
+        // Our loop handler fires BEFORE schedule callbacks, so:
+        // 1. stopAllSources + cancelFades — clean slate
+        // 2. startMidClipSources — for clips spanning loopStart boundary
+        // 3. prepareFades — fresh fade envelopes
+        // Then Transport fires schedule callbacks for clips at/after loopStart.
+        const currentTime = now();
+        this.tracks.forEach((track) => {
+          try {
+            track.stopAllSources();
+            track.cancelFades();
+            track.setScheduleGuardOffset(this._loopStart);
+            track.startMidClipSources(this._loopStart, currentTime);
+            track.prepareFades(currentTime, this._loopStart);
+          } catch (err) {
+            console.warn(
+              `[waveform-playlist] Error re-scheduling track "${track.id}" on loop:`,
+              err
+            );
+          }
+        });
+      };
+      transport.on('loop', this._loopHandler);
+    } else if (!enabled && this._loopHandler) {
+      transport.off('loop', this._loopHandler);
+      this._loopHandler = null;
     }
   }
 
@@ -249,17 +337,39 @@ export class TonePlayout {
   }
 
   dispose(): void {
+    this.clearCompletionEvent();
+
+    if (this._loopHandler) {
+      try {
+        getTransport().off('loop', this._loopHandler);
+      } catch (err) {
+        console.warn('[waveform-playlist] Error removing Transport loop handler:', err);
+      }
+      this._loopHandler = null;
+    }
+
     this.tracks.forEach((track) => {
-      track.dispose();
+      try {
+        track.dispose();
+      } catch (err) {
+        console.warn(`[waveform-playlist] Error disposing track "${track.id}":`, err);
+      }
     });
     this.tracks.clear();
 
-    // Clean up effects if cleanup function was provided
     if (this.effectsCleanup) {
-      this.effectsCleanup();
+      try {
+        this.effectsCleanup();
+      } catch (err) {
+        console.warn('[waveform-playlist] Error during master effects cleanup:', err);
+      }
     }
 
-    this.masterVolume.dispose();
+    try {
+      this.masterVolume.dispose();
+    } catch (err) {
+      console.warn('[waveform-playlist] Error disposing master volume:', err);
+    }
   }
 
   get context(): BaseContext {

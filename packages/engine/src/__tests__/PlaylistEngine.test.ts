@@ -35,7 +35,7 @@ function createMockAdapter(): PlayoutAdapter {
   return {
     init: vi.fn().mockResolvedValue(undefined),
     setTracks: vi.fn(),
-    play: vi.fn().mockResolvedValue(undefined),
+    play: vi.fn(),
     pause: vi.fn(),
     stop: vi.fn(),
     seek: vi.fn(),
@@ -46,6 +46,7 @@ function createMockAdapter(): PlayoutAdapter {
     setTrackMute: vi.fn(),
     setTrackSolo: vi.fn(),
     setTrackPan: vi.fn(),
+    setLoop: vi.fn(),
     dispose: vi.fn(),
   };
 }
@@ -497,13 +498,21 @@ describe('PlaylistEngine', () => {
   });
 
   describe('playback delegation', () => {
-    it('delegates play/pause/stop to adapter', async () => {
+    it('delegates init to adapter', async () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      await engine.init();
+      expect(adapter.init).toHaveBeenCalled();
+      engine.dispose();
+    });
+
+    it('delegates play/pause/stop to adapter', () => {
       const adapter = createMockAdapter();
       const engine = new PlaylistEngine({ adapter });
       engine.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
       ]);
-      await engine.play(1.5);
+      engine.play(1.5);
       expect(adapter.play).toHaveBeenCalledWith(1.5, undefined);
       engine.pause();
       expect(adapter.pause).toHaveBeenCalled();
@@ -526,6 +535,37 @@ describe('PlaylistEngine', () => {
       engine.dispose();
     });
 
+    it('persists track audio state into _tracks for adapter rebuilds', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 44100, durationSamples: 88200 })]),
+      ]);
+
+      // Set audio state via engine methods
+      engine.setTrackVolume('t1', 0.5);
+      engine.setTrackMute('t1', true);
+      engine.setTrackSolo('t1', true);
+      engine.setTrackPan('t1', -0.7);
+
+      // moveClip triggers adapter.setTracks(this._tracks) — verify
+      // the tracks carry the updated audio state
+      engine.moveClip('t1', 'c1', 1000);
+
+      const setTracksCalls = (adapter.setTracks as ReturnType<typeof vi.fn>).mock.calls;
+      // Last call is from moveClip (first was from setTracks above)
+      const tracksPassedToAdapter = setTracksCalls[setTracksCalls.length - 1][0] as ClipTrack[];
+      const track = tracksPassedToAdapter.find((t) => t.id === 't1');
+
+      expect(track).toBeDefined();
+      expect(track!.volume).toBe(0.5);
+      expect(track!.muted).toBe(true);
+      expect(track!.soloed).toBe(true);
+      expect(track!.pan).toBe(-0.7);
+
+      engine.dispose();
+    });
+
     it('delegates setMasterVolume to adapter', () => {
       const adapter = createMockAdapter();
       const engine = new PlaylistEngine({ adapter });
@@ -534,22 +574,22 @@ describe('PlaylistEngine', () => {
       engine.dispose();
     });
 
-    it('works without adapter (state-only mode)', async () => {
+    it('works without adapter (state-only mode)', () => {
       const engine = new PlaylistEngine();
-      await engine.play();
+      engine.play();
       engine.pause();
       engine.stop();
       engine.dispose();
     });
 
-    it('pause captures currentTime from adapter', async () => {
+    it('pause captures currentTime from adapter', () => {
       const adapter = createMockAdapter();
       (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(3.5);
       const engine = new PlaylistEngine({ adapter });
       engine.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
       ]);
-      await engine.play();
+      engine.play();
       engine.pause();
       expect(engine.getState().currentTime).toBe(3.5);
       engine.dispose();
@@ -575,24 +615,275 @@ describe('PlaylistEngine', () => {
       engine.dispose();
     });
 
-    it('clamps startTime in play()', async () => {
+    it('clamps startTime in play()', () => {
       const engine = new PlaylistEngine();
       engine.setTracks([
         makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 44100 })]),
       ]);
-      await engine.play(100); // Beyond duration of 1 second
+      engine.play(100); // Beyond duration of 1 second
       expect(engine.getState().currentTime).toBe(1);
       engine.dispose();
     });
 
-    it('does not set isPlaying when adapter.play rejects', async () => {
+    it('stop() returns currentTime to play start position (Audacity-style)', () => {
       const adapter = createMockAdapter();
-      (adapter.play as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('AudioContext not resumed')
-      );
       const engine = new PlaylistEngine({ adapter });
-      await expect(engine.play()).rejects.toThrow('AudioContext not resumed');
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.play(3.0);
+      expect(engine.getState().currentTime).toBe(3.0);
+      engine.stop();
+      expect(engine.getState().currentTime).toBe(3.0);
+      engine.dispose();
+    });
+
+    it('stop() returns to 0 when play() was called without startTime', () => {
+      const engine = new PlaylistEngine();
+      engine.play();
+      engine.stop();
+      expect(engine.getState().currentTime).toBe(0);
+      engine.dispose();
+    });
+
+    it('does not set isPlaying when adapter.play throws', () => {
+      const adapter = createMockAdapter();
+      (adapter.play as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('AudioContext not resumed');
+      });
+      const engine = new PlaylistEngine({ adapter });
+      expect(() => engine.play()).toThrow('AudioContext not resumed');
       expect(engine.getState().isPlaying).toBe(false);
+      engine.dispose();
+    });
+
+    it('restores currentTime and playStartPosition when adapter.play throws', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.seek(2.0);
+      expect(engine.getState().currentTime).toBe(2.0);
+
+      (adapter.play as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('Transport failure');
+      });
+
+      expect(() => engine.play(5.0)).toThrow('Transport failure');
+      // currentTime should be restored to pre-play value, not left at 5.0
+      expect(engine.getState().currentTime).toBe(2.0);
+      // stop() should return to original position, not the failed play position
+      engine.stop();
+      expect(engine.getState().currentTime).toBe(0);
+      engine.dispose();
+    });
+
+    it('play() enables Transport loop when starting inside loop region', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.play(1.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(true, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('play() at exact loopEnd disables Transport loop (half-open interval)', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      // Start exactly at loopEnd — half-open [1.0, 3.0) means 3.0 is outside
+      engine.play(3.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('play() disables Transport loop when starting outside loop region', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      // Start at 5.0 — outside the loop region [1.0, 3.0)
+      engine.play(5.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('play(start, end) disables Transport loop for selection playback', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.play(2.0, 4.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('play() does not call setLoop when loop is disabled', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setLoopRegion(1.0, 3.0);
+      // Loop is disabled (default)
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.play(0);
+      expect(adapter.setLoop).not.toHaveBeenCalled();
+      engine.dispose();
+    });
+
+    it('pause() does not disable Transport loop', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      engine.play();
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.pause();
+      expect(adapter.setLoop).not.toHaveBeenCalled();
+      engine.dispose();
+    });
+
+    it('stop() disables Transport loop before stopping', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      engine.play();
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.stop();
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 3.0);
+      // setLoop is called before stop
+      const setLoopOrder = (adapter.setLoop as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0];
+      const stopOrder = (adapter.stop as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+      expect(setLoopOrder).toBeLessThan(stopOrder);
+      engine.dispose();
+    });
+
+    it('setLoopEnabled(true) during playback does not activate Transport loop when outside region', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      // Start playing at 0 (outside doesn't matter, loop not enabled yet)
+      engine.play(0);
+      // Simulate adapter reporting position past loop end
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(5.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.setLoopEnabled(true);
+      // Should NOT activate Transport loop — playback is past loopEnd
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('setLoopEnabled(true) during playback activates Transport loop when inside region', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.play(0);
+      // Simulate adapter reporting position inside loop region
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(2.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.setLoopEnabled(true);
+      // Should activate — playback is inside the loop region
+      expect(adapter.setLoop).toHaveBeenCalledWith(true, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('setLoopRegion() during playback does not activate Transport loop when position outside new region', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      engine.play(0);
+      // Position is past the new loop region
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(6.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      // Shrink the region — position is now outside
+      engine.setLoopRegion(1.0, 4.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 4.0);
+      engine.dispose();
+    });
+
+    it('setLoopEnabled(true) when not playing always activates Transport loop', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setLoopRegion(1.0, 3.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      // Not playing — should always pass enabled=true regardless of _currentTime
+      engine.setLoopEnabled(true);
+      expect(adapter.setLoop).toHaveBeenCalledWith(true, 1.0, 3.0);
+      engine.dispose();
+    });
+  });
+
+  describe('getCurrentTime', () => {
+    it('returns adapter.getCurrentTime when playing', () => {
+      const adapter = createMockAdapter();
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(2.5);
+      const engine = new PlaylistEngine({ adapter });
+      engine.play();
+
+      expect(engine.getCurrentTime()).toBe(2.5);
+      engine.dispose();
+    });
+
+    it('returns stored currentTime when not playing', () => {
+      const engine = new PlaylistEngine();
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.seek(3.0);
+
+      expect(engine.getCurrentTime()).toBe(3.0);
+      engine.dispose();
+    });
+
+    it('returns stored currentTime without adapter', () => {
+      const engine = new PlaylistEngine();
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.play(1.5);
+
+      // Without adapter, getCurrentTime returns stored _currentTime
+      expect(engine.getCurrentTime()).toBe(1.5);
       engine.dispose();
     });
   });
@@ -610,7 +901,7 @@ describe('PlaylistEngine', () => {
       engine.dispose();
     });
 
-    it('emits play/pause/stop events', async () => {
+    it('emits play/pause/stop events', () => {
       const adapter = createMockAdapter();
       const engine = new PlaylistEngine({ adapter });
       const playListener = vi.fn();
@@ -619,7 +910,7 @@ describe('PlaylistEngine', () => {
       engine.on('play', playListener);
       engine.on('pause', pauseListener);
       engine.on('stop', stopListener);
-      await engine.play();
+      engine.play();
       expect(playListener).toHaveBeenCalled();
       engine.pause();
       expect(pauseListener).toHaveBeenCalled();
@@ -751,6 +1042,39 @@ describe('PlaylistEngine', () => {
       expect(listener).not.toHaveBeenCalled();
       engine.dispose();
     });
+
+    it('setLoopRegion delegates to adapter.setLoop', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+
+      engine.setLoopRegion(2.0, 5.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 2.0, 5.0);
+      engine.dispose();
+    });
+
+    it('setLoopEnabled delegates to adapter.setLoop', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+
+      engine.setLoopRegion(1.0, 3.0);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.setLoopEnabled(true);
+      expect(adapter.setLoop).toHaveBeenCalledWith(true, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('setLoopRegion includes current isLoopEnabled state', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+
+      engine.setLoopEnabled(true);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      engine.setLoopRegion(4.0, 8.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(true, 4.0, 8.0);
+      engine.dispose();
+    });
   });
 
   describe('master volume', () => {
@@ -789,6 +1113,75 @@ describe('PlaylistEngine', () => {
       expect(state.loopEnd).toBe(0);
       expect(state.isLoopEnabled).toBe(false);
       engine.dispose();
+    });
+  });
+
+  describe('timeupdate loop', () => {
+    it('emits timeupdate events from RAF loop during playback', () => {
+      const rafCallbacks: FrameRequestCallback[] = [];
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn((cb: FrameRequestCallback) => {
+          rafCallbacks.push(cb);
+          return rafCallbacks.length;
+        })
+      );
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+
+      const timeupdateListener = vi.fn();
+      engine.on('timeupdate', timeupdateListener);
+
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(5.0);
+      engine.play();
+
+      // Fire the RAF tick — should emit timeupdate with current time
+      rafCallbacks[rafCallbacks.length - 1](performance.now());
+      expect(timeupdateListener).toHaveBeenCalledWith(5.0);
+      expect(engine.getState().isPlaying).toBe(true);
+
+      engine.dispose();
+      vi.unstubAllGlobals();
+    });
+
+    it('does not emit timeupdate after stop', () => {
+      const rafCallbacks: FrameRequestCallback[] = [];
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn((cb: FrameRequestCallback) => {
+          rafCallbacks.push(cb);
+          return rafCallbacks.length;
+        })
+      );
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+
+      const timeupdateListener = vi.fn();
+      engine.on('timeupdate', timeupdateListener);
+
+      (adapter.getCurrentTime as ReturnType<typeof vi.fn>).mockReturnValue(3.0);
+      engine.play();
+
+      // Stop before RAF fires
+      engine.stop();
+      timeupdateListener.mockClear();
+
+      // Fire RAF tick — should NOT emit because isPlaying is false
+      rafCallbacks[rafCallbacks.length - 1](performance.now());
+      expect(timeupdateListener).not.toHaveBeenCalled();
+
+      engine.dispose();
+      vi.unstubAllGlobals();
     });
   });
 
