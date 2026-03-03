@@ -626,6 +626,28 @@ describe('PlaylistEngine', () => {
       engine.dispose();
     });
 
+    it('restores currentTime and playStartPosition when adapter.play throws', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.seek(2.0);
+      expect(engine.getState().currentTime).toBe(2.0);
+
+      (adapter.play as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        throw new Error('Transport failure');
+      });
+
+      expect(() => engine.play(5.0)).toThrow('Transport failure');
+      // currentTime should be restored to pre-play value, not left at 5.0
+      expect(engine.getState().currentTime).toBe(2.0);
+      // stop() should return to original position, not the failed play position
+      engine.stop();
+      expect(engine.getState().currentTime).toBe(0);
+      engine.dispose();
+    });
+
     it('play() enables Transport loop when starting inside loop region', () => {
       const adapter = createMockAdapter();
       const engine = new PlaylistEngine({ adapter });
@@ -638,6 +660,22 @@ describe('PlaylistEngine', () => {
 
       engine.play(1.0);
       expect(adapter.setLoop).toHaveBeenCalledWith(true, 1.0, 3.0);
+      engine.dispose();
+    });
+
+    it('play() at exact loopEnd disables Transport loop (half-open interval)', () => {
+      const adapter = createMockAdapter();
+      const engine = new PlaylistEngine({ adapter });
+      engine.setTracks([
+        makeTrack('t1', [makeClip({ id: 'c1', startSample: 0, durationSamples: 441000 })]),
+      ]);
+      engine.setLoopRegion(1.0, 3.0);
+      engine.setLoopEnabled(true);
+      (adapter.setLoop as ReturnType<typeof vi.fn>).mockClear();
+
+      // Start exactly at loopEnd — half-open [1.0, 3.0) means 3.0 is outside
+      engine.play(3.0);
+      expect(adapter.setLoop).toHaveBeenCalledWith(false, 1.0, 3.0);
       engine.dispose();
     });
 

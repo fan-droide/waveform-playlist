@@ -132,10 +132,8 @@ export class TonePlayout {
     const startTime = when ?? now();
     const transport = getTransport();
 
-    // Clear any pending completion event
     this.clearCompletionEvent();
 
-    // Cancel stale fades and prepare new ones
     const transportOffset = offset ?? 0;
     this.tracks.forEach((track) => {
       track.cancelFades();
@@ -227,8 +225,8 @@ export class TonePlayout {
     } catch (err) {
       console.warn('[waveform-playlist] Transport.pause() failed:', err);
     }
-    // Native AudioBufferSourceNodes don't stop on Transport.pause()
-    // (unlike synced Players which listen to Transport state changes).
+    // Native AudioBufferSourceNodes ignore Transport state changes —
+    // they must be explicitly stopped.
     this.tracks.forEach((track) => track.stopAllSources());
     this.tracks.forEach((track) => track.cancelFades());
     this.clearCompletionEvent();
@@ -292,6 +290,13 @@ export class TonePlayout {
   }
 
   setLoop(enabled: boolean, loopStart: number, loopEnd: number): void {
+    // Update cached state first — play() uses these values to configure
+    // the Transport on next start, so they must reflect the caller's intent
+    // regardless of whether Transport property setting succeeds.
+    this._loopEnabled = enabled;
+    this._loopStart = loopStart;
+    this._loopEnd = loopEnd;
+
     const transport = getTransport();
     try {
       // Set boundaries BEFORE enabling loop. Tone.js's _processTick checks
@@ -305,9 +310,6 @@ export class TonePlayout {
       console.warn('[waveform-playlist] Error configuring Transport loop:', err);
       return;
     }
-    this._loopEnabled = enabled;
-    this._loopStart = loopStart;
-    this._loopEnd = loopEnd;
 
     if (enabled && !this._loopHandler) {
       this._loopHandler = () => {
@@ -354,7 +356,6 @@ export class TonePlayout {
     this.clearCompletionEvent();
     this.clearDeferredLoopTimeout();
 
-    // Clean up loop handler
     if (this._loopHandler) {
       try {
         getTransport().off('loop', this._loopHandler);

@@ -278,6 +278,9 @@ export class PlaylistEngine {
   }
 
   play(startTime?: number, endTime?: number): void {
+    const prevCurrentTime = this._currentTime;
+    const prevPlayStartPosition = this._playStartPosition;
+
     if (startTime !== undefined) {
       const duration = calculateDuration(this._tracks);
       this._currentTime = clampSeekPosition(startTime, duration);
@@ -287,10 +290,10 @@ export class PlaylistEngine {
     this._playStartPosition = this._currentTime;
 
     if (this._adapter) {
-      // Configure loop state BEFORE play(). TonePlayout.play() re-applies
-      // the cached loop settings atomically (after transport.stop() and
-      // before transport.start()), eliminating the timing race between
-      // separate play() and setLoop() calls.
+      // Configure loop state BEFORE play(). The adapter caches loopStart/
+      // loopEnd/enabled from setLoop(), then TonePlayout.play() sets
+      // Transport.loopStart/loopEnd before transport.start() and defers
+      // transport.loop=true via setTimeout(0) to avoid ghost-tick wrapping.
       if (endTime !== undefined) {
         // Disable Transport loop for duration-limited playback (selection/annotation)
         this._adapter.setLoop(false, this._loopStart, this._loopEnd);
@@ -301,7 +304,15 @@ export class PlaylistEngine {
           this._currentTime >= this._loopStart && this._currentTime < this._loopEnd;
         this._adapter.setLoop(inLoopRegion, this._loopStart, this._loopEnd);
       }
-      this._adapter.play(this._currentTime, endTime);
+      try {
+        this._adapter.play(this._currentTime, endTime);
+      } catch (err) {
+        // Restore state so the engine isn't left with a moved playhead
+        // but no audio. The throw propagates to the caller.
+        this._currentTime = prevCurrentTime;
+        this._playStartPosition = prevPlayStartPosition;
+        throw err;
+      }
     }
 
     this._isPlaying = true;
@@ -372,7 +383,7 @@ export class PlaylistEngine {
     this._loopStart = s;
     this._loopEnd = e;
     this._adapter?.setLoop(
-      this._isLoopEnabled && this._isInLoopRegion(),
+      this._isLoopEnabled && this._shouldActivateTransportLoop(),
       this._loopStart,
       this._loopEnd
     );
@@ -383,7 +394,7 @@ export class PlaylistEngine {
     if (enabled === this._isLoopEnabled) return;
     this._isLoopEnabled = enabled;
     this._adapter?.setLoop(
-      enabled && this._isInLoopRegion(),
+      enabled && this._shouldActivateTransportLoop(),
       this._loopStart,
       this._loopEnd
     );
@@ -458,7 +469,11 @@ export class PlaylistEngine {
     if (this._disposed) return;
     this._disposed = true;
     this._stopTimeUpdateLoop();
-    this._adapter?.dispose();
+    try {
+      this._adapter?.dispose();
+    } catch (err) {
+      console.warn('[waveform-playlist/engine] Error disposing adapter:', err);
+    }
     this._listeners.clear();
   }
 
@@ -484,11 +499,13 @@ export class PlaylistEngine {
   }
 
   /**
-   * Check if the current playback position is inside the loop region.
-   * During playback, reads the adapter's live position; otherwise uses
-   * the engine's stored _currentTime.
+   * Returns whether Transport loop should be active right now.
+   * When not playing, returns true unconditionally — the intent to loop
+   * should be honored when playback starts (play() has its own position
+   * check). During playback, checks if the live position is within the
+   * loop region [loopStart, loopEnd).
    */
-  private _isInLoopRegion(): boolean {
+  private _shouldActivateTransportLoop(): boolean {
     if (!this._isPlaying) return true;
     const t = this._adapter?.getCurrentTime() ?? this._currentTime;
     return t >= this._loopStart && t < this._loopEnd;

@@ -113,7 +113,7 @@ export class ToneTrack {
 
       // Schedule a permanent Transport event at the clip's absolute timeline position.
       // This callback fires on every play and every loop iteration when Transport
-      // passes this point — no StateTimeline, no sync() bugs.
+      // passes this point.
       const absTransportTime = this.track.startTime + clipInfo.startTime;
       const scheduleId = transport.schedule((audioContextTime: number) => {
         // Guard: ghost ticks from stale Clock._lastUpdate can fire this callback
@@ -167,15 +167,6 @@ export class ToneTrack {
   }
 
   /**
-   * Start sources for clips that span the given Transport position.
-   * Used for mid-playback seeking and loop boundary handling where
-   * Transport.schedule() callbacks have already passed.
-   *
-   * Uses strict < for absClipStart to avoid double-creation with
-   * schedule callbacks at exact Transport position (e.g., loopStart).
-   */
-
-  /**
    * Set the schedule guard offset. Schedule callbacks for clips before this
    * offset are suppressed (already handled by startMidClipSources).
    * Must be called before transport.start() and in the loop handler.
@@ -184,6 +175,14 @@ export class ToneTrack {
     this._scheduleGuardOffset = offset;
   }
 
+  /**
+   * Start sources for clips that span the given Transport position.
+   * Used for mid-playback seeking and loop boundary handling where
+   * Transport.schedule() callbacks have already passed.
+   *
+   * Uses strict < for absClipStart to avoid double-creation with
+   * schedule callbacks at exact Transport position (e.g., loopStart).
+   */
   startMidClipSources(transportOffset: number, audioContextTime: number): void {
     for (const { clipInfo, fadeGainNode } of this.scheduledClips) {
       const absClipStart = this.track.startTime + clipInfo.startTime;
@@ -208,8 +207,8 @@ export class ToneTrack {
 
   /**
    * Stop all active AudioBufferSourceNodes and clear the set.
-   * Native sources don't stop automatically on Transport.pause() or Transport.stop()
-   * (unlike synced Players which respond to Transport state changes).
+   * Native AudioBufferSourceNodes ignore Transport state changes —
+   * they must be explicitly stopped.
    */
   stopAllSources(): void {
     this.activeSources.forEach((source) => {
@@ -371,7 +370,6 @@ export class ToneTrack {
   dispose(): void {
     const transport = getTransport();
 
-    // Clean up effects
     if (this.effectsCleanup) {
       try {
         this.effectsCleanup();
@@ -380,7 +378,6 @@ export class ToneTrack {
       }
     }
 
-    // Stop all active sources
     this.stopAllSources();
 
     // Clear Transport schedule events and disconnect native fade gain nodes
@@ -403,7 +400,6 @@ export class ToneTrack {
       }
     });
 
-    // Dispose shared Tone.js track nodes
     try {
       this.volumeNode.dispose();
     } catch (err) {

@@ -42,8 +42,8 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
     });
 
     // If Tone.start() was already called (AudioContext resumed), carry
-    // initialization forward. Tone.start() is global and idempotent —
-    // the promise resolves near-instantly on subsequent calls (already-running context).
+    // initialization forward. Tone.start() is safe to call multiple times —
+    // it resolves immediately if the AudioContext is already running.
     if (_audioInitialized) {
       playout.init().catch((err) => {
         console.warn(
@@ -113,7 +113,13 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
     },
 
     play(startTime: number, endTime?: number): void {
-      if (!playout) return;
+      if (!playout) {
+        console.warn(
+          '[waveform-playlist] adapter.play() called but no playout is available. ' +
+            'Tracks may not have been set, or the adapter was disposed.'
+        );
+        return;
+      }
       const duration = endTime !== undefined ? endTime - startTime : undefined;
       playout.play(now(), startTime, duration);
       // Only set _isPlaying if play() didn't throw

@@ -458,6 +458,19 @@ describe('createToneAdapter', () => {
     });
   });
 
+  describe('play guards', () => {
+    it('play() before setTracks is a no-op (isPlaying stays false)', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const adapter = createToneAdapter();
+      adapter.play(0);
+      expect(adapter.isPlaying()).toBe(false);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('adapter.play() called but no playout is available')
+      );
+      warnSpy.mockRestore();
+    });
+  });
+
   describe('dispose', () => {
     it('disposes playout', () => {
       const adapter = createToneAdapter();

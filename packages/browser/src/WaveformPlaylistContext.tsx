@@ -924,7 +924,11 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       }
     };
 
-    reschedulePlayback();
+    reschedulePlayback().catch((err) => {
+      console.warn('[waveform-playlist] Failed to reschedule playback:', err);
+      setIsPlaying(false);
+      stopAnimationLoop();
+    });
   }, [continuousPlay, isPlaying, startAnimationLoop, stopAnimationLoop, animationFrameRef]);
 
   // Resume playback after tracks change (e.g., after splitting a clip during playback)
@@ -950,8 +954,12 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       }
     };
 
-    resumePlayback();
-  }, [tracks, startAnimationLoop]);
+    resumePlayback().catch((err) => {
+      console.warn('[waveform-playlist] Failed to resume playback after track change:', err);
+      setIsPlaying(false);
+      stopAnimationLoop();
+    });
+  }, [tracks, startAnimationLoop, stopAnimationLoop]);
 
   // Playback controls
   const play = useCallback(
@@ -998,7 +1006,13 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       }
 
       const endTime = playDuration !== undefined ? actualStartTime + playDuration : undefined;
-      engineRef.current.play(actualStartTime, endTime);
+      try {
+        engineRef.current.play(actualStartTime, endTime);
+      } catch (err) {
+        console.warn('[waveform-playlist] Playback failed to start:', err);
+        stopAnimationLoop();
+        return;
+      }
       setIsPlaying(true);
       startAnimationLoop();
     },
