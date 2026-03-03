@@ -218,9 +218,9 @@ const config: Config = {
 
   themeConfig: {
     announcementBar: {
-      id: 'v8_release',
+      id: 'v9_release',
       content:
-        '🎉 <strong>v8 Released!</strong> — Framework-agnostic PlaylistEngine powers all state and playback. Use the engine directly with Svelte, Vue, or vanilla JS. <a href="/waveform-playlist/docs/guides/engine">Engine guide →</a>',
+        '🎉 <strong>v9 Released!</strong> — Drag-and-drop upgraded to <code>@dnd-kit/react</code>. Update your peer dependencies — see the <a href="https://github.com/naomiaro/waveform-playlist/pull/298">migration PR</a> for details.',
       isCloseable: true,
     },
     // Social card image for Open Graph and Twitter
