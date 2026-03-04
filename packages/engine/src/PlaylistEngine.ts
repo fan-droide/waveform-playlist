@@ -392,11 +392,7 @@ export class PlaylistEngine {
   setLoopEnabled(enabled: boolean): void {
     if (enabled === this._isLoopEnabled) return;
     this._isLoopEnabled = enabled;
-    this._adapter?.setLoop(
-      enabled && this._isBeforeLoopEnd(),
-      this._loopStart,
-      this._loopEnd
-    );
+    this._adapter?.setLoop(enabled && this._isBeforeLoopEnd(), this._loopStart, this._loopEnd);
     this._emitStateChange();
   }
 
