@@ -2,25 +2,14 @@
 
 Multi-track audio editor roadmap for waveform-playlist.
 
-**Branch:** `main` | **Last Updated:** 2026-02-28
+**Branch:** `main` | **Last Updated:** 2026-03-03
 
 ---
 
-## ✅ Recently Completed
-
-### Engine State Ownership & Clip Operations (2026-02-28)
-
-- **PR #291:** Engine as single source of truth for selection, loop, volume, selectedTrackId
-- **PR #292:** Extracted useSelectionState, useLoopState, useSelectedTrack, useZoomControls, useMasterVolume hooks with onEngineState() pattern
-- **PR #293:** Delegated clip operations (move, trim, split) to PlaylistEngine — hooks call engine methods instead of inline mutation logic. Added `onTracksChange` prop, `isDraggingRef` for trim safety, `onDragCancel` handler.
-
----
-
-## 🎯 Current TODO
+## 🎯 TODO
 
 ### Testing & CI
 
-- [ ] **Unit tests** - Hooks, components, audio processing (Vitest + RTL)
 - [ ] **CI/CD pipeline** - Automated builds, tests, publishing
 
 ### API Parity
@@ -30,7 +19,6 @@ Multi-track audio editor roadmap for waveform-playlist.
 ### Playback UX
 
 - [ ] **Eager AudioContext resume** — Resume AudioContext on first user interaction (click/keydown) within playlist, before play is pressed. Eliminates ~200-500ms delay on first space bar press. Use `resumeGlobalAudioContext()` (raw context resume), NOT `Tone.start()` which adds ~2s latency on Safari if called redundantly.
-- [ ] **Fix remaining flaky E2E tests** — `annotations.spec.ts` and `effects.spec.ts` still use `waitForTimeout(200)` for playback assertions. Replace with `.toPass({ timeout: 5000 })` retry pattern (already fixed in `stem-tracks.spec.ts`).
 
 ### Nice to Have
 

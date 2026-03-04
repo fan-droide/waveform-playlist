@@ -84,15 +84,9 @@ pnpm publish --filter @waveform-playlist/NEW-PACKAGE --no-git-checks --access pu
 
 **When completing work:**
 
-1. Update TODO.md "Recently Completed" section with date and details
-2. Update CLAUDE.md only if architectural decision or pattern established
-3. Update PROJECT_STRUCTURE.md only if structure/architecture changed
-4. Never add progress/changelog to PROJECT_STRUCTURE.md
-
-**TODO.md Writing Style:**
-
-- **Keep concise** - Brief task descriptions, avoid verbose explanations
-- Save detailed implementation notes for CLAUDE.md or PROJECT_STRUCTURE.md
+1. Update CLAUDE.md only if architectural decision or pattern established
+2. Update PROJECT_STRUCTURE.md only if structure/architecture changed
+3. Never add progress/changelog to PROJECT_STRUCTURE.md
 
 ### Documentation Maintenance
 
@@ -116,8 +110,6 @@ pnpm publish --filter @waveform-playlist/NEW-PACKAGE --no-git-checks --access pu
 - `website/static/llms.txt` — Library discovery page, served at `/llms.txt`. Update when packages, architecture, or key APIs change.
 - `website/docs/api/llm-reference.md` — All TypeScript interfaces from source, no prose. Update when any context type, hook signature, or component prop changes.
 - **Keep both in sync** — When adding new providers or components, update both `llms.txt` and `llm-reference.md`.
-- Recently Completed: Summary with key metrics (e.g., "547KB / 161KB gzipped")
-- Focus on what was done, not how (the code is the "how")
 
 ---
 
