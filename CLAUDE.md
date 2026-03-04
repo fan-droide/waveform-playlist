@@ -369,7 +369,8 @@ Package-specific conventions, architecture, and patterns live in each package's 
 - `packages/recording/CLAUDE.md` — AudioWorklets, Firefox compat, VU meter, mic access
 - `packages/annotations/CLAUDE.md` — Integration context, annotation provider pattern
 - `packages/spectrogram/CLAUDE.md` — Integration context, SpectrogramChannel index
+- `website/CLAUDE.md` — Docusaurus site, CSS pitfalls, custom pages
 
 ---
 
-**Last Updated:** 2026-03-02
+**Last Updated:** 2026-03-03
