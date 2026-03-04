@@ -298,11 +298,10 @@ export class PlaylistEngine {
         // Disable Transport loop for duration-limited playback (selection/annotation)
         this._adapter.setLoop(false, this._loopStart, this._loopEnd);
       } else if (this._isLoopEnabled) {
-        // Only enable Transport loop if starting within the loop region.
-        // Starting outside plays normally to the end (DAW behavior).
-        const inLoopRegion =
-          this._currentTime >= this._loopStart && this._currentTime < this._loopEnd;
-        this._adapter.setLoop(inLoopRegion, this._loopStart, this._loopEnd);
+        // Activate Transport loop if starting before loopEnd. Starting at or
+        // past loopEnd plays to the end without looping (click-past-loop behavior).
+        const beforeLoopEnd = this._currentTime < this._loopEnd;
+        this._adapter.setLoop(beforeLoopEnd, this._loopStart, this._loopEnd);
       }
       try {
         this._adapter.play(this._currentTime, endTime);
@@ -383,7 +382,7 @@ export class PlaylistEngine {
     this._loopStart = s;
     this._loopEnd = e;
     this._adapter?.setLoop(
-      this._isLoopEnabled && this._shouldActivateTransportLoop(),
+      this._isLoopEnabled && this._isBeforeLoopEnd(),
       this._loopStart,
       this._loopEnd
     );
@@ -394,7 +393,7 @@ export class PlaylistEngine {
     if (enabled === this._isLoopEnabled) return;
     this._isLoopEnabled = enabled;
     this._adapter?.setLoop(
-      enabled && this._shouldActivateTransportLoop(),
+      enabled && this._isBeforeLoopEnd(),
       this._loopStart,
       this._loopEnd
     );
@@ -502,21 +501,22 @@ export class PlaylistEngine {
     }
   }
 
-  private _emitStateChange(): void {
-    this._emit('statechange', this.getState());
-  }
-
   /**
-   * Returns whether Transport loop should be active right now.
-   * When not playing, returns true unconditionally — the intent to loop
-   * should be honored when playback starts (play() has its own position
-   * check). During playback, checks if the live position is within the
-   * loop region [loopStart, loopEnd).
+   * Returns whether the current playback position is before loopEnd.
+   * Used by setLoopEnabled/setLoopRegion during playback — if past loopEnd,
+   * Transport loop stays off so playback continues to the end.
+   * Note: play() uses an inline check instead — _isPlaying is still false
+   * when play() runs, and this method returns true unconditionally when
+   * not playing.
    */
-  private _shouldActivateTransportLoop(): boolean {
+  private _isBeforeLoopEnd(): boolean {
     if (!this._isPlaying) return true;
     const t = this._adapter?.getCurrentTime() ?? this._currentTime;
-    return t >= this._loopStart && t < this._loopEnd;
+    return t < this._loopEnd;
+  }
+
+  private _emitStateChange(): void {
+    this._emit('statechange', this.getState());
   }
 
   private _startTimeUpdateLoop(): void {

@@ -224,6 +224,18 @@ export class TonePlayout {
     } catch (err) {
       console.warn('[waveform-playlist] Transport.stop() failed:', err);
     }
+    // Remove loop handler before stopping sources. Prevents any deferred
+    // loop event from creating new sources via startMidClipSources() after
+    // stopAllSources() runs. Defense-in-depth — setLoop(false) should
+    // already have removed it, but stop() must be self-contained.
+    if (this._loopHandler) {
+      try {
+        transport.off('loop', this._loopHandler);
+      } catch (err) {
+        console.warn('[waveform-playlist] Error removing loop handler:', err);
+      }
+      this._loopHandler = null;
+    }
     // Stop all native sources explicitly
     this.tracks.forEach((track) => track.stopAllSources());
     this.tracks.forEach((track) => track.cancelFades());
