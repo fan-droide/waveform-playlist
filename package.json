@@ -15,7 +15,8 @@
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "format": "prettier --write \"packages/**/src/**/*.{ts,tsx}\"",
-    "lint": "eslint \"packages/**/src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"packages/**/src/**/*.{ts,tsx}\"",
+    "lint": "prettier --check \"packages/**/src/**/*.{ts,tsx}\" && eslint \"packages/**/src/**/*.{ts,tsx}\"",
     "website": "pnpm --filter website start",
     "website:build": "pnpm --filter website build",
     "version:bump": "node scripts/bump-version.js"

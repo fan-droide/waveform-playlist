@@ -26,8 +26,5 @@ jobs:
       - name: Build packages
         run: pnpm build
 
-      - name: Lint
+      - name: Lint and check formatting
         run: pnpm lint
-
-      - name: Check formatting
-        run: pnpm prettier --check "packages/**/src/**/*.{ts,tsx}"
