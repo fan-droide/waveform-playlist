@@ -1,7 +1,5 @@
 # Waveform Playlist
 
-[![npm](https://img.shields.io/npm/dm/waveform-playlist.svg)](https://www.npmjs.com/package/waveform-playlist)
-
 A multi-track audio editor and player built with React, Tone.js, and the Web Audio API. Features canvas-based waveform visualization, drag-and-drop clip editing, and professional audio effects.
 
 <p align="center">
