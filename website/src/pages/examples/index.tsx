@@ -307,10 +307,11 @@ export default function Examples(): React.ReactElement {
             Enter the sonic laboratory.<br />
             Each example is a portal to new possibilities.
           </p>
-          <div className={styles.scrollIndicator}>
-            <span>Scroll to explore</span>
-            <div className={styles.scrollArrow}>↓</div>
-          </div>
+        </div>
+
+        <div className={styles.scrollIndicator}>
+          <span>Scroll to explore</span>
+          <div className={styles.scrollArrow}>↓</div>
         </div>
       </div>
 
