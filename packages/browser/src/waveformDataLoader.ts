@@ -113,6 +113,62 @@ export async function getWaveformDataMetadata(src: string): Promise<{
 }
 
 /**
+ * Slice and resample WaveformData with aligned source indices.
+ *
+ * Handles three cases:
+ * 1. Scale differs + offset/duration given → aligned slice then resample
+ * 2. Same scale + offset/duration given → direct slice
+ * 3. No offset/duration → full-file resample (or identity)
+ *
+ * @returns Processed WaveformData ready for peak extraction
+ */
+function sliceAndResample(
+  waveformData: WaveformData,
+  samplesPerPixel: number,
+  offsetSamples?: number,
+  durationSamples?: number
+): WaveformData | null {
+  let processedData = waveformData;
+
+  if (offsetSamples !== undefined && durationSamples !== undefined) {
+    if (processedData.scale !== samplesPerPixel) {
+      const sourceScale = waveformData.scale;
+      const ratio = samplesPerPixel / sourceScale;
+
+      // Compute clip's pixel range in target-scale bins
+      const targetStart = Math.floor(offsetSamples / samplesPerPixel);
+      const targetEnd = Math.ceil((offsetSamples + durationSamples) / samplesPerPixel);
+
+      // Convert to source indices using floor/ceil for inclusive slicing.
+      // For integer ratios (power-of-two scales), this gives exact alignment.
+      // For non-integer ratios, floor/ceil ensures we always include all source
+      // bins that contribute to the target bins — never underrepresenting peaks.
+      const sourceStart = Math.floor(targetStart * ratio);
+      const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
+
+      if (sourceStart >= sourceEnd) {
+        return null; // Clip offset beyond waveform data
+      }
+
+      processedData = processedData.slice({
+        startIndex: sourceStart,
+        endIndex: sourceEnd,
+      });
+      processedData = processedData.resample({ scale: samplesPerPixel });
+    } else {
+      // No resampling needed — slice directly at base scale
+      const startIndex = Math.floor(offsetSamples / samplesPerPixel);
+      const endIndex = Math.ceil((offsetSamples + durationSamples) / samplesPerPixel);
+      processedData = processedData.slice({ startIndex, endIndex });
+    }
+  } else if (processedData.scale !== samplesPerPixel) {
+    processedData = processedData.resample({ scale: samplesPerPixel });
+  }
+
+  return processedData;
+}
+
+/**
  * Extract peaks from a WaveformData object at a specific scale (samplesPerPixel)
  * and optionally slice to a sample range.
  *
@@ -130,21 +186,17 @@ export function extractPeaksFromWaveformData(
   offsetSamples?: number,
   durationSamples?: number
 ): { data: Int8Array | Int16Array; bits: 8 | 16; length: number } {
-  let processedData = waveformData;
+  const processedData = sliceAndResample(
+    waveformData,
+    samplesPerPixel,
+    offsetSamples,
+    durationSamples
+  );
 
-  // Slice if offset/duration specified (using index-based slicing for sample accuracy)
-  if (offsetSamples !== undefined && durationSamples !== undefined) {
-    // Convert samples to waveform data indices
-    // waveformData.scale is the samples per pixel of the source data
-    const sourceScale = waveformData.scale;
-    const startIndex = Math.floor(offsetSamples / sourceScale);
-    const endIndex = Math.ceil((offsetSamples + durationSamples) / sourceScale);
-    processedData = processedData.slice({ startIndex, endIndex });
-  }
-
-  // Resample to target scale if different
-  if (processedData.scale !== samplesPerPixel) {
-    processedData = processedData.resample({ scale: samplesPerPixel });
+  if (processedData === null) {
+    const bits = waveformData.bits as 8 | 16;
+    const emptyPeaks = bits === 8 ? new Int8Array(0) : new Int16Array(0);
+    return { data: emptyPeaks, bits, length: 0 };
   }
 
   // Convert to our peaks format
@@ -185,19 +237,16 @@ export function extractPeaksFromWaveformDataFull(
   offsetSamples?: number,
   durationSamples?: number
 ): PeakData {
-  let processedData = waveformData;
+  const processedData = sliceAndResample(
+    waveformData,
+    samplesPerPixel,
+    offsetSamples,
+    durationSamples
+  );
 
-  // Slice if offset/duration specified
-  if (offsetSamples !== undefined && durationSamples !== undefined) {
-    const sourceScale = waveformData.scale;
-    const startIndex = Math.floor(offsetSamples / sourceScale);
-    const endIndex = Math.ceil((offsetSamples + durationSamples) / sourceScale);
-    processedData = processedData.slice({ startIndex, endIndex });
-  }
-
-  // Resample to target scale if different
-  if (processedData.scale !== samplesPerPixel) {
-    processedData = processedData.resample({ scale: samplesPerPixel });
+  if (processedData === null) {
+    const bits = waveformData.bits as 8 | 16;
+    return { length: 0, data: [], bits };
   }
 
   const numChannels = processedData.channels;

@@ -11,6 +11,11 @@ import { useVisibleChunkIndices } from '../contexts/ScrollViewport';
 import { useClipViewportOrigin } from '../contexts/ClipViewportOrigin';
 import { useChunkedCanvasRefs } from '../hooks/useChunkedCanvasRefs';
 import { MAX_CANVAS_WIDTH } from '@waveform-playlist/core';
+import {
+  aggregatePeaks,
+  calculateBarRects,
+  calculateFirstBarPosition,
+} from '../utils/peakRendering';
 
 // Re-export WaveformColor for consumers
 export type { WaveformColor } from '../wfpl-theme';
@@ -106,8 +111,8 @@ export interface ChannelProps {
   transparentBackground?: boolean;
   /**
    * Drawing mode:
-   * - 'inverted': Draw waveOutlineColor where there's NO audio (current default). Good for gradient bars.
-   * - 'normal': Draw waveFillColor where there IS audio. Good for gradient backgrounds.
+   * - 'inverted': Canvas draws waveOutlineColor where there's NO audio, revealing waveFillColor background as bars (default). Good for gradient bars.
+   * - 'normal': Canvas draws waveFillColor where there IS audio. Use with transparentBackground for progress overlays.
    */
   drawMode?: WaveformDrawMode;
 }
@@ -143,7 +148,6 @@ export const Channel: FunctionComponent<ChannelProps> = (props) => {
 
       const ctx = canvas.getContext('2d');
       const h2 = Math.floor(waveHeight / 2);
-      const maxValue = 2 ** (bits - 1);
 
       if (ctx) {
         ctx.resetTransform();
@@ -166,48 +170,27 @@ export const Channel: FunctionComponent<ChannelProps> = (props) => {
         }
         ctx.fillStyle = createCanvasFillStyle(ctx, fillColor, canvasWidth, waveHeight);
 
-        // Calculate where bars should be drawn in this canvas
-        // by finding where in the global bar pattern this canvas starts
         const canvasStartGlobal = globalPixelOffset;
         const canvasEndGlobal = globalPixelOffset + canvasWidth;
+        const firstBarGlobal = calculateFirstBarPosition(canvasStartGlobal, barWidth, step);
 
-        // Find the first bar that could affect this canvas
-        // A bar at position X extends from X to X+barWidth-1
-        // So we need bars where barStart + barWidth > canvasStartGlobal
-        // Which means barStart > canvasStartGlobal - barWidth
-        const firstBarGlobal = Math.floor((canvasStartGlobal - barWidth + step) / step) * step;
-
-        // Draw bars at the correct positions
         for (
           let barGlobal = Math.max(0, firstBarGlobal);
           barGlobal < canvasEndGlobal;
           barGlobal += step
         ) {
-          const x = barGlobal - canvasStartGlobal; // Local x position in this canvas
+          const x = barGlobal - canvasStartGlobal;
 
           // Skip if the entire bar would be before this canvas
           if (x + barWidth <= 0) continue;
 
-          const peakIndex = barGlobal; // Each pixel position corresponds to a peak
+          const peakEnd = Math.min(barGlobal + step, length);
+          const peak = aggregatePeaks(data, bits, barGlobal, peakEnd);
 
-          if (peakIndex * 2 + 1 < data.length) {
-            const minPeak = data[peakIndex * 2] / maxValue;
-            const maxPeak = data[peakIndex * 2 + 1] / maxValue;
-
-            const min = Math.abs(minPeak * h2);
-            const max = Math.abs(maxPeak * h2);
-
-            if (drawMode === 'normal') {
-              // Normal mode: draw the actual peak bars
-              // Draw from h2-max to h2+min (the actual waveform shape)
-              ctx.fillRect(x, h2 - max, barWidth, max + min);
-            } else {
-              // Inverted mode (default): draw areas WITHOUT audio
-              // This masks the background color to reveal the peaks
-              // draw top region (above max peak)
-              ctx.fillRect(x, 0, barWidth, h2 - max);
-              // draw bottom region (below min peak)
-              ctx.fillRect(x, h2 + min, barWidth, h2 - min);
+          if (peak) {
+            const rects = calculateBarRects(x, barWidth, h2, peak.min, peak.max, drawMode);
+            for (const rect of rects) {
+              ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
             }
           }
         }
@@ -248,9 +231,8 @@ export const Channel: FunctionComponent<ChannelProps> = (props) => {
   });
 
   // Background color depends on draw mode:
-  // Visual result is always: waveOutlineColor = bars, waveFillColor = background
-  // - normal: waveFillColor is background, canvas draws waveOutlineColor bars on top
-  // - inverted: waveFillColor is background, canvas masks with it to reveal waveOutlineColor (bars)
+  // - inverted: waveFillColor background, canvas masks non-audio areas with waveOutlineColor
+  // - normal: waveFillColor background, canvas draws waveFillColor at audio peaks (use with transparentBackground)
   const bgColor = waveFillColor;
   const backgroundCss = transparentBackground ? 'transparent' : waveformColorToCss(bgColor);
 
