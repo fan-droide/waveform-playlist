@@ -164,8 +164,14 @@
 
 /* Navbar - minimal and dark */
 .navbar {
-  backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* backdrop-filter creates a containing block for fixed-position children,
+   which breaks the mobile sidebar (navbar-sidebar) height calculation.
+   Only apply when sidebar is closed. */
+.navbar:not(.navbar-sidebar--show) {
+  backdrop-filter: blur(10px);
 }
 
 .navbar__title {
