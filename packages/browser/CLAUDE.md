@@ -193,6 +193,19 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 
 **Mono merge:** Uses weighted averaging (same as `makeMono` in webaudio-peaks). This is consistent across both packages — do not change to min/max without updating both.
 
+## AudioBuffer Deduplication in Peak Generation
+
+**Decision:** `useWaveformDataCache` deduplicates worker jobs by `AudioBuffer` identity, not clip ID.
+
+**Why:** When a recording is split into many clips sharing the same `AudioBuffer`, per-clip generation causes duplicate `Float32Array.slice()` allocations and OOM on large timelines.
+
+**Implementation:** Three `WeakMap<AudioBuffer, ...>` refs:
+- `generatedByBufferRef` — cached results (`WaveformData`)
+- `inflightByBufferRef` — in-flight worker promises
+- `subscribersByBufferRef` — clip IDs waiting for a buffer's result
+
+**Pattern:** Generate once per buffer, fan out the result to all subscriber clip IDs via `setCache()`. `WeakMap` allows GC when `AudioBuffer` is released.
+
 ## Unit Tests
 
 **Setup:** `vitest` in devDependencies, `vitest.config.ts` (node environment).

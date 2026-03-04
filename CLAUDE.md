@@ -175,7 +175,7 @@ pnpm publish --filter @waveform-playlist/NEW-PACKAGE --no-git-checks --access pu
 
 ### E2E Testing with Playwright
 
-- **Run tests**: `pnpm test`, `pnpm test:ui` (interactive), `pnpm test:headed` (visible browser)
+- **Run tests**: `pnpm test`, `pnpm test:ui` (interactive), `pnpm test:headed` (visible browser). The `test` script is root-only — use `pnpm -w run test` from package directories.
 - **Config**: `playwright.config.ts` - uses `BASE_PATH` and `PORT` env vars
 - **Location**: `e2e/` directory
 
