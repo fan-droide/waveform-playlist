@@ -146,6 +146,9 @@ export interface AudioClip {
    * to MidiToneTrack (PolySynth) instead of ToneTrack (AudioBufferSourceNode).
    */
   midiNotes?: MidiNoteData[];
+
+  /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
+  midiChannel?: number;
 }
 
 /**
@@ -243,6 +246,8 @@ export interface CreateClipOptions {
   sourceDurationSamples?: number;
   /** MIDI note data — passed through to the created AudioClip */
   midiNotes?: MidiNoteData[];
+  /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
+  midiChannel?: number;
 }
 
 /**
@@ -270,6 +275,8 @@ export interface CreateClipOptionsSeconds {
   sourceDuration?: number;
   /** MIDI note data — passed through to the created AudioClip */
   midiNotes?: MidiNoteData[];
+  /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
+  midiChannel?: number;
 }
 
 /**
@@ -307,6 +314,7 @@ export function createClip(options: CreateClipOptions): AudioClip {
     fadeOut,
     waveformData,
     midiNotes,
+    midiChannel,
   } = options;
 
   // Determine sample rate: audioBuffer > explicit option > waveformData
@@ -355,6 +363,7 @@ export function createClip(options: CreateClipOptions): AudioClip {
     fadeOut,
     waveformData,
     midiNotes,
+    midiChannel,
   };
 }
 
@@ -378,6 +387,7 @@ export function createClipFromSeconds(options: CreateClipOptionsSeconds): AudioC
     fadeOut,
     waveformData,
     midiNotes,
+    midiChannel,
   } = options;
 
   // Determine sample rate: audioBuffer > explicit option > waveformData
@@ -421,6 +431,7 @@ export function createClipFromSeconds(options: CreateClipOptionsSeconds): AudioC
     fadeOut,
     waveformData,
     midiNotes,
+    midiChannel,
   });
 }
 

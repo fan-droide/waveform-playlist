@@ -121,7 +121,8 @@ export function useMidiTracks(
       config: MidiTrackConfig,
       notes: MidiNoteData[],
       trackName: string,
-      noteDuration: number
+      noteDuration: number,
+      midiChannel?: number
     ): ClipTrack[] => {
       const sampleRate = config.sampleRate ?? 44100;
       const clipDuration = config.duration ?? noteDuration;
@@ -135,6 +136,7 @@ export function useMidiTracks(
         sampleRate,
         sourceDuration: clipDuration,
         midiNotes: notes,
+        midiChannel,
         name: trackName,
       });
 
@@ -189,7 +191,8 @@ export function useMidiTracks(
                 config,
                 parsedTrack.notes,
                 trackName,
-                parsedTrack.duration
+                parsedTrack.duration,
+                parsedTrack.channel
               );
             });
           } else {

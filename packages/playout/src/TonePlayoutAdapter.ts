@@ -125,6 +125,7 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
           clips: midiClipInfos,
           track: trackObj,
           effects: track.effects,
+          isPercussion: midiClips[0].midiChannel === 9,
         });
       }
     }

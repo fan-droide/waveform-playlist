@@ -4,6 +4,9 @@ import {
   Panner,
   PolySynth,
   Synth,
+  MembraneSynth,
+  MetalSynth,
+  NoiseSynth,
   Part,
   ToneAudioNode,
   getDestination,
@@ -50,6 +53,33 @@ export interface MidiToneTrackOptions {
   effects?: TrackEffectsFunction;
   destination?: ToneAudioNode;
   synthOptions?: Partial<SynthOptions>;
+  /** When true, uses percussion synths (MembraneSynth, NoiseSynth, MetalSynth) */
+  isPercussion?: boolean;
+}
+
+/**
+ * Categorize GM percussion note numbers into synth types.
+ * See: https://www.midi.org/specifications-old/item/gm-level-1-sound-set
+ */
+type DrumCategory = 'kick' | 'snare' | 'cymbal' | 'tom';
+
+function getDrumCategory(midiNote: number): DrumCategory {
+  // Bass drums
+  if (midiNote === 35 || midiNote === 36) return 'kick';
+  // Snare, side stick, clap
+  if (midiNote >= 37 && midiNote <= 40) return 'snare';
+  // Toms (low floor tom through high tom)
+  if (
+    midiNote === 41 ||
+    midiNote === 43 ||
+    midiNote === 45 ||
+    midiNote === 47 ||
+    midiNote === 48 ||
+    midiNote === 50
+  )
+    return 'tom';
+  // Hi-hats, cymbals, bells, tambourine, cowbell, etc.
+  return 'cymbal';
 }
 
 /** Per-clip scheduling info */
@@ -60,7 +90,13 @@ interface ScheduledMidiClip {
 
 export class MidiToneTrack implements PlayableTrack {
   private scheduledClips: ScheduledMidiClip[];
-  private synth: PolySynth;
+  private synth: PolySynth | null = null;
+  // Percussion synths (only created for channel 9)
+  private kickSynth: MembraneSynth | null = null;
+  private snareSynth: NoiseSynth | null = null;
+  private cymbalSynth: MetalSynth | null = null;
+  private tomSynth: MembraneSynth | null = null;
+  private isPercussion: boolean;
   private volumeNode: Volume;
   private panNode: Panner;
   private muteGain: Gain;
@@ -69,18 +105,46 @@ export class MidiToneTrack implements PlayableTrack {
 
   constructor(options: MidiToneTrackOptions) {
     this.track = options.track;
-
-    // Create PolySynth — default to basic Synth voice, customizable via synthOptions
-    this.synth = new PolySynth(Synth, options.synthOptions);
+    this.isPercussion = options.isPercussion ?? false;
 
     // Create shared track-level Tone.js nodes (same chain as ToneTrack)
     this.volumeNode = new Volume(this.gainToDb(options.track.gain));
     this.panNode = new Panner(options.track.stereoPan);
     this.muteGain = new Gain(options.track.muted ? 0 : 1);
-
-    // Chain: Synth → Volume → Pan → MuteGain
-    this.synth.connect(this.volumeNode);
     this.volumeNode.chain(this.panNode, this.muteGain);
+
+    if (this.isPercussion) {
+      // Percussion: separate synths for different drum categories
+      this.kickSynth = new MembraneSynth({
+        pitchDecay: 0.05,
+        octaves: 6,
+        envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.1 },
+      });
+      this.snareSynth = new NoiseSynth({
+        noise: { type: 'white' },
+        envelope: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 },
+      });
+      this.cymbalSynth = new MetalSynth({
+        envelope: { attack: 0.001, decay: 0.3, release: 0.1 },
+        harmonicity: 5.1,
+        modulationIndex: 32,
+        resonance: 4000,
+        octaves: 1.5,
+      });
+      this.tomSynth = new MembraneSynth({
+        pitchDecay: 0.08,
+        octaves: 4,
+        envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.1 },
+      });
+      this.kickSynth.connect(this.volumeNode);
+      this.snareSynth.connect(this.volumeNode);
+      this.cymbalSynth.connect(this.volumeNode);
+      this.tomSynth.connect(this.volumeNode);
+    } else {
+      // Melodic: PolySynth with basic Synth voice
+      this.synth = new PolySynth(Synth, options.synthOptions);
+      this.synth.connect(this.volumeNode);
+    }
 
     // Connect to destination or apply effects chain
     const destination = options.destination || getDestination();
@@ -118,6 +182,7 @@ export class MidiToneTrack implements PlayableTrack {
         return {
           time: absClipStart + clampedStart,
           note: note.name,
+          midi: note.midi,
           duration: Math.max(0, clampedDuration),
           velocity: note.velocity,
         };
@@ -125,7 +190,7 @@ export class MidiToneTrack implements PlayableTrack {
 
       const part = new Part((time, event) => {
         if (event.duration > 0) {
-          this.synth.triggerAttackRelease(event.note, event.duration, time, event.velocity);
+          this.triggerNote(event.midi, event.note, event.duration, time, event.velocity);
         }
       }, partEvents);
 
@@ -134,6 +199,60 @@ export class MidiToneTrack implements PlayableTrack {
 
       return { clipInfo, part };
     });
+  }
+
+  /**
+   * Trigger a note using the appropriate synth.
+   * For percussion, routes to kick/snare/cymbal/tom based on GM drum map.
+   */
+  private triggerNote(
+    midiNote: number,
+    noteName: string,
+    duration: number,
+    time: number,
+    velocity: number
+  ): void {
+    if (this.isPercussion) {
+      // Percussion synths are monophonic — overlapping notes throw.
+      // Wrap in try-catch since missing an occasional overlap is
+      // imperceptible for short percussive hits.
+      const category = getDrumCategory(midiNote);
+      try {
+        switch (category) {
+          case 'kick':
+            this.kickSynth?.triggerAttackRelease('C1', duration, time, velocity);
+            break;
+          case 'snare':
+            this.snareSynth?.triggerAttackRelease(duration, time, velocity);
+            break;
+          case 'tom': {
+            // Map tom notes to different pitches
+            const tomPitches: Record<number, string> = {
+              41: 'G1',
+              43: 'A1',
+              45: 'C2',
+              47: 'D2',
+              48: 'E2',
+              50: 'G2',
+            };
+            this.tomSynth?.triggerAttackRelease(
+              tomPitches[midiNote] || 'C2',
+              duration,
+              time,
+              velocity
+            );
+            break;
+          }
+          case 'cymbal':
+            this.cymbalSynth?.triggerAttackRelease(duration, time, velocity);
+            break;
+        }
+      } catch {
+        // Monophonic overlap — previous note still sounding, skip this hit
+      }
+    } else {
+      this.synth?.triggerAttackRelease(noteName, duration, time, velocity);
+    }
   }
 
   private gainToDb(gain: number): number {
@@ -167,7 +286,8 @@ export class MidiToneTrack implements PlayableTrack {
           if (noteAbsStart < transportOffset && noteAbsEnd > transportOffset) {
             const remainingDuration = noteAbsEnd - transportOffset;
             try {
-              this.synth.triggerAttackRelease(
+              this.triggerNote(
+                note.midi,
                 note.name,
                 remainingDuration,
                 audioContextTime,
@@ -189,8 +309,13 @@ export class MidiToneTrack implements PlayableTrack {
    * Stop all sounding notes and cancel scheduled Part events.
    */
   stopAllSources(): void {
+    const now = getContext().rawContext.currentTime;
     try {
-      this.synth.releaseAll(getContext().rawContext.currentTime);
+      if (this.synth) {
+        this.synth.releaseAll(now);
+      }
+      // Percussion synths don't have releaseAll — they decay naturally.
+      // No explicit stop needed since they have short envelopes.
     } catch (err) {
       console.warn(`[waveform-playlist] Error releasing synth on track "${this.id}":`, err);
     }
@@ -258,11 +383,16 @@ export class MidiToneTrack implements PlayableTrack {
       }
     });
 
-    // Dispose synth and audio nodes
-    try {
-      this.synth.dispose();
-    } catch (err) {
-      console.warn(`[waveform-playlist] Error disposing synth on MIDI track "${this.id}":`, err);
+    // Dispose synth(s) and audio nodes
+    const synthsToDispose = this.isPercussion
+      ? [this.kickSynth, this.snareSynth, this.cymbalSynth, this.tomSynth]
+      : [this.synth];
+    for (const s of synthsToDispose) {
+      try {
+        s?.dispose();
+      } catch (err) {
+        console.warn(`[waveform-playlist] Error disposing synth on MIDI track "${this.id}":`, err);
+      }
     }
     try {
       this.volumeNode.dispose();
