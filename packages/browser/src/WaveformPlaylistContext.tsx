@@ -15,7 +15,12 @@ import {
   type TrackEffectsFunction,
 } from '@waveform-playlist/playout';
 import { PlaylistEngine, type EngineState } from '@waveform-playlist/engine';
-import { type ClipTrack, type Fade, type AnnotationAction } from '@waveform-playlist/core';
+import {
+  type ClipTrack,
+  type Fade,
+  type AnnotationAction,
+  type MidiNoteData,
+} from '@waveform-playlist/core';
 import {
   type TimeFormat,
   type WaveformPlaylistTheme,
@@ -46,6 +51,9 @@ export interface ClipPeaks {
   durationSamples: number;
   fadeIn?: Fade;
   fadeOut?: Fade;
+  midiNotes?: MidiNoteData[];
+  sampleRate?: number;
+  offsetSamples?: number;
 }
 
 export type TrackClipPeaks = ClipPeaks[];
@@ -746,9 +754,14 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
             );
           }
           const numChannels = mono ? 1 : (clip.audioBuffer?.numberOfChannels ?? 1);
+          // MIDI clips: derive pixel width from sample duration so the clip renders
+          // at the correct width instead of zero-width blank tracks.
+          const pixelLength = clip.midiNotes
+            ? Math.ceil(clip.durationSamples / samplesPerPixel)
+            : 0;
           peaks = {
-            length: 0,
-            data: Array.from({ length: numChannels }, () => new Int16Array(0)),
+            length: pixelLength,
+            data: Array.from({ length: numChannels }, () => new Int16Array(pixelLength * 2)),
             bits: 16,
           };
         }
@@ -761,6 +774,9 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
           durationSamples: clip.durationSamples,
           fadeIn: clip.fadeIn,
           fadeOut: clip.fadeOut,
+          midiNotes: clip.midiNotes,
+          sampleRate: clip.sampleRate,
+          offsetSamples: clip.offsetSamples,
         };
       });
 

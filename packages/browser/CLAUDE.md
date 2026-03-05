@@ -206,6 +206,16 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 
 **Pattern:** Generate once per buffer, fan out the result to all subscriber clip IDs via `setCache()`. `WeakMap` allows GC when `AudioBuffer` is released.
 
+## MIDI Clip Rendering Pipeline
+
+**Problem:** MIDI clips have no `audioBuffer` or `waveformData`, so Path C in peak generation gave them `length: 0`, rendering as invisible zero-width clips.
+
+**Fix:** In Path C, detect `clip.midiNotes` and compute `pixelLength = Math.ceil(clip.durationSamples / samplesPerPixel)`.
+
+**Data threading:** `ClipPeaks` includes `midiNotes`, `sampleRate`, `offsetSamples` which flow through `PlaylistVisualization` → `ChannelWithProgress` → `SmartChannel` → `PianoRollChannel`.
+
+**Auto-detection:** `PlaylistVisualization` checks `track.clips.some(c => c.midiNotes?.length > 0)` and sets `effectiveRenderMode` to `'piano-roll'` automatically. Per-clip override: `clip.midiNotes ? 'piano-roll' : effectiveRenderMode`.
+
 ## Unit Tests
 
 **Setup:** `vitest` in devDependencies, `vitest.config.ts` (node environment).

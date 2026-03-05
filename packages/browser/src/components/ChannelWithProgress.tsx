@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import styled from 'styled-components';
+import type { MidiNoteData } from '@waveform-playlist/core';
 import {
   SmartChannel,
   type SmartChannelProps,
@@ -73,6 +74,12 @@ export interface ChannelWithProgressProps extends SmartChannelProps {
   clipStartSample: number;
   /** Duration in samples of the clip */
   clipDurationSamples: number;
+  /** MIDI note data for piano-roll rendering */
+  midiNotes?: MidiNoteData[];
+  /** Sample rate of the clip (for MIDI note positioning) */
+  clipSampleRate?: number;
+  /** Clip offset in seconds (for MIDI note positioning) */
+  clipOffsetSeconds?: number;
 }
 
 /**
@@ -83,6 +90,9 @@ export interface ChannelWithProgressProps extends SmartChannelProps {
 export const ChannelWithProgress: React.FC<ChannelWithProgressProps> = ({
   clipStartSample,
   clipDurationSamples,
+  midiNotes,
+  clipSampleRate,
+  clipOffsetSeconds,
   ...smartChannelProps
 }) => {
   const progressRef = useRef<HTMLDivElement>(null);
@@ -181,11 +191,16 @@ export const ChannelWithProgress: React.FC<ChannelWithProgressProps> = ({
         : theme?.waveOutlineColor || 'grey';
   }
 
-  // Use black background for spectrogram mode
+  // Use black background for spectrogram mode, themed background for piano-roll
   const isSpectrogramMode =
     smartChannelProps.renderMode === 'spectrogram' || smartChannelProps.renderMode === 'both';
+  const isPianoRollMode = smartChannelProps.renderMode === 'piano-roll';
   const isBothMode = smartChannelProps.renderMode === 'both';
-  const backgroundCss = isSpectrogramMode ? '#000' : waveformColorToCss(backgroundColor);
+  const backgroundCss = isSpectrogramMode
+    ? '#000'
+    : isPianoRollMode
+      ? theme?.pianoRollBackgroundColor || '#1a1a2e'
+      : waveformColorToCss(backgroundColor);
 
   // In "both" mode each half (spectrogram + waveform) is waveHeight/2 so the track
   // container stays the same height as a single-mode track.
@@ -226,17 +241,25 @@ export const ChannelWithProgress: React.FC<ChannelWithProgressProps> = ({
           $width={smartChannelProps.length}
         />
       )}
-      {/* Progress overlay - shows played portion with progress color */}
-      <ProgressOverlay
-        ref={progressRef}
-        $color={progressColor}
-        $height={effectiveHeight}
-        $top={effectiveTop}
-        $width={smartChannelProps.length}
-      />
+      {/* Progress overlay - shows played portion with progress color (skip for piano-roll) */}
+      {!isPianoRollMode && (
+        <ProgressOverlay
+          ref={progressRef}
+          $color={progressColor}
+          $height={effectiveHeight}
+          $top={effectiveTop}
+          $width={smartChannelProps.length}
+        />
+      )}
       {/* Waveform canvas with transparent background */}
       <ChannelContainer>
-        <SmartChannel {...smartChannelProps} transparentBackground />
+        <SmartChannel
+          {...smartChannelProps}
+          transparentBackground
+          midiNotes={midiNotes}
+          sampleRate={clipSampleRate}
+          clipOffsetSeconds={clipOffsetSeconds}
+        />
       </ChannelContainer>
     </ChannelWrapper>
   );

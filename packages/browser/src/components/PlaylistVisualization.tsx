@@ -426,10 +426,11 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
                 pan: 0,
               };
 
+              const hasMidiNotes = track.clips.some((c) => c.midiNotes && c.midiNotes.length > 0);
               const effectiveRenderMode =
                 spectrogram?.trackSpectrogramOverrides.get(track.id)?.renderMode ??
                 track.renderMode ??
-                'waveform';
+                (hasMidiNotes ? 'piano-roll' : 'waveform');
 
               const trackControls = renderTrackControls ? (
                 renderTrackControls(trackIndex)
@@ -519,7 +520,11 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
                 <TrackControlsContext.Provider key={track.id} value={trackControls}>
                   <TrackComponent
                     numChannels={maxChannels}
-                    backgroundColor={waveformColorToCss(theme.waveOutlineColor)}
+                    backgroundColor={
+                      effectiveRenderMode === 'piano-roll'
+                        ? theme.pianoRollBackgroundColor || '#1a1a2e'
+                        : waveformColorToCss(theme.waveOutlineColor)
+                    }
                     offset={0}
                     width={tracksFullWidth}
                     hasClipHeaders={showClipHeaders}
@@ -598,7 +603,14 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
                                 isSelected={track.id === selectedTrackId}
                                 clipStartSample={clip.startSample}
                                 clipDurationSamples={clip.durationSamples}
-                                renderMode={effectiveRenderMode}
+                                renderMode={clip.midiNotes ? 'piano-roll' : effectiveRenderMode}
+                                midiNotes={clip.midiNotes}
+                                clipSampleRate={clip.sampleRate}
+                                clipOffsetSeconds={
+                                  clip.offsetSamples != null
+                                    ? clip.offsetSamples / (clip.sampleRate || sampleRate)
+                                    : 0
+                                }
                                 spectrogramData={channelSpectrogram}
                                 samplesPerPixel={samplesPerPixel}
                                 spectrogramColorLUT={helpers?.colorLUT}

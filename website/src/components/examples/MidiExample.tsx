@@ -14,6 +14,7 @@ import {
   PauseButton,
   StopButton,
   AudioPosition,
+  AutomaticScrollCheckbox,
 } from '@waveform-playlist/browser';
 import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
 import { useMidiTracks } from '@waveform-playlist/midi';
@@ -193,13 +194,14 @@ export function MidiExample() {
           <TrackCount>
             {tracks.length} track{tracks.length !== 1 ? 's' : ''}
           </TrackCount>
+          <AutomaticScrollCheckbox />
           <ToggleLabel>
             Flatten
             <ToggleSwitch $active={flatten} onClick={() => setFlatten((f) => !f)} />
           </ToggleLabel>
         </Controls>
 
-        <Waveform />
+        <Waveform automaticScroll />
       </WaveformPlaylistProvider>
     </Container>
   );

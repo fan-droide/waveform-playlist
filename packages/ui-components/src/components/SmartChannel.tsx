@@ -1,8 +1,9 @@
 import React, { FunctionComponent } from 'react';
 import { useDevicePixelRatio, usePlaylistInfo, useTheme } from '../contexts';
 import { Channel } from './Channel';
+import { PianoRollChannel } from './PianoRollChannel';
 import { SpectrogramChannel, type SpectrogramWorkerCanvasApi } from './SpectrogramChannel';
-import type { SpectrogramData, RenderMode } from '@waveform-playlist/core';
+import type { SpectrogramData, RenderMode, MidiNoteData } from '@waveform-playlist/core';
 
 export interface SmartChannelProps {
   className?: string;
@@ -33,6 +34,12 @@ export interface SmartChannelProps {
   spectrogramClipId?: string;
   /** Callback when canvases are registered with the worker */
   spectrogramOnCanvasesReady?: (canvasIds: string[], canvasWidths: number[]) => void;
+  /** MIDI note data for piano-roll rendering */
+  midiNotes?: MidiNoteData[];
+  /** Sample rate for MIDI note time → pixel conversion */
+  sampleRate?: number;
+  /** Clip offset in seconds for MIDI note positioning */
+  clipOffsetSeconds?: number;
 }
 
 export const SmartChannel: FunctionComponent<SmartChannelProps> = ({
@@ -48,10 +55,19 @@ export const SmartChannel: FunctionComponent<SmartChannelProps> = ({
   spectrogramWorkerApi,
   spectrogramClipId,
   spectrogramOnCanvasesReady,
+  midiNotes,
+  sampleRate: sampleRateProp,
+  clipOffsetSeconds,
   ...props
 }) => {
   const theme = useTheme();
-  const { waveHeight, barWidth, barGap, samplesPerPixel: contextSpp } = usePlaylistInfo();
+  const {
+    waveHeight,
+    barWidth,
+    barGap,
+    samplesPerPixel: contextSpp,
+    sampleRate: contextSampleRate,
+  } = usePlaylistInfo();
   const devicePixelRatio = useDevicePixelRatio();
   const samplesPerPixel = sppProp ?? contextSpp;
 
@@ -131,6 +147,26 @@ export const SmartChannel: FunctionComponent<SmartChannelProps> = ({
           />
         </div>
       </>
+    );
+  }
+
+  if (renderMode === 'piano-roll') {
+    return (
+      <PianoRollChannel
+        index={props.index}
+        midiNotes={midiNotes ?? []}
+        length={props.length}
+        waveHeight={waveHeight}
+        devicePixelRatio={devicePixelRatio}
+        samplesPerPixel={samplesPerPixel}
+        sampleRate={sampleRateProp ?? contextSampleRate}
+        clipOffsetSeconds={clipOffsetSeconds ?? 0}
+        noteColor={theme?.pianoRollNoteColor}
+        selectedNoteColor={theme?.pianoRollSelectedNoteColor}
+        isSelected={isSelected}
+        transparentBackground={transparentBackground}
+        backgroundColor={theme?.pianoRollBackgroundColor}
+      />
     );
   }
 

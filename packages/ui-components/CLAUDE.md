@@ -127,6 +127,20 @@
 
 **Implementation:** Peak rendering math is extracted into pure functions in `src/utils/peakRendering.ts` (`aggregatePeaks`, `calculateBarRects`, `calculateFirstBarPosition`), tested in `src/__tests__/peakRendering.test.ts` (22 tests). Channel.tsx imports and calls these helpers in its `useLayoutEffect`.
 
+## PianoRollChannel (MIDI Visualization)
+
+**Decision:** Canvas-based MIDI note rendering as a third rendering mode alongside waveform and spectrogram.
+
+**Pattern:** Follows `Channel.tsx` exactly — chunked canvases via `useVisibleChunkIndices` + `useChunkedCanvasRefs` + `useClipViewportOrigin`. Same styled-components `.attrs()` pattern for frequently changing props.
+
+**Props:** `midiNotes`, `sampleRate`, `clipOffsetSeconds` flow through `SmartChannel` (which branches on `renderMode === 'piano-roll'`).
+
+**Note rendering:** Velocity maps to opacity (0.3–1.0), pitch range auto-fits to actual data (not full 0-127), minimum 2px note width/height.
+
+**Theme colors:** `pianoRollNoteColor`, `pianoRollSelectedNoteColor`, `pianoRollBackgroundColor` in `WaveformPlaylistTheme`.
+
+**Location:** `src/components/PianoRollChannel.tsx`
+
 ## Important Patterns (UI-Specific)
 
 - **Stable React Keys for Tracks/Clips** - Always use `track.id` / `clip.clipId` as React keys, never array indices. Index-based keys cause DOM reuse on removal, breaking `transferControlToOffscreen()` (can only be called once per canvas) and causing stale OffscreenCanvas references.
