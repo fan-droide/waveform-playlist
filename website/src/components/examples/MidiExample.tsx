@@ -43,6 +43,7 @@ const darkThemeOverrides: Partial<WaveformPlaylistTheme> = {
     ],
   },
   selectedWaveFillColor: '#241c14',
+  playlistBackgroundColor: '#0d0d14',
 };
 
 const lightThemeOverrides: Partial<WaveformPlaylistTheme> = {
@@ -68,6 +69,7 @@ const lightThemeOverrides: Partial<WaveformPlaylistTheme> = {
       { offset: 1, color: '#4a9e9e' },
     ],
   },
+  playlistBackgroundColor: '#1a1a2e',
 };
 
 const Controls = styled.div`

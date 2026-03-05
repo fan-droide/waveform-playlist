@@ -377,7 +377,9 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
       >
         <Playlist
           theme={theme}
-          backgroundColor={waveformColorToCss(theme.waveOutlineColor)}
+          backgroundColor={
+            theme.playlistBackgroundColor || waveformColorToCss(theme.waveOutlineColor)
+          }
           timescaleBackgroundColor={theme.timescaleBackgroundColor}
           scrollContainerWidth={tracksFullWidth + (controls.show ? controls.width : 0)}
           timescaleWidth={tracksFullWidth}

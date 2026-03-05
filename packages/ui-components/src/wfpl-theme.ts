@@ -130,6 +130,9 @@ export interface WaveformPlaylistTheme {
   annotationResizeHandleActiveColor: string;
   annotationTextItemHoverBackground: string;
 
+  // Playlist container background (falls back to waveOutlineColor when unset)
+  playlistBackgroundColor?: string;
+
   // Piano roll colors (MIDI visualization)
   pianoRollNoteColor: string;
   pianoRollSelectedNoteColor: string;
