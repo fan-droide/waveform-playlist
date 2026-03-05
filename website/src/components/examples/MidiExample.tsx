@@ -15,6 +15,7 @@ import {
   StopButton,
   AudioPosition,
   AutomaticScrollCheckbox,
+  usePlaybackShortcuts,
 } from '@waveform-playlist/browser';
 import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
 import { useMidiTracks } from '@waveform-playlist/midi';
@@ -122,12 +123,6 @@ const ToggleSwitch = styled.div<{ $active: boolean }>`
   }
 `;
 
-const TrackCount = styled.span`
-  font-size: 0.8rem;
-  color: var(--ifm-color-emphasis-500, #868e96);
-  font-variant-numeric: tabular-nums;
-`;
-
 const InfoBanner = styled.div`
   padding: 0.75rem 1rem;
   margin-bottom: 1rem;
@@ -137,6 +132,11 @@ const InfoBanner = styled.div`
   font-size: 0.85rem;
   color: var(--ifm-color-emphasis-700, #495057);
 `;
+
+function PlaybackShortcuts() {
+  usePlaybackShortcuts();
+  return null;
+}
 
 export function MidiExample() {
   const { theme, isDarkMode } = useDocusaurusTheme();
@@ -183,6 +183,7 @@ export function MidiExample() {
         waveHeight={100}
         timescale
       >
+        <PlaybackShortcuts />
         <Controls>
           <PlayButton />
           <PauseButton />
@@ -193,9 +194,6 @@ export function MidiExample() {
               Loading ({loadedCount}/{totalCount})...
             </span>
           )}
-          <TrackCount>
-            {tracks.length} track{tracks.length !== 1 ? 's' : ''}
-          </TrackCount>
           <AutomaticScrollCheckbox />
           <ToggleLabel>
             Flatten
