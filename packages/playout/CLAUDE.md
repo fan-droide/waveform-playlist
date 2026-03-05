@@ -68,6 +68,8 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **PolySynth type casting:** `new PolySynth(MembraneSynth, { voice, options } as never)` — Tone.js PolySynth constructor types are designed around `Synth`; wrapping other voice classes requires `as never` cast. Runtime behavior is correct.
 
+**PolySynth calling convention:** Wrapping a monophonic synth changes the API — `MetalSynth.triggerAttackRelease(duration, time, velocity)` becomes `PolySynth<MetalSynth>.triggerAttackRelease(note, duration, time, velocity)`. Missing the note arg passes duration as frequency (e.g., 0.06 Hz = inaudible).
+
 **Test mocking:** `src/__tests__/MidiToneTrack.test.ts` uses a `polySynthCallCount` counter in the PolySynth mock to differentiate melodic (first call) from percussion synths (subsequent calls). Reset in `beforeEach`.
 
 ## Tone.js Type Gotchas
