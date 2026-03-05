@@ -334,6 +334,9 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   // Provider-level ref for scroll-position math and animation loop pixel
   // calculation. Distinct from useZoomControls's internal ref (statechange guard).
   const samplesPerPixelRef = useRef<number>(initialSamplesPerPixel);
+  // Effective sample rate for scroll/zoom calculations. Updated each render.
+  // Derived from audioBuffers or first clip's sampleRate (supports MIDI-only playlists).
+  const sampleRateRef = useRef<number>(44100);
 
   // Custom hooks — engine-owned state delegated to hooks with onEngineState() pattern
   const { timeFormat, setTimeFormat, formatTime } = useTimeFormat();
@@ -424,7 +427,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
 
   // Adjust scroll position proportionally when zoom changes
   useEffect(() => {
-    if (!scrollContainerRef.current || !audioBuffers.length) return;
+    if (!scrollContainerRef.current || duration === 0) return;
 
     const container = scrollContainerRef.current;
     const oldSamplesPerPixel = samplesPerPixelRef.current;
@@ -437,7 +440,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     const containerWidth = container.clientWidth;
     const currentScrollLeft = container.scrollLeft;
     const centerPixel = currentScrollLeft + containerWidth / 2 - controlWidth;
-    const sr = audioBuffers[0].sampleRate;
+    const sr = sampleRateRef.current;
     const centerTime = (centerPixel * oldSamplesPerPixel) / sr;
 
     // Calculate new scroll position to keep the same center time
@@ -446,7 +449,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
 
     container.scrollLeft = newScrollLeft;
     samplesPerPixelRef.current = newSamplesPerPixel;
-  }, [samplesPerPixel, audioBuffers, controls]);
+  }, [samplesPerPixel, duration, controls]);
 
   // Track pending playback resume after tracks change
   const pendingResumeRef = useRef<{ position: number } | null>(null);
@@ -737,7 +740,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         // Use correct channel count from audioBuffer to prevent track height shift
         // when peaks arrive (mono mode collapses to 1 channel).
         if (!peaks) {
-          if (!clip.audioBuffer && !clip.waveformData) {
+          if (!clip.audioBuffer && !clip.waveformData && !clip.midiNotes) {
             console.warn(
               `[waveform-playlist] Clip "${clip.id}" has no audio data or waveform data`
             );
@@ -835,9 +838,9 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       }
 
       // Handle automatic scroll - continuously center the playhead
-      if (isAutomaticScrollRef.current && scrollContainerRef.current && audioBuffers.length > 0) {
+      if (isAutomaticScrollRef.current && scrollContainerRef.current && duration > 0) {
         const container = scrollContainerRef.current;
-        const sr = audioBuffers[0].sampleRate;
+        const sr = sampleRateRef.current;
         const pixelPosition = (time * sr) / samplesPerPixelRef.current;
         const containerWidth = container.clientWidth;
 
@@ -883,7 +886,6 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     startAnimationFrameLoop(updateTime);
   }, [
     duration,
-    audioBuffers,
     controls.show,
     controls.width,
     setActiveAnnotationId,
@@ -964,7 +966,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   // Playback controls
   const play = useCallback(
     async (startTime?: number, playDuration?: number) => {
-      if (!engineRef.current || audioBuffers.length === 0) return;
+      if (!engineRef.current || duration === 0) return;
 
       const actualStartTime = startTime ?? currentTimeRef.current;
       playStartPositionRef.current = actualStartTime;
@@ -1016,7 +1018,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       setIsPlaying(true);
       startAnimationLoop();
     },
-    [audioBuffers.length, startAnimationLoop, stopAnimationLoop]
+    [duration, startAnimationLoop, stopAnimationLoop]
   );
 
   const pause = useCallback(() => {
@@ -1178,7 +1180,10 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     []
   );
 
-  const sampleRate = audioBuffers[0]?.sampleRate || 44100;
+  // Derive sampleRate from the first available clip (works for both audio and MIDI clips).
+  // MIDI clips use sampleRate purely for sample-based timeline positioning (default 44100).
+  const sampleRate = audioBuffers[0]?.sampleRate || tracks[0]?.clips[0]?.sampleRate || 44100;
+  sampleRateRef.current = sampleRate;
   const timeScaleHeight = timescale ? 30 : 0;
   const minimumPlaylistHeight = tracks.length * waveHeight + timeScaleHeight;
 

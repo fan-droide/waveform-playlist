@@ -66,12 +66,20 @@ export function parseMidiFile(data: ArrayBuffer, options: ParseMidiOptions = {})
     .filter((track) => track.notes.length > 0)
     .map((track) => {
       const notes = mapNotes(track);
+      const instrument = track.instrument.name;
+      // Prefer instrument name (e.g. "acoustic guitar (steel)") over track name,
+      // which in many MIDI files contains metadata (artist, title fragments).
+      // Fall back to track name, then channel number.
+      const name =
+        instrument !== 'acoustic grand piano'
+          ? instrument
+          : track.name.trim() || `Channel ${track.channel + 1}`;
       return {
-        name: track.name || `Channel ${track.channel + 1}`,
+        name,
         notes,
         duration: getTrackDuration(notes),
         channel: track.channel,
-        instrument: track.instrument.name,
+        instrument,
       };
     });
 

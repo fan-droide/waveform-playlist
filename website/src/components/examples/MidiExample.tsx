@@ -144,7 +144,6 @@ export function MidiExample() {
     () => [
       {
         src: '/waveform-playlist/media/midi/RedHotChiliPeppers-Otherside.mid',
-        name: 'Otherside',
         flatten,
       },
     ],
@@ -177,6 +176,9 @@ export function MidiExample() {
         mono
         theme={{ ...theme, ...gradientTheme }}
         progressBarWidth={2}
+        controls={{ show: true, width: 200 }}
+        waveHeight={100}
+        timescale
       >
         <Controls>
           <PlayButton />
