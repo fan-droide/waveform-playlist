@@ -39,6 +39,7 @@ function mapNotes(track: Midi['tracks'][number]): MidiNoteData[] {
     time: note.time,
     duration: note.duration,
     velocity: note.velocity,
+    channel: track.channel,
   }));
 }
 

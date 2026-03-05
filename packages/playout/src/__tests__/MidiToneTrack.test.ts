@@ -6,6 +6,17 @@ const mockTriggerAttackRelease = vi.fn();
 const mockSynthConnect = vi.fn();
 const mockSynthDispose = vi.fn();
 
+// Separate mocks for percussion synths to verify per-note routing
+const mockPercTriggerAttackRelease = vi.fn();
+const mockPercReleaseAll = vi.fn();
+const mockPercConnect = vi.fn();
+const mockPercDispose = vi.fn();
+
+// NoiseSynth (monophonic, not wrapped in PolySynth)
+const mockNoiseTriggerAttackRelease = vi.fn();
+const mockNoiseConnect = vi.fn();
+const mockNoiseDispose = vi.fn();
+
 const mockPartStart = vi.fn();
 const mockPartDispose = vi.fn();
 const mockPartInstances: Array<{
@@ -23,14 +34,36 @@ const mockMuteGainValue = { value: 1 };
 const mockMuteGainGain = { ...mockMuteGainValue, value: 1 };
 const mockConnect = vi.fn();
 
+// Track which PolySynth gets which voice class to differentiate melodic vs percussion
+let polySynthCallCount = 0;
+
 vi.mock('tone', () => ({
-  PolySynth: vi.fn().mockImplementation(() => ({
-    connect: mockSynthConnect,
-    releaseAll: mockReleaseAll,
-    triggerAttackRelease: mockTriggerAttackRelease,
-    dispose: mockSynthDispose,
-  })),
+  PolySynth: vi.fn().mockImplementation(() => {
+    polySynthCallCount++;
+    // First call = melodic synth, subsequent = percussion PolySynth wrappers
+    if (polySynthCallCount === 1) {
+      return {
+        connect: mockSynthConnect,
+        releaseAll: mockReleaseAll,
+        triggerAttackRelease: mockTriggerAttackRelease,
+        dispose: mockSynthDispose,
+      };
+    }
+    return {
+      connect: mockPercConnect,
+      releaseAll: mockPercReleaseAll,
+      triggerAttackRelease: mockPercTriggerAttackRelease,
+      dispose: mockPercDispose,
+    };
+  }),
   Synth: vi.fn(),
+  MembraneSynth: vi.fn(),
+  MetalSynth: vi.fn(),
+  NoiseSynth: vi.fn().mockImplementation(() => ({
+    connect: mockNoiseConnect,
+    triggerAttackRelease: mockNoiseTriggerAttackRelease,
+    dispose: mockNoiseDispose,
+  })),
   Part: vi.fn().mockImplementation((callback: (...args: unknown[]) => void, events: unknown[]) => {
     const instance = {
       callback,
@@ -113,13 +146,18 @@ describe('MidiToneTrack', () => {
     vi.clearAllMocks();
     mockPartInstances.length = 0;
     mockMuteGainGain.value = 1;
+    polySynthCallCount = 0;
   });
 
   describe('construction', () => {
-    it('creates a PolySynth and connects to Volume node', () => {
+    it('creates melodic and percussion synths, connects to Volume node', () => {
       createTrack();
 
+      // Melodic PolySynth connects
       expect(mockSynthConnect).toHaveBeenCalled();
+      // Percussion synths connect (kick, snare, cymbal, tom)
+      expect(mockPercConnect).toHaveBeenCalled();
+      expect(mockNoiseConnect).toHaveBeenCalled();
       expect(mockVolumeChain).toHaveBeenCalled();
     });
 
@@ -228,10 +266,13 @@ describe('MidiToneTrack', () => {
   });
 
   describe('stopAllSources', () => {
-    it('calls synth.releaseAll', () => {
+    it('calls releaseAll on melodic and percussion PolySynths', () => {
       const track = createTrack();
       track.stopAllSources();
+      // Melodic synth
       expect(mockReleaseAll).toHaveBeenCalledWith(0);
+      // Percussion PolySynths (kick, cymbal, tom)
+      expect(mockPercReleaseAll).toHaveBeenCalledWith(0);
     });
   });
 
@@ -312,11 +353,17 @@ describe('MidiToneTrack', () => {
       expect(mockPartDispose).toHaveBeenCalled();
     });
 
-    it('disposes synth and audio nodes', () => {
+    it('disposes all synths and audio nodes', () => {
       const track = createTrack();
       track.dispose();
 
+      // Melodic PolySynth
       expect(mockSynthDispose).toHaveBeenCalled();
+      // Percussion PolySynths (kick, cymbal, tom)
+      expect(mockPercDispose).toHaveBeenCalled();
+      // NoiseSynth (snare)
+      expect(mockNoiseDispose).toHaveBeenCalled();
+      // Audio nodes
       expect(mockVolumeDispose).toHaveBeenCalled();
       expect(mockPannerDispose).toHaveBeenCalled();
       expect(mockGainDispose).toHaveBeenCalled();

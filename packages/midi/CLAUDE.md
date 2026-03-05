@@ -39,6 +39,10 @@ One MIDI config can produce multiple `ClipTrack` objects. A `.mid` file with N M
 
 The `loadedTracksMap` stores `ClipTrack[]` per config index (not single `ClipTrack`), and `buildTracksArray()` flattens in config order.
 
+### Per-Note Channel Field
+
+`MidiNoteData.channel` (optional, 0-indexed) is set by `mapNotes()` from `track.channel`. This preserves channel identity when `flatten: true` merges all tracks — percussion notes (channel 9) remain routable to percussion synths in `MidiToneTrack` even in a mixed-channel clip.
+
 ### MIDI Has No Native Sample Rate
 
 MIDI is event-based, not sample-based. The `sampleRate` config option (default 44100) is used purely for sample-based timeline positioning math in `createClipFromSeconds()`. The actual audio synthesis sample rate is determined by the `AudioContext` in the playout layer.

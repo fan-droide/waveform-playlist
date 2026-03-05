@@ -522,6 +522,8 @@ export interface MidiNoteData {
   duration: number;
   /** Velocity (0-1 normalized) */
   velocity: number;
+  /** MIDI channel (0-indexed). Channel 9 = GM percussion. Enables per-note routing in flattened tracks. */
+  channel?: number;
 }
 
 /**

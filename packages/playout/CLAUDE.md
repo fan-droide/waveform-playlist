@@ -58,6 +58,18 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **Loop handler cleanup in `stop()`:** `stop()` removes the loop handler (`transport.off('loop', ...)`) and nulls `_loopHandler` BEFORE calling `stopAllSources()`. This prevents a race condition where a loop event fires during `transport.stop()` processing, creating new sources via `startMidClipSources()` after cleanup. The handler is removed independently of `setLoop(false)` for defense-in-depth — `stop()` must be self-contained.
 
+## MidiToneTrack (MIDI Playback)
+
+**Location:** `src/MidiToneTrack.ts`
+
+**Architecture:** Always creates both melodic (`PolySynth<Synth>`) and percussion synths. Per-note routing uses `MidiNoteData.channel` — channel 9 → percussion, others → melodic. This enables flattened tracks (mixed channels) to play correctly.
+
+**Percussion synths:** `PolySynth<MembraneSynth>` (kick, tom), `PolySynth<MetalSynth>` (cymbals/hi-hats), `NoiseSynth` (snare, monophonic with try-catch). PolySynth wrappers are required because `MembraneSynth` and `MetalSynth` extend `Monophonic` — rapid notes (e.g., 953 hi-hat hits) throw "Start time must be strictly greater" and go silent without polyphony.
+
+**PolySynth type casting:** `new PolySynth(MembraneSynth, { voice, options } as never)` — Tone.js PolySynth constructor types are designed around `Synth`; wrapping other voice classes requires `as never` cast. Runtime behavior is correct.
+
+**Test mocking:** `src/__tests__/MidiToneTrack.test.ts` uses a `polySynthCallCount` counter in the PolySynth mock to differentiate melodic (first call) from percussion synths (subsequent calls). Reset in `beforeEach`.
+
 ## Tone.js Type Gotchas
 
 **Gain generic mismatch:** `Volume.input` is `Gain<"decibels">` but plain `Gain` import defaults to `Gain<"gain">`. Accessing native input requires double cast: `(this.volumeNode.input as unknown as Gain).input`.
