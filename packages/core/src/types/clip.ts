@@ -139,6 +139,13 @@ export interface AudioClip {
    * Load with: `const waveformData = await loadWaveformData('/path/to/peaks.dat')`
    */
   waveformData?: WaveformDataObject;
+
+  /**
+   * MIDI note data — when present, this clip plays MIDI instead of audio.
+   * The playout adapter uses this field to detect MIDI clips and route them
+   * to MidiToneTrack (PolySynth) instead of ToneTrack (AudioBufferSourceNode).
+   */
+  midiNotes?: MidiNoteData[];
 }
 
 /**
@@ -478,6 +485,24 @@ export function createTimeline(
  */
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * MIDI note data for clips that play MIDI instead of audio.
+ * When present on an AudioClip, the clip is treated as a MIDI clip
+ * by the playout adapter.
+ */
+export interface MidiNoteData {
+  /** MIDI note number (0-127) */
+  midi: number;
+  /** Note name in scientific pitch notation ("C4", "G#3") */
+  name: string;
+  /** Start time in seconds, relative to clip start */
+  time: number;
+  /** Duration in seconds */
+  duration: number;
+  /** Velocity (0-1 normalized) */
+  velocity: number;
 }
 
 /**

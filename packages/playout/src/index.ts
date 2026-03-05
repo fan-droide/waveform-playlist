@@ -1,5 +1,7 @@
 export { TonePlayout } from './TonePlayout';
 export { ToneTrack } from './ToneTrack';
+export { MidiToneTrack } from './MidiToneTrack';
+export type { PlayableTrack, MidiClipInfo, MidiToneTrackOptions } from './MidiToneTrack';
 export type { TonePlayoutOptions, EffectsFunction } from './TonePlayout';
 export type { ToneTrackOptions, TrackEffectsFunction } from './ToneTrack';
 
