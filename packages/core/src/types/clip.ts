@@ -241,6 +241,8 @@ export interface CreateClipOptions {
   sampleRate?: number;
   /** Total source audio duration in samples - required if audioBuffer not provided */
   sourceDurationSamples?: number;
+  /** MIDI note data — passed through to the created AudioClip */
+  midiNotes?: MidiNoteData[];
 }
 
 /**
@@ -266,6 +268,8 @@ export interface CreateClipOptionsSeconds {
   sampleRate?: number;
   /** Total source audio duration in seconds - required if audioBuffer not provided */
   sourceDuration?: number;
+  /** MIDI note data — passed through to the created AudioClip */
+  midiNotes?: MidiNoteData[];
 }
 
 /**
@@ -302,6 +306,7 @@ export function createClip(options: CreateClipOptions): AudioClip {
     fadeIn,
     fadeOut,
     waveformData,
+    midiNotes,
   } = options;
 
   // Determine sample rate: audioBuffer > explicit option > waveformData
@@ -349,6 +354,7 @@ export function createClip(options: CreateClipOptions): AudioClip {
     fadeIn,
     fadeOut,
     waveformData,
+    midiNotes,
   };
 }
 
@@ -371,6 +377,7 @@ export function createClipFromSeconds(options: CreateClipOptionsSeconds): AudioC
     fadeIn,
     fadeOut,
     waveformData,
+    midiNotes,
   } = options;
 
   // Determine sample rate: audioBuffer > explicit option > waveformData
@@ -413,6 +420,7 @@ export function createClipFromSeconds(options: CreateClipOptionsSeconds): AudioC
     fadeIn,
     fadeOut,
     waveformData,
+    midiNotes,
   });
 }
 
