@@ -99,6 +99,12 @@ const { result } = renderHook(() => useMidiTracks(configs));
 const { result } = renderHook(() => useMidiTracks([{ midiNotes: notes }]));
 ```
 
+### Flatten Is Visual-Only (Planned)
+
+Flatten merges `midiNotes` into one visual track but keeps separate `ClipTrack` objects per channel for audio playback. Remaining tracks use `hidden: true` so they produce audio without rendering.
+
+**Why not single-track flatten:** Separate `PolySynth` instances per channel create natural chorus/phase thickening. A single synth playing all notes sounds perceptibly thinner, even though all notes are present and polyphony (peak: 19 concurrent) is well within limits (default: 32).
+
 ## Dependencies
 
 - **`@tonejs/midi`** — Regular dependency (not peer). The whole reason this package exists.
