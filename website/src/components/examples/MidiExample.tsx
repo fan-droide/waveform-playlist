@@ -1,0 +1,204 @@
+/**
+ * MIDI Playback Example
+ *
+ * Demonstrates loading a .mid file via @waveform-playlist/midi,
+ * with a toggle to switch between multi-track and flattened modes.
+ */
+
+import React from 'react';
+import styled from 'styled-components';
+import {
+  WaveformPlaylistProvider,
+  Waveform,
+  PlayButton,
+  PauseButton,
+  StopButton,
+  AudioPosition,
+} from '@waveform-playlist/browser';
+import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
+import { useMidiTracks } from '@waveform-playlist/midi';
+import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
+
+const darkThemeOverrides: Partial<WaveformPlaylistTheme> = {
+  waveformDrawMode: 'inverted',
+  waveOutlineColor: {
+    type: 'linear',
+    direction: 'vertical',
+    stops: [
+      { offset: 0, color: '#d4a574' },
+      { offset: 0.5, color: '#c49a6c' },
+      { offset: 1, color: '#d4a574' },
+    ],
+  },
+  waveFillColor: '#1a1612',
+  waveProgressColor: 'rgba(100, 70, 40, 0.5)',
+  selectedWaveOutlineColor: {
+    type: 'linear',
+    direction: 'vertical',
+    stops: [
+      { offset: 0, color: '#e8c090' },
+      { offset: 0.5, color: '#d4a87c' },
+      { offset: 1, color: '#e8c090' },
+    ],
+  },
+  selectedWaveFillColor: '#241c14',
+};
+
+const lightThemeOverrides: Partial<WaveformPlaylistTheme> = {
+  waveformDrawMode: 'normal',
+  waveOutlineColor: '#f5f5f5',
+  waveFillColor: {
+    type: 'linear',
+    direction: 'vertical',
+    stops: [
+      { offset: 0, color: '#3d8b8b' },
+      { offset: 0.5, color: '#2a7070' },
+      { offset: 1, color: '#3d8b8b' },
+    ],
+  },
+  waveProgressColor: 'rgba(42, 112, 112, 0.3)',
+  selectedWaveOutlineColor: '#e8e8e8',
+  selectedWaveFillColor: {
+    type: 'linear',
+    direction: 'vertical',
+    stops: [
+      { offset: 0, color: '#4a9e9e' },
+      { offset: 0.5, color: '#3d8b8b' },
+      { offset: 1, color: '#4a9e9e' },
+    ],
+  },
+};
+
+const Controls = styled.div`
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 1rem;
+  background: var(--ifm-background-surface-color, #f8f9fa);
+  border: 1px solid var(--ifm-color-emphasis-300, #dee2e6);
+  border-radius: 0.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+`;
+
+const Container = styled.div`
+  max-width: 1400px;
+  margin: 0 auto;
+`;
+
+const ToggleLabel = styled.label`
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--ifm-color-emphasis-700, #495057);
+  user-select: none;
+  margin-left: auto;
+`;
+
+const ToggleSwitch = styled.div<{ $active: boolean }>`
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  background: ${(props) =>
+    props.$active ? 'var(--ifm-color-primary, #3d8b8b)' : 'var(--ifm-color-emphasis-400, #adb5bd)'};
+  transition: background 0.2s;
+
+  &::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: ${(props) => (props.$active ? '20px' : '2px')};
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    transition: left 0.2s;
+  }
+`;
+
+const TrackCount = styled.span`
+  font-size: 0.8rem;
+  color: var(--ifm-color-emphasis-500, #868e96);
+  font-variant-numeric: tabular-nums;
+`;
+
+const InfoBanner = styled.div`
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 0.5rem;
+  background: var(--ifm-color-emphasis-100, #f1f3f5);
+  border: 1px solid var(--ifm-color-emphasis-200, #e9ecef);
+  font-size: 0.85rem;
+  color: var(--ifm-color-emphasis-700, #495057);
+`;
+
+export function MidiExample() {
+  const { theme, isDarkMode } = useDocusaurusTheme();
+  const gradientTheme = isDarkMode ? darkThemeOverrides : lightThemeOverrides;
+  const [flatten, setFlatten] = React.useState(false);
+
+  const midiConfigs = React.useMemo(
+    () => [
+      {
+        src: '/waveform-playlist/media/midi/RedHotChiliPeppers-Otherside.mid',
+        name: 'Otherside',
+        flatten,
+      },
+    ],
+    [flatten]
+  );
+
+  const { tracks, loading, error, loadedCount, totalCount } = useMidiTracks(midiConfigs);
+
+  if (error) {
+    return (
+      <Container>
+        <div style={{ padding: '2rem', color: 'red' }}>Error loading MIDI: {error}</div>
+      </Container>
+    );
+  }
+
+  return (
+    <Container>
+      <InfoBanner>
+        MIDI tracks are synthesized in the browser using Tone.js PolySynth. Each MIDI track becomes
+        a separate timeline track with its own volume and pan controls.
+        {flatten
+          ? ' All MIDI channels are merged into a single track.'
+          : ` Showing ${tracks.length} individual MIDI track${tracks.length !== 1 ? 's' : ''}.`}
+      </InfoBanner>
+
+      <WaveformPlaylistProvider
+        tracks={tracks}
+        samplesPerPixel={1500}
+        mono
+        theme={{ ...theme, ...gradientTheme }}
+        progressBarWidth={2}
+      >
+        <Controls>
+          <PlayButton />
+          <PauseButton />
+          <StopButton />
+          <AudioPosition />
+          {loading && (
+            <span style={{ fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-600)' }}>
+              Loading ({loadedCount}/{totalCount})...
+            </span>
+          )}
+          <TrackCount>
+            {tracks.length} track{tracks.length !== 1 ? 's' : ''}
+          </TrackCount>
+          <ToggleLabel>
+            Flatten
+            <ToggleSwitch $active={flatten} onClick={() => setFlatten((f) => !f)} />
+          </ToggleLabel>
+        </Controls>
+
+        <Waveform />
+      </WaveformPlaylistProvider>
+    </Container>
+  );
+}

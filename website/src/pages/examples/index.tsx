@@ -18,6 +18,7 @@ import {
   DeviceMobileIcon,
   GaugeIcon,
   WaveformIcon,
+  MusicNotesIcon,
 } from '@phosphor-icons/react';
 import styles from './examples.module.css';
 
@@ -127,6 +128,13 @@ const examples = [
     path: 'mobile-annotations',
     category: 'mobile',
     icon: <TextAaIcon weight="light" aria-hidden="true" />,
+  },
+  {
+    title: 'MIDI Playback',
+    description: 'Notes become sound. Synthesized live.',
+    path: 'midi',
+    category: 'playback',
+    icon: <MusicNotesIcon weight="light" aria-hidden="true" />,
   },
   {
     title: 'MIR Spectrogram',

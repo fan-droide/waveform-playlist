@@ -1,0 +1,78 @@
+import React from 'react';
+import Layout from '@theme/Layout';
+import Head from '@docusaurus/Head';
+import { createLazyExample } from '../../components/BrowserOnlyWrapper';
+
+const LazyMidiExample = createLazyExample(() =>
+  import('../../components/examples/MidiExample').then((m) => ({ default: m.MidiExample }))
+);
+
+export default function MidiExamplePage(): React.ReactElement {
+  return (
+    <Layout
+      title="MIDI Playback"
+      description="Load and play MIDI files with browser-synthesized instruments using Waveform Playlist"
+    >
+      <Head>
+        <meta property="og:title" content="MIDI Playback - Waveform Playlist" />
+        <meta
+          property="og:description"
+          content="Load and play MIDI files with browser-synthesized instruments using Waveform Playlist"
+        />
+        <meta property="og:type" content="website" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="MIDI Playback - Waveform Playlist" />
+        <meta
+          name="twitter:description"
+          content="Load and play MIDI files with browser-synthesized instruments using Waveform Playlist"
+        />
+      </Head>
+      <main className="container margin-vert--lg">
+        <h1>MIDI Playback</h1>
+        <p>
+          Load a standard MIDI file and play it back using browser-synthesized instruments. Each MIDI
+          track becomes a separate timeline track, or toggle <strong>Flatten</strong> to merge all
+          channels into one.
+        </p>
+
+        <div
+          style={{
+            marginTop: '2rem',
+            padding: '2rem',
+            background: 'var(--ifm-background-surface-color)',
+            borderRadius: '8px',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+            border: '1px solid var(--ifm-color-emphasis-300)',
+          }}
+        >
+          <LazyMidiExample />
+        </div>
+
+        <div style={{ marginTop: '2rem' }}>
+          <h2>About This Example</h2>
+          <p>This example demonstrates:</p>
+          <ul>
+            <li>
+              Loading <code>.mid</code> files with <code>useMidiTracks()</code> from{' '}
+              <code>@waveform-playlist/midi</code>
+            </li>
+            <li>
+              Multi-track expansion — one MIDI file produces multiple timeline tracks (one per MIDI
+              channel)
+            </li>
+            <li>
+              Flatten mode — merge all MIDI channels into a single track with{' '}
+              <code>flatten: true</code>
+            </li>
+            <li>Browser-based MIDI synthesis via Tone.js PolySynth (no SoundFont required)</li>
+          </ul>
+          <p>
+            The <code>@waveform-playlist/midi</code> package handles parsing only — it outputs{' '}
+            <code>ClipTrack[]</code> with <code>midiNotes</code> on each clip. The playout layer
+            automatically routes these to <code>MidiToneTrack</code> for synthesis.
+          </p>
+        </div>
+      </main>
+    </Layout>
+  );
+}
