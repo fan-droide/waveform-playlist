@@ -182,6 +182,7 @@ export function MidiExample() {
         controls={{ show: true, width: 200 }}
         waveHeight={100}
         timescale
+        automaticScroll
       >
         <PlaybackShortcuts />
         <Controls>
@@ -201,7 +202,7 @@ export function MidiExample() {
           </ToggleLabel>
         </Controls>
 
-        <Waveform automaticScroll />
+        <Waveform />
       </WaveformPlaylistProvider>
     </Container>
   );
