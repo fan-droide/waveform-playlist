@@ -42,8 +42,6 @@ const SpectrogramCanvas = styled.canvas.attrs<CanvasProps>((props) => ({
 }))<CanvasProps>`
   position: absolute;
   top: 0;
-  /* Promote to own compositing layer for smoother scrolling */
-  will-change: transform;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 `;

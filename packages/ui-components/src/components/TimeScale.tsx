@@ -45,8 +45,6 @@ const TimeTickChunk = styled.canvas.attrs<TimeTickChunkProps>((props) => ({
 }))<TimeTickChunkProps>`
   position: absolute;
   bottom: 0;
-  /* Promote to own compositing layer for smoother scrolling */
-  will-change: transform;
 `;
 
 interface TimeStampProps {

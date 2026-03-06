@@ -155,6 +155,16 @@
 
 **Implications:** No `controlsOffset` or `controlWidth` in click handlers, playhead positioning, selection, auto-scroll, or zoom calculations. `Playhead.controlsOffset` is deprecated (always 0).
 
+## Deferred Viewport Store Notifications (React 19 Compatibility)
+
+**Problem:** `ViewportStore` uses `useSyncExternalStore`. During playback with auto-scroll and many tracks, React 19's concurrent rendering time-slices across frames. If the store notifies listeners while React's previous render is still yielded (`workInProgressRoot` is set), React throws "Should not already be working" in dev mode.
+
+**Fix:** `ViewportStore.update()` defers listener notification by one frame via `requestAnimationFrame`. `cancelPendingNotification()` called in provider cleanup. Located in `src/contexts/ScrollViewport.tsx`.
+
+## will-change CSS Budget (Firefox)
+
+Firefox enforces a `will-change` memory budget of 3× document surface area. Only use `will-change` on elements that actively animate (playheads, progress overlays). Static elements like canvas chunks and backgrounds should NOT have `will-change` — they already get GPU compositing from `transform: translateZ(0)` without triggering the budget.
+
 ## Important Patterns (UI-Specific)
 
 - **Stable React Keys for Tracks/Clips** - Always use `track.id` / `clip.clipId` as React keys, never array indices. Index-based keys cause DOM reuse on removal, breaking `transferControlToOffscreen()` (can only be called once per canvas) and causing stale OffscreenCanvas references.

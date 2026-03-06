@@ -31,7 +31,6 @@ const Background = styled.div<BackgroundProps>`
   z-index: 0;
   transform: translateZ(0);
   backface-visibility: hidden;
-  will-change: transform;
 `;
 
 interface ProgressOverlayProps {

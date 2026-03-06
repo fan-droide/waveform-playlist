@@ -19,7 +19,7 @@ import {
 } from '@waveform-playlist/browser';
 import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
 import { useMidiTracks } from '@waveform-playlist/midi';
-import { SoundFontCache } from '@waveform-playlist/playout';
+import { SoundFontCache, getGlobalAudioContext } from '@waveform-playlist/playout';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
 
 const darkThemeOverrides: Partial<WaveformPlaylistTheme> = {
@@ -162,8 +162,10 @@ function useSoundFontCache(url?: string): SoundFontCache | undefined {
         return;
       }
 
-      // Need an AudioContext for creating AudioBuffers
-      const audioContext = new AudioContext();
+      // Reuse the global Tone.js AudioContext — avoids creating an extra
+      // context and prevents Firefox's "AudioContext was prevented from
+      // starting automatically" warning.
+      const audioContext = getGlobalAudioContext();
       const sfCache = new SoundFontCache(audioContext);
 
       try {

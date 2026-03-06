@@ -36,7 +36,6 @@ const Background = styled.div.attrs<BackgroundProps>((props) => ({
   /* Force GPU compositing layer to prevent gradient flickering during scroll */
   transform: translateZ(0);
   backface-visibility: hidden;
-  will-change: transform;
 `;
 
 interface ProgressOverlayProps {

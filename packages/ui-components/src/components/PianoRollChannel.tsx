@@ -21,7 +21,6 @@ const NoteCanvas = styled.canvas.attrs<CanvasProps>((props) => ({
 }))<CanvasProps>`
   position: absolute;
   top: 0;
-  will-change: transform;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 `;

@@ -84,6 +84,8 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **Critical:** Context must be resumed on user interaction via `resumeGlobalAudioContext()`
 
+**Rule:** Always use `getGlobalAudioContext()` — never `new AudioContext()`. Firefox blocks AudioContexts created before user gesture. The global context is shared with Tone.js and properly resumed via `Tone.start()` on first play. This applies to SoundFont loading, recording, monitoring, and any feature needing audio processing.
+
 ## Tone.js Initialization
 
 **Critical:** Call `await Tone.start()` after user interaction and before `Tone.now()`.

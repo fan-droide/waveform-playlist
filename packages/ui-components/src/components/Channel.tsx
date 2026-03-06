@@ -63,8 +63,6 @@ const Waveform = styled.canvas.attrs<WaveformProps>((props) => ({
 }))<WaveformProps>`
   position: absolute;
   top: 0;
-  /* Promote to own compositing layer for smoother scrolling */
-  will-change: transform;
   /* Disable image rendering interpolation */
   image-rendering: pixelated;
   image-rendering: crisp-edges;
