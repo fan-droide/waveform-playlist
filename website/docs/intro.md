@@ -26,12 +26,23 @@ The library is organized into focused packages:
 
 | Package | Description |
 |---------|-------------|
-| `@waveform-playlist/browser` | Main React components and hooks |
-| `@waveform-playlist/core` | Core data types and utilities |
+| `@waveform-playlist/browser` | Main React components, hooks, and context |
+| `@waveform-playlist/core` | Types, utilities, and clip/track creation |
+| `@waveform-playlist/engine` | Framework-agnostic timeline engine with pure operations |
+| `@waveform-playlist/ui-components` | Styled UI components (buttons, sliders, etc.) |
 | `@waveform-playlist/playout` | Tone.js audio engine |
-| `@waveform-playlist/ui-components` | Styled UI components |
-| `@waveform-playlist/annotations` | Annotation system |
-| `@waveform-playlist/recording` | Recording functionality |
+| `@waveform-playlist/webaudio-peaks` | Peak extraction from AudioBuffer or sample arrays |
+| `@waveform-playlist/loaders` | Audio loaders |
+
+**Optional packages:**
+
+| Package | Description |
+|---------|-------------|
+| `@waveform-playlist/midi` | MIDI file parsing, piano roll visualization, and SoundFont playback |
+| `@waveform-playlist/annotations` | Time-synced text annotations with drag editing |
+| `@waveform-playlist/recording` | AudioWorklet recording with live waveform preview |
+| `@waveform-playlist/spectrogram` | Spectrogram visualization with FFT worker |
+| `@waveform-playlist/media-element-playout` | HTMLMediaElement-based playout with pitch-preserving playback rate |
 
 ## Quick Example
 
