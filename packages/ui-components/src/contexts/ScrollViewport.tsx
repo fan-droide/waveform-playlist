@@ -188,7 +188,7 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
       }
       store.cancelPendingNotification();
     };
-  }, [containerRef, scheduleUpdate, store]);
+  }, [containerRef, measure, scheduleUpdate, store]);
 
   return <ViewportStoreContext.Provider value={store}>{children}</ViewportStoreContext.Provider>;
 };
