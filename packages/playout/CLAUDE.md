@@ -58,6 +58,20 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **Loop handler cleanup in `stop()`:** `stop()` removes the loop handler (`transport.off('loop', ...)`) and nulls `_loopHandler` BEFORE calling `stopAllSources()`. This prevents a race condition where a loop event fires during `transport.stop()` processing, creating new sources via `startMidClipSources()` after cleanup. The handler is removed independently of `setLoop(false)` for defense-in-depth — `stop()` must be self-contained.
 
+## MidiToneTrack (MIDI Playback)
+
+**Location:** `src/MidiToneTrack.ts`
+
+**Architecture:** Always creates both melodic (`PolySynth<Synth>`) and percussion synths. Per-note routing uses `MidiNoteData.channel` — channel 9 → percussion, others → melodic. This enables flattened tracks (mixed channels) to play correctly.
+
+**Percussion synths:** `PolySynth<MembraneSynth>` (kick, tom), `PolySynth<MetalSynth>` (cymbals/hi-hats), `NoiseSynth` (snare, monophonic with try-catch). PolySynth wrappers are required because `MembraneSynth` and `MetalSynth` extend `Monophonic` — rapid notes (e.g., 953 hi-hat hits) throw "Start time must be strictly greater" and go silent without polyphony.
+
+**PolySynth type casting:** `new PolySynth(MembraneSynth, { voice, options } as never)` — Tone.js PolySynth constructor types are designed around `Synth`; wrapping other voice classes requires `as never` cast. Runtime behavior is correct.
+
+**PolySynth calling convention:** Wrapping a monophonic synth changes the API — `MetalSynth.triggerAttackRelease(duration, time, velocity)` becomes `PolySynth<MetalSynth>.triggerAttackRelease(note, duration, time, velocity)`. Missing the note arg passes duration as frequency (e.g., 0.06 Hz = inaudible).
+
+**Test mocking:** `src/__tests__/MidiToneTrack.test.ts` uses a `polySynthCallCount` counter in the PolySynth mock to differentiate melodic (first call) from percussion synths (subsequent calls). Reset in `beforeEach`.
+
 ## Tone.js Type Gotchas
 
 **Gain generic mismatch:** `Volume.input` is `Gain<"decibels">` but plain `Gain` import defaults to `Gain<"gain">`. Accessing native input requires double cast: `(this.volumeNode.input as unknown as Gain).input`.
@@ -69,6 +83,10 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 **Location:** `getGlobalAudioContext()` from `src/audioContext.ts`
 
 **Critical:** Context must be resumed on user interaction via `resumeGlobalAudioContext()`
+
+**Rule:** Always use `getGlobalAudioContext()` — never `new AudioContext()`. Firefox blocks AudioContexts created before user gesture. The global context is shared with Tone.js and properly resumed via `Tone.start()` on first play. This applies to SoundFont loading, recording, monitoring, and any feature needing audio processing.
+
+**SoundFontCache uses OfflineAudioContext by default:** The `context` constructor arg is optional. When omitted, `SoundFontCache` creates an `OfflineAudioContext(1, 1, 44100)` — sufficient for `createBuffer()` and doesn't trigger Firefox's autoplay block. Only pass a real AudioContext if you need the buffers connected to live audio output (which SoundFontCache doesn't).
 
 ## Tone.js Initialization
 
@@ -89,6 +107,45 @@ Without `Tone.start()`, `Tone.now()` returns null → RangeError in scheduling.
 **Not used for fades:** Per-clip fade envelopes use native `GainNode.gain` (already an `AudioParam`), so `_param` workaround is not needed there.
 
 **Risk:** `_param` is a private Tone.js 15.x internal. Pin version carefully. See [Tone.js #1418](https://github.com/Tonejs/Tone.js/issues/1418).
+
+## SoundFont Playback (SoundFontToneTrack)
+
+**Location:** `src/SoundFontToneTrack.ts`, `src/SoundFontCache.ts`
+
+**Architecture:** Opt-in replacement for `MidiToneTrack`. When `soundFontCache` is provided to `TonePlayoutAdapter`, MIDI clips route to `SoundFontToneTrack` instead of `MidiToneTrack`. Falls back to PolySynth when no SoundFont loaded.
+
+**Audio graph per note:**
+```
+AudioBufferSourceNode (native, one-shot, pitch-shifted via playbackRate)
+  → GainNode (native, per-note ADSR volume envelope)
+  → Volume.input (Tone.js, shared per-track)
+  → Panner → muteGain → effects/destination
+```
+
+**SoundFontCache:** Fetches SF2 URL → parses with `soundfont2` library → caches `AudioBuffer` per sample index. `getAudioBuffer(midiNote, bank, preset)` returns `SoundFontSample` with `buffer`, `playbackRate`, loop points, and volume envelope. AudioBuffer is cached by sample index (shared across zones), but loop/envelope data is per-zone (extracted from generators on each lookup). Lazily converts `Int16Array` → `Float32Array` → `AudioBuffer` on first access.
+
+**SF2 Pitch Resolution (critical gotcha):** Many SF2 files use the `OverridingRootKey` generator, NOT `sample.header.originalPitch`, for the actual root pitch. Using only `originalPitch` causes badly out-of-tune playback. Full generator chain:
+1. `OverridingRootKey` generator (most specific, per-zone)
+2. `sample.header.originalPitch` (sample header, skip if 255 = "unpitched")
+3. Fallback to MIDI note 60 (middle C)
+4. Tuning: `CoarseTune` (semitones) + `FineTune` (cents) + `pitchCorrection` (cents)
+5. `playbackRate = 2^((midiNote - rootKey + coarseTune + (fineTune + pitchCorrection) / 100) / 12)`
+
+**Per-note channel routing:** Same as MidiToneTrack — channel 9 → bank 128 (drums), others → bank 0 with `programNumber`. Works with flattened mixed-channel clips.
+
+**SF2 Sample Looping:** `SampleModes` generator controls: 0=no loop, 1=continuous, 3=sustain loop. Loop points computed from `header.startLoop`/`endLoop` + coarse/fine generator offsets, converted to AudioBuffer-relative seconds. Web Audio's `source.loop`/`loopStart`/`loopEnd` handles both modes.
+
+**soundfont2 library gotcha:** The `soundfont2` npm library already subtracts `header.start` from `startLoop`/`endLoop` during parsing — loop indices are already relative to `sample.data[0]`. Do NOT subtract `header.start` again when converting to seconds. Double-subtraction shifts the loop window to the wrong position, producing a buzzy saw-wave artifact. Local source available at `/Users/naomiaro/Code/soundfont2`.
+
+**SF2 Volume ADSR Envelope:** Replaces the old flat gain + 50ms release. Per-zone generators define attack/hold/decay (timecents → seconds via `2^(tc/1200)`), sustain (centibels attenuation → linear gain via `10^(-cb/200)`), and release (capped at 5s). Full envelope: silent → attack ramp → hold → decay to sustain → sustain until note-off → release ramp to 0.
+
+**SF2 Non-Looping Sample Duration:** For `loopMode === 0` (percussion, piano, one-shots), use `buffer.duration / playbackRate` as effective note duration instead of MIDI note duration. MIDI percussion hits are often 0.06s but the sample needs to ring out fully. Looping samples (`loopMode === 1 or 3`) use MIDI note duration for note-off timing.
+
+**Web Audio Automation Ordering:** `setValueAtTime` at note-off correctly cancels incomplete `linearRampToValueAtTime` ramps — do NOT use `Math.max(noteOff, envEnd)` to "fix" ordering. That extends every note to the full AHD phase length, breaking instruments with long decay (piano, strings). The original `time + duration` approach is correct.
+
+**stopAllSources Pattern:** Only call `source.stop()`, never `source.disconnect()` before `stop()`. If `disconnect()` throws in a shared try-catch, `stop()` is skipped — leaving live sources running. The `onended` callback handles gainNode cleanup.
+
+**Dependency:** `soundfont2` (MIT) in `package.json`. SF2 files have separate licenses — not bundled in npm package, users provide via URL.
 
 ## Firefox Compatibility (standardized-audio-context)
 

@@ -206,6 +206,16 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 
 **Pattern:** Generate once per buffer, fan out the result to all subscriber clip IDs via `setCache()`. `WeakMap` allows GC when `AudioBuffer` is released.
 
+## MIDI Clip Rendering Pipeline
+
+**Problem:** MIDI clips have no `audioBuffer` or `waveformData`, so Path C in peak generation gave them `length: 0`, rendering as invisible zero-width clips.
+
+**Fix:** In Path C, detect `clip.midiNotes` and compute `pixelLength = Math.ceil(clip.durationSamples / samplesPerPixel)`.
+
+**Data threading:** `ClipPeaks` includes `midiNotes`, `sampleRate`, `offsetSamples` which flow through `PlaylistVisualization` → `ChannelWithProgress` → `SmartChannel` → `PianoRollChannel`.
+
+**Auto-detection:** `PlaylistVisualization` checks `track.clips.some(c => c.midiNotes?.length > 0)` and sets `effectiveRenderMode` to `'piano-roll'` automatically. Per-clip override: `clip.midiNotes ? 'piano-roll' : effectiveRenderMode`.
+
 ## Unit Tests
 
 **Setup:** `vitest` in devDependencies, `vitest.config.ts` (node environment).
@@ -213,6 +223,18 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 **Run:** `cd packages/browser && npx vitest run`
 
 **Test helper:** `WaveformData.create()` requires JSON with `{ version: 2, channels: 1, sample_rate, samples_per_pixel, bits, length, data }` — omitting `version`/`channels` causes a TypeScript error.
+
+## Click-to-Seek During Auto-Scroll
+
+`handleMouseUp` must NOT recompute click time from `getBoundingClientRect()` during playback — auto-scroll shifts the overlay between mouseDown and mouseUp, producing wrong positions. Instead, `mouseDownTimeRef` captures the time at mouseDown, and mouseUp reuses it when `isPlaying`. Applied in both `PlaylistVisualization` and `MediaElementPlaylist`.
+
+## Controls Offset Removed
+
+**Decision:** All `controlsOffset` / `controlWidth` arithmetic removed from mouse handlers, playhead positioning, selection, auto-scroll, and zoom calculations.
+
+**Why:** Controls are now outside the scroll container (in `ControlsColumn`), so pixel positions in the scroll area map directly to timeline positions without offset adjustment.
+
+**Affected:** `PlaylistVisualization`, `MediaElementPlaylist`, `AnimatedPlayhead`, `AnimatedMediaElementPlayhead`, `WaveformPlaylistContext` (auto-scroll + zoom), `MediaElementPlaylistContext` (auto-scroll), `useAnnotationKeyboardControls`.
 
 ## Important Patterns (Browser-Specific)
 

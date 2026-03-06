@@ -46,32 +46,16 @@ import {
   useIntegratedRecording,
 } from '@waveform-playlist/recording';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
-import { MicrophoneIcon, FolderOpenIcon, MusicNotesIcon } from '@phosphor-icons/react';
+import { MicrophoneIcon } from '@phosphor-icons/react';
+import { FileDropZone } from '../FileDropZone';
 
 const Container = styled.div`
   max-width: 1400px;
   margin: 0 auto;
 `;
 
-const DropZone = styled.div<{ $isDragging: boolean }>`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 1.5rem 2rem;
-  border: 2px dashed ${props => props.$isDragging ? 'var(--accent-9)' : 'var(--gray-6)'};
-  border-radius: var(--radius-3);
-  background: ${props => props.$isDragging ? 'var(--accent-3)' : 'var(--gray-2)'};
-  text-align: center;
-  transition: all 0.2s ease;
-  cursor: pointer;
+const StyledDropZone = styled(FileDropZone)`
   margin-bottom: 1.5rem;
-
-  &:hover {
-    border-color: var(--accent-9);
-    background: var(--gray-3);
-  }
 `;
 
 const VUMeterWrapper = styled.div`
@@ -102,9 +86,6 @@ const ErrorCard = styled(Card)`
   margin-bottom: 1rem;
 `;
 
-const HiddenFileInput = styled.input`
-  display: none;
-`;
 
 // Inner component that uses playlist context
 interface RecordingControlsInnerProps {
@@ -142,10 +123,6 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
     engineRef: playoutRef,
     isDraggingRef,
   });
-
-  // Drop zone state
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Flag to auto-start recording after creating a new track
   const [shouldAutoStartRecording, setShouldAutoStartRecording] = useState(false);
@@ -229,58 +206,13 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
     }
   }, [isRecording, isAutomaticScroll, duration, recordingStartSample, sampleRate, samplesPerPixel, controls]);
 
-  // File drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-
-    const files = Array.from(e.dataTransfer.files) as File[];
-    const audioFiles = files.filter(file => file.type.startsWith('audio/'));
-
-    if (audioFiles.length === 0) return;
-
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-
-    for (const file of audioFiles) {
-      const arrayBuffer = await file.arrayBuffer();
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-      const clip = createClipFromSeconds({
-        audioBuffer,
-        startTime: 0,
-        name: file.name,
-      });
-
-      const newTrack = createTrack({
-        name: file.name,
-        clips: [clip],
-        muted: false,
-        soloed: false,
-        volume: 1.0,
-        pan: 0,
-      });
-
-      setTracks([...tracks, newTrack]);
-    }
-  };
-
-  const handleFileInput = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (!files || files.length === 0) return;
+  // Handle dropped/selected audio files
+  const handleFiles = useCallback(
+    async (files: File[]) => {
+      const audioFiles = files.filter(file => file.type.startsWith('audio/'));
+      if (audioFiles.length === 0) return;
 
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const audioFiles = (Array.from(files) as File[]).filter(file => file.type.startsWith('audio/'));
 
       for (const file of audioFiles) {
         const arrayBuffer = await file.arrayBuffer();
@@ -374,34 +306,20 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
       </Card>
 
       {/* Drop Zone */}
-      <DropZone
-        $isDragging={isDragging}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        onClick={() => fileInputRef.current?.click()}
+      <StyledDropZone
+        accept="audio/*"
+        onFiles={handleFiles}
+        fileFilter={(f) => f.type.startsWith('audio/')}
+        label="Drop audio files or click to browse"
+        dragLabel="Drop audio files here"
       >
-        <Text size="3" weight="medium">
-          {isDragging ? <><FolderOpenIcon size={18} weight="light" style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> Drop audio files here</> : <><MusicNotesIcon size={18} weight="light" style={{ marginRight: '6px', verticalAlign: 'text-bottom' }} /> Drop audio files or click to browse</>}
-        </Text>
-        <Text size="2" color="gray">
-          Supports MP3, WAV, OGG, and more
-        </Text>
         <Button size="2" variant="solid" color="blue" style={{ marginTop: '0.5rem' }} onClick={(e) => {
           e.stopPropagation();
           onAddTrack();
         }}>
           + New Track
         </Button>
-      </DropZone>
-
-      <HiddenFileInput
-        ref={fileInputRef}
-        type="file"
-        accept="audio/*"
-        multiple
-        onChange={handleFileInput}
-      />
+      </StyledDropZone>
 
       {/* Playback Controls */}
       <Card style={{ marginBottom: '1.5rem' }}>

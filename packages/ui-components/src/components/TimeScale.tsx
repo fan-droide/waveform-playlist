@@ -17,13 +17,11 @@ function formatTime(milliseconds: number) {
 
 interface PlaylistTimeScaleScrollProps {
   readonly $cssWidth: number;
-  readonly $controlWidth: number;
   readonly $timeScaleHeight: number;
 }
 const PlaylistTimeScaleScroll = styled.div.attrs<PlaylistTimeScaleScrollProps>((props) => ({
   style: {
     width: `${props.$cssWidth}px`,
-    marginLeft: `${props.$controlWidth}px`,
     height: `${props.$timeScaleHeight}px`,
   },
 }))<PlaylistTimeScaleScrollProps>`
@@ -47,8 +45,6 @@ const TimeTickChunk = styled.canvas.attrs<TimeTickChunkProps>((props) => ({
 }))<TimeTickChunkProps>`
   position: absolute;
   bottom: 0;
-  /* Promote to own compositing layer for smoother scrolling */
-  will-change: transform;
 `;
 
 interface TimeStampProps {
@@ -88,12 +84,7 @@ export const TimeScale: FunctionComponent<TimeScalePropsWithTheme> = (props) => 
     renderTimestamp,
   } = props;
   const { canvasRef, canvasMapRef } = useChunkedCanvasRefs();
-  const {
-    sampleRate,
-    samplesPerPixel,
-    timeScaleHeight,
-    controls: { show: showControls, width: controlWidth },
-  } = useContext(PlaylistInfoContext);
+  const { sampleRate, samplesPerPixel, timeScaleHeight } = useContext(PlaylistInfoContext);
   const devicePixelRatio = useDevicePixelRatio();
 
   const { widthX, canvasInfo, timeMarkersWithPositions } = useMemo(() => {
@@ -220,11 +211,7 @@ export const TimeScale: FunctionComponent<TimeScalePropsWithTheme> = (props) => 
   ]);
 
   return (
-    <PlaylistTimeScaleScroll
-      $cssWidth={widthX}
-      $controlWidth={showControls ? controlWidth : 0}
-      $timeScaleHeight={timeScaleHeight}
-    >
+    <PlaylistTimeScaleScroll $cssWidth={widthX} $timeScaleHeight={timeScaleHeight}>
       {visibleMarkers}
       {visibleChunks}
     </PlaylistTimeScaleScroll>

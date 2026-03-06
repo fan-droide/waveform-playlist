@@ -21,7 +21,7 @@ import {
 import type { PlayoutAdapter, EngineState, EngineEvents, PlaylistEngineOptions } from './types';
 
 const DEFAULT_SAMPLE_RATE = 44100;
-const DEFAULT_SAMPLES_PER_PIXEL = 1000;
+const DEFAULT_SAMPLES_PER_PIXEL = 1024;
 const DEFAULT_ZOOM_LEVELS = [256, 512, 1024, 2048, 4096, 8192];
 const DEFAULT_MIN_DURATION_SECONDS = 0.1;
 
@@ -59,7 +59,14 @@ export class PlaylistEngine {
     }
 
     const initialSpp = options.samplesPerPixel ?? DEFAULT_SAMPLES_PER_PIXEL;
-    this._zoomIndex = findClosestZoomIndex(initialSpp, this._zoomLevels);
+    const zoomIndex = this._zoomLevels.indexOf(initialSpp);
+    if (zoomIndex === -1) {
+      throw new Error(
+        `PlaylistEngine: samplesPerPixel ${initialSpp} is not in zoomLevels [${this._zoomLevels.join(', ')}]. ` +
+          `Either pass a samplesPerPixel value that exists in zoomLevels, or include ${initialSpp} in your zoomLevels array.`
+      );
+    }
+    this._zoomIndex = zoomIndex;
   }
 
   // ---------------------------------------------------------------------------

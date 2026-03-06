@@ -9,6 +9,9 @@ import {
   BaseContext,
 } from 'tone';
 import { ToneTrack, ToneTrackOptions } from './ToneTrack';
+import { MidiToneTrack, MidiToneTrackOptions } from './MidiToneTrack';
+import type { PlayableTrack } from './MidiToneTrack';
+import { SoundFontToneTrack, SoundFontToneTrackOptions } from './SoundFontToneTrack';
 
 export type EffectsFunction = (
   masterGainNode: Volume,
@@ -23,7 +26,7 @@ export interface TonePlayoutOptions {
 }
 
 export class TonePlayout {
-  private tracks: Map<string, ToneTrack> = new Map();
+  private tracks: Map<string, PlayableTrack> = new Map();
   private masterVolume: Volume;
   private isInitialized = false;
   private soloedTracks: Set<string> = new Set();
@@ -94,6 +97,34 @@ export class TonePlayout {
     return toneTrack;
   }
 
+  addMidiTrack(trackOptions: MidiToneTrackOptions): MidiToneTrack {
+    const optionsWithDestination = {
+      ...trackOptions,
+      destination: this.masterVolume,
+    };
+    const midiTrack = new MidiToneTrack(optionsWithDestination);
+    this.tracks.set(midiTrack.id, midiTrack);
+    this.manualMuteState.set(midiTrack.id, trackOptions.track.muted ?? false);
+    if (trackOptions.track.soloed) {
+      this.soloedTracks.add(midiTrack.id);
+    }
+    return midiTrack;
+  }
+
+  addSoundFontTrack(trackOptions: SoundFontToneTrackOptions): SoundFontToneTrack {
+    const optionsWithDestination = {
+      ...trackOptions,
+      destination: this.masterVolume,
+    };
+    const sfTrack = new SoundFontToneTrack(optionsWithDestination);
+    this.tracks.set(sfTrack.id, sfTrack);
+    this.manualMuteState.set(sfTrack.id, trackOptions.track.muted ?? false);
+    if (trackOptions.track.soloed) {
+      this.soloedTracks.add(sfTrack.id);
+    }
+    return sfTrack;
+  }
+
   /**
    * Apply solo muting after all tracks have been added.
    * Call this after adding all tracks to ensure solo logic is applied correctly.
@@ -112,7 +143,7 @@ export class TonePlayout {
     }
   }
 
-  getTrack(trackId: string): ToneTrack | undefined {
+  getTrack(trackId: string): PlayableTrack | undefined {
     return this.tracks.get(trackId);
   }
 
@@ -183,6 +214,7 @@ export class TonePlayout {
       // By advancing _lastUpdate to startTime, we skip the stale range.
       // The next Clock._loop() only processes [startTime, now()] — ticks
       // from the current play cycle with the correct offset.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tone.js private internal, see CLAUDE.md ghost tick fix
       (transport as any)._clock._lastUpdate = startTime;
 
       // Start sources for clips that span the current Transport position.

@@ -22,8 +22,6 @@ interface UseAnnotationKeyboardControlsOptions {
   samplesPerPixel?: number;
   /** Optional: sample rate for scroll position calculation */
   sampleRate?: number;
-  /** Optional: controls width offset for scroll position calculation */
-  controlsWidth?: number;
   /** Optional: callback to start playback at a time with optional duration */
   onPlay?: (startTime: number, duration?: number) => void;
 }
@@ -71,7 +69,6 @@ export function useAnnotationKeyboardControls({
   scrollContainerRef,
   samplesPerPixel,
   sampleRate,
-  controlsWidth = 0,
   onPlay,
 }: UseAnnotationKeyboardControlsOptions) {
   const activeIndex = useMemo(() => {
@@ -91,8 +88,8 @@ export function useAnnotationKeyboardControls({
       const containerWidth = container.clientWidth;
 
       // Calculate pixel positions for annotation start and center
-      const startPixel = (annotation.start * sampleRate) / samplesPerPixel + controlsWidth;
-      const endPixel = (annotation.end * sampleRate) / samplesPerPixel + controlsWidth;
+      const startPixel = (annotation.start * sampleRate) / samplesPerPixel;
+      const endPixel = (annotation.end * sampleRate) / samplesPerPixel;
       const annotationCenter = (startPixel + endPixel) / 2;
 
       // Check if annotation is currently visible
@@ -109,7 +106,7 @@ export function useAnnotationKeyboardControls({
         });
       }
     },
-    [annotations, scrollContainerRef, samplesPerPixel, sampleRate, controlsWidth]
+    [annotations, scrollContainerRef, samplesPerPixel, sampleRate]
   );
 
   // Auto-scroll when active annotation changes via keyboard navigation

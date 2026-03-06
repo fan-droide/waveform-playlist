@@ -3,18 +3,7 @@ import { useTheme } from 'styled-components';
 import { Track } from '../components/Track';
 import { Channel } from '../components/Channel';
 import { PlaylistInfoContext } from '../contexts/PlaylistInfo';
-import { TrackControlsContext } from '../contexts/TrackControls';
 import type { WaveformPlaylistTheme } from '../wfpl-theme';
-import {
-  Controls,
-  Header,
-  ButtonGroup,
-  Button,
-  SliderWrapper,
-  Slider,
-  VolumeDownIcon,
-  VolumeUpIcon,
-} from '../components/TrackControls/index';
 
 // Generate sample waveform data for stories
 function generateSamplePeaks(length: number, bits: 8 | 16 = 8): Int8Array | Int16Array {
@@ -55,24 +44,6 @@ const playlistInfoNoControls = {
   },
 };
 
-// Sample track controls component
-const SampleTrackControls = () => (
-  <Controls>
-    <Header>
-      <span>Vocals</span>
-    </Header>
-    <ButtonGroup>
-      <Button $variant="outline">Mute</Button>
-      <Button $variant="outline">Solo</Button>
-    </ButtonGroup>
-    <SliderWrapper>
-      <VolumeDownIcon />
-      <Slider type="range" min={0} max={1} step={0.01} defaultValue={1} />
-      <VolumeUpIcon />
-    </SliderWrapper>
-  </Controls>
-);
-
 // Wrapper component that uses theme from context for Channel colors
 const ThemedChannel = ({
   outlineColor,
@@ -107,9 +78,7 @@ const meta: Meta<typeof Track> = {
   decorators: [
     (Story) => (
       <PlaylistInfoContext.Provider value={playlistInfo}>
-        <TrackControlsContext.Provider value={<SampleTrackControls />}>
-          <Story />
-        </TrackControlsContext.Provider>
+        <Story />
       </PlaylistInfoContext.Provider>
     ),
   ],
@@ -200,9 +169,7 @@ export const NoControls: Story = {
   decorators: [
     (Story) => (
       <PlaylistInfoContext.Provider value={playlistInfoNoControls}>
-        <TrackControlsContext.Provider value={null}>
-          <Story />
-        </TrackControlsContext.Provider>
+        <Story />
       </PlaylistInfoContext.Provider>
     ),
   ],

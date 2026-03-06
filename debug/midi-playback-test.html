@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MIDI Playback Test — waveform-playlist</title>
+  <script src="https://unpkg.com/tone@15.1.22/build/Tone.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a1a; color: #ddd; }
+    button { padding: 10px 20px; margin: 4px; font-size: 14px; cursor: pointer; border: 1px solid #555; background: #333; color: #ddd; }
+    button:hover { background: #444; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .play-btn { background: #63C75F; color: #111; font-weight: bold; font-size: 16px; }
+    .play-btn:hover { background: #73d76f; }
+    .stop-btn { background: #d08070; color: #111; font-weight: bold; }
+    #log { white-space: pre-wrap; background: #111; padding: 16px; margin-top: 16px; border: 1px solid #333; max-height: 400px; overflow-y: auto; font-size: 12px; }
+    h3 { color: #63C75F; margin-bottom: 4px; }
+    p { color: #999; margin-top: 4px; }
+    .section { color: #63C75F; }
+    .note { color: #c49a6c; }
+    .info { color: #888; }
+    .error { color: #d08070; }
+    fieldset { border: 1px solid #444; padding: 12px; margin: 12px 0; }
+    legend { color: #63C75F; padding: 0 8px; }
+    select, input[type=range] { margin: 0 8px; }
+    label { display: inline-block; min-width: 80px; color: #ccc; }
+    .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 12px 0; }
+    .val { color: #c49a6c; min-width: 40px; display: inline-block; }
+  </style>
+</head>
+<body>
+  <h3>MIDI Playback Prototype Test</h3>
+  <p>Tests MidiToneTrack directly — PolySynth + Tone.Part on the Transport, with volume/pan/mute controls.</p>
+
+  <div class="controls">
+    <button class="play-btn" onclick="playMidi()" id="playBtn">Play C Major Arpeggio</button>
+    <button class="stop-btn" onclick="stopMidi()" id="stopBtn" disabled>Stop</button>
+    <button onclick="playChord()">Play Chord</button>
+    <button onclick="playScale()">Play Scale</button>
+  </div>
+
+  <fieldset>
+    <legend>Controls</legend>
+    <div>
+      <label>Volume:</label>
+      <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.8" oninput="onVolume(this.value)">
+      <span class="val" id="volumeVal">0.8</span>
+    </div>
+    <div>
+      <label>Pan:</label>
+      <input type="range" id="panSlider" min="-1" max="1" step="0.1" value="0" oninput="onPan(this.value)">
+      <span class="val" id="panVal">0</span>
+    </div>
+    <div style="margin-top: 8px">
+      <button onclick="toggleMute()" id="muteBtn">Mute</button>
+      <button onclick="toggleLoop()" id="loopBtn">Loop Off</button>
+    </div>
+  </fieldset>
+
+  <div id="log"></div>
+
+  <script>
+    // ── Globals from Tone.js CDN ──────────────────────────────────
+    const {
+      PolySynth, Synth, Part, Volume, Gain, Panner,
+      getDestination, getTransport, getContext, start, now
+    } = Tone;
+
+    let midiTrack = null;   // Current MidiToneTrack-like object
+    let isPlaying = false;
+    let isMuted = false;
+    let isLooping = false;
+
+    const logEl = document.getElementById('log');
+    function log(msg, cls) {
+      const line = document.createElement('span');
+      if (cls) line.className = cls;
+      line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg + '\n';
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // ── MIDI Note Data ──────────────────────────────────────────────
+
+    const arpeggioNotes = [
+      { midi: 60, name: 'C4',  time: 0.0, duration: 0.35, velocity: 0.8 },
+      { midi: 64, name: 'E4',  time: 0.4, duration: 0.35, velocity: 0.7 },
+      { midi: 67, name: 'G4',  time: 0.8, duration: 0.35, velocity: 0.75 },
+      { midi: 72, name: 'C5',  time: 1.2, duration: 0.6,  velocity: 0.85 },
+    ];
+
+    const chordNotes = [
+      { midi: 60, name: 'C4', time: 0.0, duration: 1.0, velocity: 0.7 },
+      { midi: 64, name: 'E4', time: 0.0, duration: 1.0, velocity: 0.6 },
+      { midi: 67, name: 'G4', time: 0.0, duration: 1.0, velocity: 0.65 },
+    ];
+
+    const scaleNotes = [
+      { midi: 60, name: 'C4',  time: 0.0,  duration: 0.2, velocity: 0.7 },
+      { midi: 62, name: 'D4',  time: 0.25, duration: 0.2, velocity: 0.65 },
+      { midi: 64, name: 'E4',  time: 0.5,  duration: 0.2, velocity: 0.7 },
+      { midi: 65, name: 'F4',  time: 0.75, duration: 0.2, velocity: 0.65 },
+      { midi: 67, name: 'G4',  time: 1.0,  duration: 0.2, velocity: 0.7 },
+      { midi: 69, name: 'A4',  time: 1.25, duration: 0.2, velocity: 0.65 },
+      { midi: 71, name: 'B4',  time: 1.5,  duration: 0.2, velocity: 0.7 },
+      { midi: 72, name: 'C5',  time: 1.75, duration: 0.4, velocity: 0.8 },
+    ];
+
+    // ── MidiToneTrack (inline, mirrors packages/playout/src/MidiToneTrack.ts) ──
+
+    function gainToDb(gain) {
+      return 20 * Math.log10(gain);
+    }
+
+    function createMidiToneTrack(notes, trackStartTime, clipDuration, initialGain, initialPan) {
+      const synth = new PolySynth(Synth);
+      const volumeNode = new Volume(gainToDb(initialGain));
+      const panNode = new Panner(initialPan);
+      const muteGain = new Gain(isMuted ? 0 : 1);
+
+      // Chain: Synth → Volume → Pan → MuteGain → Destination
+      synth.connect(volumeNode);
+      volumeNode.chain(panNode, muteGain);
+      muteGain.toDestination();
+
+      // Create Part events — notes are scheduled at absolute Transport time
+      const partEvents = notes.map(function(note) {
+        return {
+          time: trackStartTime + note.time,
+          note: note.name,
+          duration: note.duration,
+          velocity: note.velocity,
+        };
+      });
+
+      const part = new Part(function(time, event) {
+        synth.triggerAttackRelease(event.note, event.duration, time, event.velocity);
+      }, partEvents);
+
+      part.start(0);
+
+      return {
+        synth: synth,
+        volumeNode: volumeNode,
+        panNode: panNode,
+        muteGain: muteGain,
+        part: part,
+        clipDuration: clipDuration,
+
+        setVolume: function(gain) {
+          volumeNode.volume.value = gainToDb(gain);
+        },
+        setPan: function(pan) {
+          panNode.pan.value = pan;
+        },
+        setMute: function(muted) {
+          muteGain.gain.value = muted ? 0 : 1;
+        },
+        stopAllSources: function() {
+          try { synth.releaseAll(getContext().rawContext.currentTime); } catch(e) {}
+        },
+        dispose: function() {
+          try { synth.releaseAll(getContext().rawContext.currentTime); } catch(e) {}
+          try { part.dispose(); } catch(e) {}
+          try { synth.dispose(); } catch(e) {}
+          try { volumeNode.dispose(); } catch(e) {}
+          try { panNode.dispose(); } catch(e) {}
+          try { muteGain.dispose(); } catch(e) {}
+        },
+      };
+    }
+
+    // ── Playback ────────────────────────────────────────────────────
+
+    async function playNotes(notes, name, duration) {
+      // Stop previous
+      if (isPlaying) {
+        stopMidi();
+      }
+
+      // Resume AudioContext on user gesture
+      await start();
+
+      const transport = getTransport();
+
+      // Dispose old track
+      if (midiTrack) {
+        midiTrack.dispose();
+        midiTrack = null;
+      }
+
+      // Ensure transport is stopped before reconfiguring
+      if (transport.state !== 'stopped') {
+        transport.stop();
+      }
+
+      const vol = parseFloat(document.getElementById('volumeSlider').value);
+      const pan = parseFloat(document.getElementById('panSlider').value);
+
+      midiTrack = createMidiToneTrack(notes, 0, duration, vol, pan);
+
+      log('Setting up: ' + name + ' (' + notes.length + ' notes, ' + duration + 's)', 'section');
+      notes.forEach(function(n) {
+        log('  ' + n.name + ' @ ' + n.time + 's  dur=' + n.duration + 's  vel=' + n.velocity, 'note');
+      });
+
+      // Configure loop
+      if (isLooping) {
+        transport.loopStart = 0;
+        transport.loopEnd = duration;
+        transport.loop = true;
+        log('Loop enabled: 0s -> ' + duration + 's', 'info');
+      } else {
+        transport.loop = false;
+      }
+
+      transport.start(now());
+      isPlaying = true;
+
+      document.getElementById('playBtn').disabled = true;
+      document.getElementById('stopBtn').disabled = false;
+
+      log('Playing! (Transport started)', 'section');
+
+      // Auto-stop after duration (unless looping)
+      if (!isLooping) {
+        setTimeout(function() {
+          if (isPlaying) {
+            stopMidi();
+            log('Playback complete.', 'info');
+          }
+        }, (duration + 0.5) * 1000);
+      }
+    }
+
+    // ── Button handlers ─────────────────────────────────────────────
+
+    window.playMidi = function() { playNotes(arpeggioNotes, 'C Major Arpeggio', 1.8); };
+    window.playChord = function() { playNotes(chordNotes, 'C Major Chord', 1.2); };
+    window.playScale = function() { playNotes(scaleNotes, 'C Major Scale', 2.2); };
+
+    window.stopMidi = function() {
+      if (isPlaying) {
+        var transport = getTransport();
+        transport.stop();
+        if (midiTrack) midiTrack.stopAllSources();
+        isPlaying = false;
+        document.getElementById('playBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        log('Stopped.', 'info');
+      }
+    };
+
+    window.onVolume = function(val) {
+      document.getElementById('volumeVal').textContent = val;
+      if (midiTrack) midiTrack.setVolume(parseFloat(val));
+    };
+
+    window.onPan = function(val) {
+      document.getElementById('panVal').textContent = val;
+      if (midiTrack) midiTrack.setPan(parseFloat(val));
+    };
+
+    window.toggleMute = function() {
+      isMuted = !isMuted;
+      document.getElementById('muteBtn').textContent = isMuted ? 'Unmute' : 'Mute';
+      document.getElementById('muteBtn').style.background = isMuted ? '#d08070' : '#333';
+      if (midiTrack) {
+        midiTrack.setMute(isMuted);
+        log('Mute: ' + isMuted, 'info');
+      }
+    };
+
+    window.toggleLoop = function() {
+      isLooping = !isLooping;
+      document.getElementById('loopBtn').textContent = isLooping ? 'Loop On' : 'Loop Off';
+      document.getElementById('loopBtn').style.background = isLooping ? '#63C75F' : '#333';
+      document.getElementById('loopBtn').style.color = isLooping ? '#111' : '#ddd';
+
+      // Update Transport loop state live if currently playing
+      if (isPlaying) {
+        var transport = getTransport();
+        transport.loop = isLooping;
+        log('Loop: ' + isLooping + ' (updated live)', 'info');
+        // If loop was just disabled, auto-stop after remaining time
+        if (!isLooping && midiTrack) {
+          var remaining = midiTrack.clipDuration - transport.seconds;
+          if (remaining > 0) {
+            setTimeout(function() {
+              if (isPlaying && !isLooping) {
+                stopMidi();
+                log('Playback complete.', 'info');
+              }
+            }, (remaining + 0.3) * 1000);
+          } else {
+            stopMidi();
+            log('Playback complete (past end).', 'info');
+          }
+        }
+      } else {
+        log('Loop: ' + isLooping, 'info');
+      }
+    };
+
+    log('Ready. Click a play button to start.', 'section');
+  </script>
+</body>
+</html>

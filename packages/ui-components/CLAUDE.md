@@ -127,13 +127,58 @@
 
 **Implementation:** Peak rendering math is extracted into pure functions in `src/utils/peakRendering.ts` (`aggregatePeaks`, `calculateBarRects`, `calculateFirstBarPosition`), tested in `src/__tests__/peakRendering.test.ts` (22 tests). Channel.tsx imports and calls these helpers in its `useLayoutEffect`.
 
-## Browser-Initiated Scroll Reset (ScrollViewportProvider)
+## PianoRollChannel (MIDI Visualization)
 
-**Problem:** When React renders wide content (~12000px) into a previously narrow scroll container, the browser's layout engine may set a non-zero `scrollLeft` during layout recalculation (no JS in the call stack). Only happens with React's multi-phase rendering — not reproducible in plain HTML.
+**Decision:** Canvas-based MIDI note rendering as a third rendering mode alongside waveform and spectrogram.
 
-**Fix:** One-shot scroll event listener in `ScrollViewportProvider` resets `scrollLeft` to 0 on the first browser-initiated scroll before user interaction. Self-removes after first scroll event (zero ongoing cost). Interaction guards (`pointerdown`, `keydown`, `wheel`) prevent resetting user-initiated scrolling.
+**Pattern:** Follows `Channel.tsx` exactly — chunked canvases via `useVisibleChunkIndices` + `useChunkedCanvasRefs` + `useClipViewportOrigin`. Same styled-components `.attrs()` pattern for frequently changing props.
 
-**Debugging note:** Dynamic DevTools testing (removing elements, changing styles) does NOT re-trigger this behavior — only code changes + rebuild + hard reload reproduce it.
+**Props:** `midiNotes`, `sampleRate`, `clipOffsetSeconds` flow through `SmartChannel` (which branches on `renderMode === 'piano-roll'`).
+
+**Note rendering:** Velocity maps to opacity (0.3–1.0), pitch range auto-fits to actual data (not full 0-127), minimum 2px note width/height.
+
+**Theme colors:** `pianoRollNoteColor`, `pianoRollSelectedNoteColor`, `pianoRollBackgroundColor` in `WaveformPlaylistTheme`.
+
+**Location:** `src/components/PianoRollChannel.tsx`
+
+## Controls Outside Scroll Container
+
+**Decision:** Track controls render in a fixed-width `ControlsColumn` outside the scroll area, not inside it.
+
+**Layout:** `Wrapper (display: flex)` → `ControlsColumn (flex-shrink: 0)` + `ScrollArea (overflow-x: auto, flex: 1)`. Only the waveform/timescale area scrolls.
+
+**Why:** Sticky-positioned controls inside `overflow-x: auto` caused browsers to set non-zero `scrollLeft` during layout recalculation when React rendered wide content.
+
+**Scroll anchoring fix:** `ScrollArea` uses `overflow-anchor: none` to prevent browsers from adjusting scroll position when content size changes (e.g., 13 MIDI tracks rendering ~12,000px of wide content). Pure CSS, no JS event listeners.
+
+**Props:** `Playlist` accepts `trackControlsSlots?: React.ReactNode[]` and `timescaleGapHeight?: number`. Track is channels-only (no controls rendering).
+
+**Implications:** No `controlsOffset` or `controlWidth` in click handlers, playhead positioning, selection, auto-scroll, or zoom calculations. `Playhead.controlsOffset` is deprecated (always 0).
+
+## Deferred Viewport Store Notifications (React 19 Compatibility)
+
+**Problem:** `ViewportStore` uses `useSyncExternalStore`. During playback with auto-scroll and many tracks, React 19's concurrent rendering time-slices across frames. If the store notifies listeners while React's previous render is still yielded (`workInProgressRoot` is set), React throws "Should not already be working" in dev mode.
+
+**Fix:** `ViewportStore.update()` defers listener notification by one frame via `requestAnimationFrame`. `cancelPendingNotification()` called in provider cleanup. Located in `src/contexts/ScrollViewport.tsx`.
+
+## will-change CSS Budget (Firefox)
+
+Firefox enforces a `will-change` memory budget of 3× document surface area. Only use `will-change` on elements that actively animate (playheads, progress overlays). Static elements like canvas chunks and backgrounds should NOT have `will-change` — they already get GPU compositing from `transform: translateZ(0)` without triggering the budget.
+
+## TrackMenu Portal Positioning
+
+**Pattern:** `position: fixed` dropdown portaled to `document.body`, repositioned on scroll.
+
+- Opens to the **right** of the trigger button (not below) since controls column is narrow
+- Falls back to left if viewport edge reached
+- `window.addEventListener('scroll', handler, true)` — capture phase catches scrolls from any ancestor, not just window
+- `requestAnimationFrame` after open for position refinement (dropdown ref is null on first render)
+- **Never put function-derived `items` in effect deps** — `itemsProp(close)` creates a new array each render, causing infinite `setState` → render → effect loops
+- Escape key closes the menu
+
+## FileDropZone Hidden Input Pattern
+
+For programmatic `.click()` on file inputs, use `opacity: 0; width: 0; height: 0; pointer-events: none;` — NOT `clip: rect(0,0,0,0)` or `display: none`. Add `onClick={(e) => e.stopPropagation()}` on the input to prevent event bubbling back to the Zone's click handler.
 
 ## Important Patterns (UI-Specific)
 

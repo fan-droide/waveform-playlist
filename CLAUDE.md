@@ -166,6 +166,7 @@ pnpm publish --filter @waveform-playlist/NEW-PACKAGE --no-git-checks --access pu
 - **Dev server**: `pnpm --filter website start` - Docusaurus dev server
 - **Unit tests**: Run from each package directory with `npx vitest run` (engine, core, playout, ui-components, browser)
 - **Hard refresh**: Always use Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows/Linux) after builds
+- **Vitest cleanup:** `npx vitest run` in pnpm monorepos can leave orphaned Node processes at ~100% CPU. After running tests across multiple packages, verify with `pgrep -f vitest` and kill strays with `pkill -f vitest` if needed.
 
 **CI Validation:** `.github/workflows/ci.yml` runs on PRs to `main`: build and lint (includes prettier check). Fix formatting with `pnpm format` before pushing.
 
@@ -187,6 +188,10 @@ pnpm publish --filter @waveform-playlist/NEW-PACKAGE --no-git-checks --access pu
 - Use `await expect(locator).toHaveCount(n)` (auto-retrying) instead of `expect(await locator.count()).toBe(n)` (one-shot)
 - Wrap post-interaction state checks with `await expect(async () => { ... }).toPass({ timeout: 5000 })` for timing tolerance
 - Always rebuild (`pnpm build`) after switching branches before running tests — stale artifacts cause false failures
+- Wrap `boundingBox()` in `await expect(async () => { box = await el.boundingBox(); expect(box).toBeTruthy(); }).toPass()` — returns null before layout completes
+- Wrap one-shot `evaluate()` for computed styles in `.toPass()` — styles may not be applied on first query
+- Use Play/Pause/Stop buttons (not `keyboard.press('Space')`) for initial playback — AudioContext init is async and `Space` requires playlist focus
+- After clicking Play, wait for time to advance with retrying assertion: `await expect(async () => { expect(await timeDisplay.textContent()).not.toBe('00:00:00.000'); }).toPass({ timeout: 10000 })`
 
 **Git Safety:** Always make intermediate commits before running `git stash` or switching branches. A failed `git stash pop` + `git checkout -- .` can destroy all uncommitted work permanently.
 
@@ -327,6 +332,10 @@ const LazyExample = createLazyExample(() =>
 17. **Refs from Custom Hooks in Dep Arrays** - When a `useRef` is returned from a custom hook, ESLint's `exhaustive-deps` can't trace its stability. Include it in the dep array (harmless, never triggers) rather than using `eslint-disable-next-line` which would mask real missing dependencies.
 18. **Engine State Ownership** — Engine owns selection, loop, selectedTrackId, zoom (samplesPerPixel, canZoomIn, canZoomOut), and masterVolume; React subscribes to statechange. Engine setters normalize invariants (start <= end). All engine-owned state uses the `onEngineState()` hook pattern: `useSelectionState`, `useLoopState`, `useSelectedTrack`, `useZoomControls`, `useMasterVolume`. Each hook delegates mutations to engine methods and exposes `onEngineState()` for the provider's statechange handler.
 19. **Render-Phase Guards ≠ Effect Dependencies** — Derived booleans computed during render (e.g., `isEngineTracks = tracks === engineTracksRef.current`) that are read inside effect bodies as guards should NOT be in the effect's dep array. They flip between renders (e.g., true→false after clearing the ref), causing spurious re-runs. Read them inside the effect body; depend only on the source data (`tracks`). When the same guard also needs to be visible to the _previous_ effect's cleanup, store it in a ref during render (as with `skipEngineDisposeRef`).
+20. **Adding a New Rendering Mode** — Requires changes across packages: `RenderMode` type in core, theme colors + `*Channel` component in ui-components, `SmartChannel` branch, `ChannelWithProgress` background, `ClipPeaks` data fields in browser, `PlaylistVisualization` auto-detection. Follow `Channel.tsx` pattern for virtual scrolling.
+21. **will-change Budget** — Only use `will-change` on actively animating elements (playheads, progress overlays). Firefox enforces a 3× document surface area budget; static canvas chunks with `translateZ(0)` don't need it.
+22. **Always Use getGlobalAudioContext()** — Never `new AudioContext()`. Firefox blocks contexts created before user gesture. Use `getGlobalAudioContext()` from playout package (shared with Tone.js, resumed on first play).
+23. **Gate Provider Behind Async Readiness** — When multiple async resources must load before rendering (e.g., MIDI tracks + SoundFont), gate the `WaveformPlaylistProvider` mount behind all resources being ready. This prevents double engine rebuilds. Check both the loading flag AND `tracks.length > 0` since hooks can briefly report `loading: false` with empty data.
 
 ---
 
@@ -335,6 +344,8 @@ const LazyExample = createLazyExample(() =>
 **Plans directory:** `plans/` contains future feature specs (waveform service, listening test tool).
 
 **Debug tests:** `debug/tonejs/` contains standalone HTML reproductions of upstream Tone.js bugs. Each file loads Tone.js from CDN with a one-click reproduce button — change the `<script src>` version to test new releases. See `debug/tonejs/README.md`.
+
+**Debug apps:** `debug/standalone-midi/` is a standalone Vite+React app using workspace components (not Docusaurus) for isolating rendering bugs. Run with `cd debug/standalone-midi && pnpm exec vite`.
 
 **Deployment:** Site deploys automatically via GitHub Actions on push to `main`.
 

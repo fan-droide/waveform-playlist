@@ -7,7 +7,6 @@ import {
   Clip,
   Selection,
   PlaylistInfoContext,
-  TrackControlsContext,
   DevicePixelRatioProvider,
   SmartScale,
   useTheme,
@@ -142,18 +141,20 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
   });
 
   // Mouse handlers for click-to-seek
+  const mouseDownTimeRef = useRef<number>(0);
+
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-      const controlWidth = controls.show ? controls.width : 0;
-      const x = e.clientX - rect.left - controlWidth;
+      const x = e.clientX - rect.left;
       const clickTime = (x * samplesPerPixel) / sampleRate;
 
+      mouseDownTimeRef.current = clickTime;
       setIsSelecting(true);
       setSelectionStart(clickTime);
       setSelectionEnd(clickTime);
     },
-    [controls, samplesPerPixel, sampleRate]
+    [samplesPerPixel, sampleRate]
   );
 
   const handleMouseMove = useCallback(
@@ -161,13 +162,12 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
       if (!isSelecting) return;
 
       const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-      const controlWidth = controls.show ? controls.width : 0;
-      const x = e.clientX - rect.left - controlWidth;
+      const x = e.clientX - rect.left;
       const moveTime = (x * samplesPerPixel) / sampleRate;
 
       setSelectionEnd(moveTime);
     },
-    [isSelecting, controls, samplesPerPixel, sampleRate]
+    [isSelecting, samplesPerPixel, sampleRate]
   );
 
   const handleMouseUp = useCallback(
@@ -176,9 +176,21 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
 
       setIsSelecting(false);
 
+      // During playback, use the time captured at mouseDown — auto-scroll shifts the
+      // overlay between mouseDown and mouseUp, so recomputing from getBoundingClientRect()
+      // would produce a wrong (shifted) position.
+      if (isPlaying && playoutRef.current) {
+        const clickTime = Math.max(0, mouseDownTimeRef.current);
+        seekTo(clickTime);
+        setSelectionStart(clickTime);
+        setSelectionEnd(clickTime);
+        playoutRef.current.stop();
+        play(clickTime);
+        return;
+      }
+
       const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-      const controlWidth = controls.show ? controls.width : 0;
-      const x = e.clientX - rect.left - controlWidth;
+      const x = e.clientX - rect.left;
       const endTime = (x * samplesPerPixel) / sampleRate;
 
       const start = Math.min(selectionStart, endTime);
@@ -189,37 +201,19 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
         seekTo(start);
         setSelectionStart(start);
         setSelectionEnd(start);
-
-        if (isPlaying && playoutRef.current) {
-          playoutRef.current.stop();
-          play(start);
-        }
       } else {
         // It was a drag - finalize the selection
         setSelectionStart(start);
         setSelectionEnd(end);
       }
     },
-    [
-      isSelecting,
-      selectionStart,
-      samplesPerPixel,
-      sampleRate,
-      controls,
-      seekTo,
-      isPlaying,
-      playoutRef,
-      play,
-    ]
+    [isSelecting, selectionStart, samplesPerPixel, sampleRate, seekTo, isPlaying, playoutRef, play]
   );
 
   // Show loading if peaks not ready
   if (peaksDataArray.length === 0) {
     return <div className={className}>Loading waveform...</div>;
   }
-
-  // Empty track controls (MediaElement is single-track, no mute/solo needed)
-  const emptyControls = null;
 
   return (
     <DevicePixelRatioProvider>
@@ -240,7 +234,6 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
           theme={theme}
           backgroundColor={waveformColorToCss(theme.waveOutlineColor)}
           timescaleBackgroundColor={theme.timescaleBackgroundColor}
-          scrollContainerWidth={tracksFullWidth + (controls.show ? controls.width : 0)}
           timescaleWidth={tracksFullWidth}
           tracksWidth={tracksFullWidth}
           controlsWidth={controls.show ? controls.width : 0}
@@ -260,51 +253,50 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
                   : 1;
 
               return (
-                <TrackControlsContext.Provider key={trackIndex} value={emptyControls}>
-                  <TrackComponent
-                    numChannels={maxChannels}
-                    backgroundColor={waveformColorToCss(theme.waveOutlineColor)}
-                    offset={0}
-                    width={tracksFullWidth}
-                    hasClipHeaders={false}
-                    trackId={`media-element-track-${trackIndex}`}
-                    isSelected={true}
-                  >
-                    {trackClipPeaks.map((clip, clipIndex) => {
-                      const peaksData = clip.peaks;
-                      const width = peaksData.length;
+                <TrackComponent
+                  key={trackIndex}
+                  numChannels={maxChannels}
+                  backgroundColor={waveformColorToCss(theme.waveOutlineColor)}
+                  offset={0}
+                  width={tracksFullWidth}
+                  hasClipHeaders={false}
+                  trackId={`media-element-track-${trackIndex}`}
+                  isSelected={true}
+                >
+                  {trackClipPeaks.map((clip, clipIndex) => {
+                    const peaksData = clip.peaks;
+                    const width = peaksData.length;
 
-                      return (
-                        <Clip
-                          key={`${trackIndex}-${clipIndex}`}
-                          clipId={clip.clipId}
-                          trackIndex={trackIndex}
-                          clipIndex={clipIndex}
-                          trackName={clip.trackName}
-                          startSample={clip.startSample}
-                          durationSamples={clip.durationSamples}
-                          samplesPerPixel={samplesPerPixel}
-                          showHeader={false}
-                          disableHeaderDrag={true}
-                          isSelected={true}
-                          trackId={`media-element-track-${trackIndex}`}
-                        >
-                          {peaksData.data.map((channelPeaks: Peaks, channelIndex: number) => (
-                            <ChannelWithMediaElementProgress
-                              key={`${trackIndex}-${clipIndex}-${channelIndex}`}
-                              index={channelIndex}
-                              data={channelPeaks}
-                              bits={peaksData.bits}
-                              length={width}
-                              clipStartSample={clip.startSample}
-                              clipDurationSamples={clip.durationSamples}
-                            />
-                          ))}
-                        </Clip>
-                      );
-                    })}
-                  </TrackComponent>
-                </TrackControlsContext.Provider>
+                    return (
+                      <Clip
+                        key={`${trackIndex}-${clipIndex}`}
+                        clipId={clip.clipId}
+                        trackIndex={trackIndex}
+                        clipIndex={clipIndex}
+                        trackName={clip.trackName}
+                        startSample={clip.startSample}
+                        durationSamples={clip.durationSamples}
+                        samplesPerPixel={samplesPerPixel}
+                        showHeader={false}
+                        disableHeaderDrag={true}
+                        isSelected={true}
+                        trackId={`media-element-track-${trackIndex}`}
+                      >
+                        {peaksData.data.map((channelPeaks: Peaks, channelIndex: number) => (
+                          <ChannelWithMediaElementProgress
+                            key={`${trackIndex}-${clipIndex}-${channelIndex}`}
+                            index={channelIndex}
+                            data={channelPeaks}
+                            bits={peaksData.bits}
+                            length={width}
+                            clipStartSample={clip.startSample}
+                            clipDurationSamples={clip.durationSamples}
+                          />
+                        ))}
+                      </Clip>
+                    );
+                  })}
+                </TrackComponent>
               );
             })}
             {annotations.length > 0 && annotationIntegration && (
@@ -343,20 +335,15 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
             {selectionStart !== selectionEnd && (
               <Selection
                 startPosition={
-                  (Math.min(selectionStart, selectionEnd) * sampleRate) / samplesPerPixel +
-                  (controls.show ? controls.width : 0)
+                  (Math.min(selectionStart, selectionEnd) * sampleRate) / samplesPerPixel
                 }
                 endPosition={
-                  (Math.max(selectionStart, selectionEnd) * sampleRate) / samplesPerPixel +
-                  (controls.show ? controls.width : 0)
+                  (Math.max(selectionStart, selectionEnd) * sampleRate) / samplesPerPixel
                 }
                 color={theme.selectionColor}
               />
             )}
-            <AnimatedMediaElementPlayhead
-              color={theme.playheadColor}
-              controlsOffset={controls.show ? controls.width : 0}
-            />
+            <AnimatedMediaElementPlayhead color={theme.playheadColor} />
           </>
         </Playlist>
       </PlaylistInfoContext.Provider>

@@ -62,7 +62,7 @@ export const ClipHeaderPresentational: FunctionComponent<ClipHeaderPresentationa
 }) => {
   return (
     <HeaderContainer $interactive={false} $isSelected={isSelected}>
-      <TrackName>{trackName}</TrackName>
+      <TrackName title={trackName}>{trackName}</TrackName>
     </HeaderContainer>
   );
 };
@@ -116,7 +116,7 @@ export const ClipHeader: FunctionComponent<ClipHeaderProps> = ({
       $interactive={true}
       $isSelected={isSelected}
     >
-      <TrackName>{trackName}</TrackName>
+      <TrackName title={trackName}>{trackName}</TrackName>
     </HeaderContainer>
   );
 };

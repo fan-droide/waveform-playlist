@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import styled from 'styled-components';
 import * as Tone from 'tone';
 import {
@@ -20,7 +20,7 @@ import { createTrack, createClipFromSeconds } from '@waveform-playlist/core';
 import { SpectrogramProvider } from '@waveform-playlist/spectrogram';
 import type { AudioTrackConfig } from '@waveform-playlist/browser';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
-import { FolderOpenIcon, MusicNotesIcon } from '@phosphor-icons/react';
+import { FileDropZone } from '../FileDropZone';
 
 const Container = styled.div`
   max-width: 1400px;
@@ -55,29 +55,8 @@ const ClearButton = styled.button`
   }
 `;
 
-const DropZone = styled.div<{ $isDragging: boolean }>`
-  padding: 1.5rem 1rem;
-  border: 2px dashed ${(props) => (props.$isDragging ? '#3498db' : 'var(--ifm-color-emphasis-400, #ced4da)')};
-  border-radius: 0.5rem;
-  text-align: center;
-  background: ${(props) => (props.$isDragging ? 'rgba(52, 152, 219, 0.1)' : 'var(--ifm-background-surface-color, #f8f9fa)')};
+const StyledDropZone = styled(FileDropZone)`
   margin-top: 1rem;
-  transition: all 0.2s ease-in-out;
-  cursor: pointer;
-
-  &:hover {
-    border-color: #3498db;
-  }
-`;
-
-const DropZoneText = styled.p`
-  margin: 0;
-  color: var(--ifm-font-color-base, #495057);
-  font-size: 0.9rem;
-`;
-
-const HiddenFileInput = styled.input`
-  display: none;
 `;
 
 const TRACK_CONFIGS: { src: string; name: string; defaultMode: RenderMode }[] = [
@@ -130,8 +109,6 @@ export function MirSpectrogramExample() {
   const { theme } = useDocusaurusTheme();
   const [userTracks, setUserTracks] = useState<ClipTrack[]>([]);
   const [removedBaseIds, setRemovedBaseIds] = useState<Set<string>>(new Set());
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { tracks: baseTracks, loading, error } = useAudioTracks(AUDIO_CONFIGS, { progressive: true });
 
@@ -180,16 +157,9 @@ export function MirSpectrogramExample() {
     }
   };
 
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const files = (Array.from(e.dataTransfer.files) as File[]).filter(f => f.type.startsWith('audio/'));
-    if (files.length > 0) addFiles(files);
-  }, []);
-
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) addFiles(Array.from(files) as File[]);
+  const handleFiles = useCallback((files: File[]) => {
+    const audioFiles = files.filter(f => f.type.startsWith('audio/'));
+    if (audioFiles.length > 0) addFiles(audioFiles);
   }, []);
 
   if (error) return <div>Error: {error}</div>;
@@ -235,27 +205,12 @@ export function MirSpectrogramExample() {
         </WaveformPlaylistProvider>
       )}
 
-      <DropZone
-        $isDragging={isDragging}
-        onDrop={handleDrop}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-        onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <DropZoneText>
-          {isDragging
-            ? <><FolderOpenIcon size={18} weight="light" style={{ marginRight: 6, verticalAlign: 'text-bottom' }} /> Drop audio files here</>
-            : <><MusicNotesIcon size={18} weight="light" style={{ marginRight: 6, verticalAlign: 'text-bottom' }} /> Drop audio files here to add tracks</>
-          }
-        </DropZoneText>
-      </DropZone>
-
-      <HiddenFileInput
-        ref={fileInputRef}
-        type="file"
+      <StyledDropZone
         accept="audio/*"
-        multiple
-        onChange={handleFileInput}
+        onFiles={handleFiles}
+        fileFilter={(f) => f.type.startsWith('audio/')}
+        label="Drop audio files here to add tracks, or click to browse"
+        dragLabel="Drop audio files here"
       />
     </Container>
   );

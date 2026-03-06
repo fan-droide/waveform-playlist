@@ -8,6 +8,7 @@ export * from './ClipBoundary';
 export * from './ClipHeader';
 export * from './FadeOverlay';
 export * from './MasterVolumeControl';
+export * from './PianoRollChannel';
 export * from './Playhead';
 export * from './Playlist';
 export * from './Selection';

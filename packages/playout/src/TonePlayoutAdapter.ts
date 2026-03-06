@@ -9,10 +9,14 @@ import type { PlayoutAdapter } from '@waveform-playlist/engine';
 import { TonePlayout } from './TonePlayout';
 import type { EffectsFunction } from './TonePlayout';
 import type { ClipInfo } from './ToneTrack';
+import type { MidiClipInfo } from './MidiToneTrack';
+import type { SoundFontCache } from './SoundFontCache';
 import { now } from 'tone';
 
 export interface ToneAdapterOptions {
   effects?: EffectsFunction;
+  /** When provided, MIDI clips use SoundFont sample playback instead of PolySynth */
+  soundFontCache?: SoundFontCache;
 }
 
 export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter {
@@ -56,38 +60,100 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
     }
 
     for (const track of tracks) {
-      const playableClips = track.clips.filter((c) => c.audioBuffer);
-      if (playableClips.length === 0) continue;
+      // Separate MIDI clips from audio clips
+      const audioClips = track.clips.filter((c) => c.audioBuffer && !c.midiNotes);
+      const midiClips = track.clips.filter((c) => c.midiNotes && c.midiNotes.length > 0);
 
-      const startTime = Math.min(...playableClips.map(clipStartTime));
-      const endTime = Math.max(...playableClips.map(clipEndTime));
+      // Handle audio clips (existing behavior)
+      if (audioClips.length > 0) {
+        const startTime = Math.min(...audioClips.map(clipStartTime));
+        const endTime = Math.max(...audioClips.map(clipEndTime));
 
-      const trackObj: Track = {
-        id: track.id,
-        name: track.name,
-        gain: track.volume,
-        muted: track.muted,
-        soloed: track.soloed,
-        stereoPan: track.pan,
-        startTime,
-        endTime,
-      };
+        const trackObj: Track = {
+          id: track.id,
+          name: track.name,
+          gain: track.volume,
+          muted: track.muted,
+          soloed: track.soloed,
+          stereoPan: track.pan,
+          startTime,
+          endTime,
+        };
 
-      const clipInfos: ClipInfo[] = playableClips.map((clip) => ({
-        buffer: clip.audioBuffer!,
-        startTime: clipStartTime(clip) - startTime,
-        duration: clipDurationTime(clip),
-        offset: clipOffsetTime(clip),
-        fadeIn: clip.fadeIn,
-        fadeOut: clip.fadeOut,
-        gain: clip.gain,
-      }));
+        const clipInfos: ClipInfo[] = audioClips.map((clip) => ({
+          buffer: clip.audioBuffer!,
+          startTime: clipStartTime(clip) - startTime,
+          duration: clipDurationTime(clip),
+          offset: clipOffsetTime(clip),
+          fadeIn: clip.fadeIn,
+          fadeOut: clip.fadeOut,
+          gain: clip.gain,
+        }));
 
-      playout.addTrack({
-        clips: clipInfos,
-        track: trackObj,
-        effects: track.effects,
-      });
+        playout.addTrack({
+          clips: clipInfos,
+          track: trackObj,
+          effects: track.effects,
+        });
+      }
+
+      // Handle MIDI clips
+      if (midiClips.length > 0) {
+        const startTime = Math.min(...midiClips.map(clipStartTime));
+        const endTime = Math.max(...midiClips.map(clipEndTime));
+
+        // MIDI tracks get a separate ID suffix to avoid collision when a track
+        // has both audio and MIDI clips (rare but possible)
+        const trackId = audioClips.length > 0 ? `${track.id}:midi` : track.id;
+
+        const trackObj: Track = {
+          id: trackId,
+          name: track.name,
+          gain: track.volume,
+          muted: track.muted,
+          soloed: track.soloed,
+          stereoPan: track.pan,
+          startTime,
+          endTime,
+        };
+
+        const midiClipInfos: MidiClipInfo[] = midiClips.map((clip) => ({
+          notes: clip.midiNotes!,
+          startTime: clipStartTime(clip) - startTime,
+          duration: clipDurationTime(clip),
+          offset: clipOffsetTime(clip),
+        }));
+
+        // Route to SoundFontToneTrack when a SoundFont cache is loaded,
+        // otherwise fall back to MidiToneTrack (PolySynth)
+        if (options?.soundFontCache?.isLoaded) {
+          // Determine program number and percussion from the first MIDI clip
+          const firstClip = midiClips[0];
+          const midiChannel = firstClip.midiChannel;
+          const isPercussion = midiChannel === 9;
+          const programNumber = firstClip.midiProgram ?? 0;
+
+          playout.addSoundFontTrack({
+            clips: midiClipInfos,
+            track: trackObj,
+            soundFontCache: options.soundFontCache,
+            programNumber,
+            isPercussion,
+            effects: track.effects,
+          });
+        } else {
+          if (options?.soundFontCache) {
+            console.warn(
+              `[waveform-playlist] SoundFont not loaded for track "${track.name}" — falling back to PolySynth.`
+            );
+          }
+          playout.addMidiTrack({
+            clips: midiClipInfos,
+            track: trackObj,
+            effects: track.effects,
+          });
+        }
+      }
     }
 
     playout.applyInitialSoloState();

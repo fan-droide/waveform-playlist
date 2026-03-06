@@ -139,6 +139,19 @@ export interface AudioClip {
    * Load with: `const waveformData = await loadWaveformData('/path/to/peaks.dat')`
    */
   waveformData?: WaveformDataObject;
+
+  /**
+   * MIDI note data — when present, this clip plays MIDI instead of audio.
+   * The playout adapter uses this field to detect MIDI clips and route them
+   * to MidiToneTrack (PolySynth) instead of ToneTrack (AudioBufferSourceNode).
+   */
+  midiNotes?: MidiNoteData[];
+
+  /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
+  midiChannel?: number;
+
+  /** MIDI program number (0-127). GM instrument number for SoundFont playback. */
+  midiProgram?: number;
 }
 
 /**
@@ -234,6 +247,12 @@ export interface CreateClipOptions {
   sampleRate?: number;
   /** Total source audio duration in samples - required if audioBuffer not provided */
   sourceDurationSamples?: number;
+  /** MIDI note data — passed through to the created AudioClip */
+  midiNotes?: MidiNoteData[];
+  /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
+  midiChannel?: number;
+  /** MIDI program number (0-127). GM instrument for SoundFont playback. */
+  midiProgram?: number;
 }
 
 /**
@@ -259,6 +278,12 @@ export interface CreateClipOptionsSeconds {
   sampleRate?: number;
   /** Total source audio duration in seconds - required if audioBuffer not provided */
   sourceDuration?: number;
+  /** MIDI note data — passed through to the created AudioClip */
+  midiNotes?: MidiNoteData[];
+  /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
+  midiChannel?: number;
+  /** MIDI program number (0-127). GM instrument for SoundFont playback. */
+  midiProgram?: number;
 }
 
 /**
@@ -295,6 +320,9 @@ export function createClip(options: CreateClipOptions): AudioClip {
     fadeIn,
     fadeOut,
     waveformData,
+    midiNotes,
+    midiChannel,
+    midiProgram,
   } = options;
 
   // Determine sample rate: audioBuffer > explicit option > waveformData
@@ -342,6 +370,9 @@ export function createClip(options: CreateClipOptions): AudioClip {
     fadeIn,
     fadeOut,
     waveformData,
+    midiNotes,
+    midiChannel,
+    midiProgram,
   };
 }
 
@@ -364,6 +395,9 @@ export function createClipFromSeconds(options: CreateClipOptionsSeconds): AudioC
     fadeIn,
     fadeOut,
     waveformData,
+    midiNotes,
+    midiChannel,
+    midiProgram,
   } = options;
 
   // Determine sample rate: audioBuffer > explicit option > waveformData
@@ -406,6 +440,9 @@ export function createClipFromSeconds(options: CreateClipOptionsSeconds): AudioC
     fadeIn,
     fadeOut,
     waveformData,
+    midiNotes,
+    midiChannel,
+    midiProgram,
   });
 }
 
@@ -478,6 +515,26 @@ export function createTimeline(
  */
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * MIDI note data for clips that play MIDI instead of audio.
+ * When present on an AudioClip, the clip is treated as a MIDI clip
+ * by the playout adapter.
+ */
+export interface MidiNoteData {
+  /** MIDI note number (0-127) */
+  midi: number;
+  /** Note name in scientific pitch notation ("C4", "G#3") */
+  name: string;
+  /** Start time in seconds, relative to clip start */
+  time: number;
+  /** Duration in seconds */
+  duration: number;
+  /** Velocity (0-1 normalized) */
+  velocity: number;
+  /** MIDI channel (0-indexed). Channel 9 = GM percussion. Enables per-note routing in flattened tracks. */
+  channel?: number;
 }
 
 /**

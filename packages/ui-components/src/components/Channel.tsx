@@ -1,4 +1,4 @@
-import React, { FunctionComponent, useLayoutEffect } from 'react';
+import React, { FunctionComponent, useEffect } from 'react';
 import styled from 'styled-components';
 import type { Peaks, Bits } from '@waveform-playlist/core';
 import {
@@ -63,8 +63,6 @@ const Waveform = styled.canvas.attrs<WaveformProps>((props) => ({
 }))<WaveformProps>`
   position: absolute;
   top: 0;
-  /* Promote to own compositing layer for smoother scrolling */
-  will-change: transform;
   /* Disable image rendering interpolation */
   image-rendering: pixelated;
   image-rendering: crisp-edges;
@@ -140,7 +138,11 @@ export const Channel: FunctionComponent<ChannelProps> = (props) => {
 
   // Draw waveform bars on visible canvas chunks.
   // visibleChunkIndices changes only when chunks mount/unmount, not on every scroll pixel.
-  useLayoutEffect(() => {
+  // useEffect (not useLayoutEffect) so the browser paints the track layout
+  // (controls + empty canvas containers) before heavy canvas drawing starts.
+  // This prevents browser-initiated scrollLeft shifts and main-thread blocking.
+  useEffect(() => {
+    const tDraw = performance.now();
     const step = barWidth + barGap;
 
     for (const [canvasIdx, canvas] of canvasMapRef.current.entries()) {
@@ -196,6 +198,9 @@ export const Channel: FunctionComponent<ChannelProps> = (props) => {
         }
       }
     }
+    console.log(
+      `[waveform] draw ch${index}: ${canvasMapRef.current.size} chunks, ${(performance.now() - tDraw).toFixed(1)}ms`
+    );
   }, [
     canvasMapRef,
     data,
@@ -209,6 +214,7 @@ export const Channel: FunctionComponent<ChannelProps> = (props) => {
     barGap,
     drawMode,
     visibleChunkIndices,
+    index,
   ]);
 
   // Build visible canvas chunk elements

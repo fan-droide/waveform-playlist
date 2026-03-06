@@ -161,9 +161,11 @@ export const Clip: FunctionComponent<ClipProps> = ({
       data-clip-container="true"
       data-track-id={trackId}
       onMouseDown={onMouseDown}
-      // Pre-set tabIndex so @dnd-kit skips adding tabindex="0" when drag is disabled.
-      // Without this, the browser auto-scrolls overflow containers to show the focused element.
-      {...(!enableDrag ? { tabIndex: -1 } : {})}
+      // Always set tabIndex=-1 so @dnd-kit doesn't add tabindex="0".
+      // Without this, the browser auto-scrolls overflow containers to show
+      // the focused clip element when many clips mount simultaneously.
+      // Drag still works — the handle (ClipHeader) receives keyboard focus.
+      tabIndex={-1}
     >
       {showHeader && (
         <ClipHeader

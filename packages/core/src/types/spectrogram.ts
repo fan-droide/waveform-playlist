@@ -92,7 +92,7 @@ export type SpectrogramDisplayConfig = Pick<
 >;
 
 /** Render mode for a track's visualization */
-export type RenderMode = 'waveform' | 'spectrogram' | 'both';
+export type RenderMode = 'waveform' | 'spectrogram' | 'both' | 'piano-roll';
 
 /** Per-track overrides for spectrogram rendering (render mode, config, color map) */
 export interface TrackSpectrogramOverrides {

@@ -1,5 +1,6 @@
 import React, { useContext, useRef, useState, useMemo, type ReactNode, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import styled from 'styled-components';
 import { getContext } from 'tone';
 import {
   Playlist,
@@ -8,7 +9,6 @@ import {
   Selection,
   TimescaleLoopRegion,
   PlaylistInfoContext,
-  TrackControlsContext,
   DevicePixelRatioProvider,
   SmartScale,
   CloseButton,
@@ -25,6 +25,7 @@ import {
   waveformColorToCss,
   type RenderPlayheadFunction,
   SpectrogramLabels,
+  CLIP_HEADER_HEIGHT,
 } from '@waveform-playlist/ui-components';
 import { AnnotationIntegrationContext } from '../AnnotationIntegrationContext';
 import {
@@ -43,6 +44,25 @@ import { SpectrogramIntegrationContext } from '../SpectrogramIntegrationContext'
 
 // Default duration in seconds for empty tracks (used for recording workflow)
 const DEFAULT_EMPTY_TRACK_DURATION = 60;
+
+interface ControlSlotProps {
+  readonly $height: number;
+  readonly $isSelected?: boolean;
+}
+
+/**
+ * Height-synced container for each track's controls in the ControlsColumn.
+ * Uses the same height formula as Track: waveHeight * numChannels + clipHeaderHeight.
+ */
+const ControlSlot = styled.div.attrs<ControlSlotProps>((props) => ({
+  style: { height: `${props.$height}px` },
+}))<ControlSlotProps>`
+  overflow: hidden;
+  pointer-events: auto;
+  background: ${(props) => props.theme.surfaceColor};
+  transition: background 0.15s ease-in-out;
+  ${(props) => props.$isSelected && `background: ${props.theme.selectedTrackControlsBackground};`}
+`;
 
 export interface PlaylistVisualizationProps {
   renderTrackControls?: (trackIndex: number) => ReactNode;
@@ -215,6 +235,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
   const [settingsModalTrackId, setSettingsModalTrackId] = useState<string | null>(null);
 
   const [isSelecting, setIsSelecting] = useState(false);
+  const mouseDownTimeRef = useRef<number>(0);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -275,8 +296,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const controlWidth = controls.show ? controls.width : 0;
-    const x = e.clientX - rect.left - controlWidth;
+    const x = e.clientX - rect.left;
     const clickTime = (x * samplesPerPixel) / sampleRate;
 
     const y = e.clientY - rect.top;
@@ -309,17 +329,17 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
       selectTrack(clickedTrackIndex);
     }
 
+    mouseDownTimeRef.current = clickTime;
     setIsSelecting(true);
     setCurrentTime(clickTime);
     setSelection(clickTime, clickTime);
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isSelecting) return;
+    if (!isSelecting || isPlaying) return;
 
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const controlWidth = controls.show ? controls.width : 0;
-    const x = e.clientX - rect.left - controlWidth;
+    const x = e.clientX - rect.left;
     const moveTime = (x * samplesPerPixel) / sampleRate;
 
     const start = Math.min(selectionStart, moveTime);
@@ -332,9 +352,19 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
 
     setIsSelecting(false);
 
+    // During playback, use the time captured at mouseDown — auto-scroll shifts the
+    // overlay between mouseDown and mouseUp, so recomputing from getBoundingClientRect()
+    // would produce a wrong (shifted) position.
+    if (isPlaying) {
+      const clickTime = Math.max(0, mouseDownTimeRef.current);
+      setCurrentTime(clickTime);
+      setSelection(clickTime, clickTime);
+      play(clickTime);
+      return;
+    }
+
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const controlWidth = controls.show ? controls.width : 0;
-    const x = e.clientX - rect.left - controlWidth;
+    const x = e.clientX - rect.left;
     const endTime = (x * samplesPerPixel) / sampleRate;
 
     const start = Math.min(selectionStart, endTime);
@@ -342,10 +372,6 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
 
     if (Math.abs(end - start) < 0.1) {
       setCurrentTime(start);
-
-      if (isPlaying) {
-        play(start);
-      }
     } else {
       setSelection(start, end);
     }
@@ -359,6 +385,125 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
   if (hasClips && peaksDataArray.length === 0) {
     return <div className={className}>Loading waveform...</div>;
   }
+
+  // Build track controls slots for the ControlsColumn (outside scroll area)
+  const trackControlsSlots = controls.show
+    ? peaksDataArray.map((trackClipPeaks, trackIndex) => {
+        const track = tracks[trackIndex];
+        if (!track) return null;
+
+        const trackState = trackStates[trackIndex] || {
+          name: `Track ${trackIndex + 1}`,
+          muted: false,
+          soloed: false,
+          volume: 1.0,
+          pan: 0,
+        };
+
+        const hasMidiNotes = track.clips.some((c) => c.midiNotes && c.midiNotes.length > 0);
+        const effectiveRenderMode =
+          spectrogram?.trackSpectrogramOverrides.get(track.id)?.renderMode ??
+          track.renderMode ??
+          (hasMidiNotes ? 'piano-roll' : 'waveform');
+
+        const maxChannels =
+          trackClipPeaks.length > 0
+            ? Math.max(1, ...trackClipPeaks.map((clip) => clip.peaks.data.length))
+            : 1;
+
+        // Height must match Track component: waveHeight * numChannels + clipHeaderHeight
+        const slotHeight = waveHeight * maxChannels + (showClipHeaders ? CLIP_HEADER_HEIGHT : 0);
+
+        const trackControlContent = renderTrackControls ? (
+          renderTrackControls(trackIndex)
+        ) : (
+          <Controls onClick={() => selectTrack(trackIndex)}>
+            <Header style={{ justifyContent: 'center', position: 'relative' }}>
+              {onRemoveTrack && (
+                <CloseButton
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveTrack(trackIndex);
+                  }}
+                />
+              )}
+              <span
+                style={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  padding: '0 24px',
+                  display: 'block',
+                }}
+              >
+                {trackState.name || `Track ${trackIndex + 1}`}
+              </span>
+              {spectrogram?.renderMenuItems && (
+                <span style={{ position: 'absolute', right: 0, top: 0 }}>
+                  <TrackMenu
+                    items={(onClose) =>
+                      spectrogram.renderMenuItems!({
+                        renderMode: effectiveRenderMode,
+                        onRenderModeChange: (mode) =>
+                          spectrogram.setTrackRenderMode(track.id, mode),
+                        onOpenSettings: () => setSettingsModalTrackId(track.id),
+                        onClose,
+                      })
+                    }
+                  />
+                </span>
+              )}
+            </Header>
+            <ButtonGroup>
+              <Button
+                $variant={trackState.muted ? 'danger' : 'outline'}
+                onClick={() => setTrackMute(trackIndex, !trackState.muted)}
+              >
+                Mute
+              </Button>
+              <Button
+                $variant={trackState.soloed ? 'info' : 'outline'}
+                onClick={() => setTrackSolo(trackIndex, !trackState.soloed)}
+              >
+                Solo
+              </Button>
+            </ButtonGroup>
+            <SliderWrapper>
+              <VolumeDownIcon />
+              <Slider
+                min="0"
+                max="1"
+                step="0.01"
+                value={trackState.volume}
+                onChange={(e) => setTrackVolume(trackIndex, parseFloat(e.target.value))}
+              />
+              <VolumeUpIcon />
+            </SliderWrapper>
+            <SliderWrapper>
+              <span>L</span>
+              <Slider
+                min="-1"
+                max="1"
+                step="0.01"
+                value={trackState.pan}
+                onChange={(e) => setTrackPan(trackIndex, parseFloat(e.target.value))}
+              />
+              <span>R</span>
+            </SliderWrapper>
+          </Controls>
+        );
+
+        return (
+          <ControlSlot
+            key={track.id}
+            $height={slotHeight}
+            $isSelected={track.id === selectedTrackId}
+          >
+            {trackControlContent}
+          </ControlSlot>
+        );
+      })
+    : undefined;
 
   return (
     <DevicePixelRatioProvider>
@@ -377,9 +522,10 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
       >
         <Playlist
           theme={theme}
-          backgroundColor={waveformColorToCss(theme.waveOutlineColor)}
+          backgroundColor={
+            theme.playlistBackgroundColor || waveformColorToCss(theme.waveOutlineColor)
+          }
           timescaleBackgroundColor={theme.timescaleBackgroundColor}
-          scrollContainerWidth={tracksFullWidth + (controls.show ? controls.width : 0)}
           timescaleWidth={tracksFullWidth}
           tracksWidth={tracksFullWidth}
           controlsWidth={controls.show ? controls.width : 0}
@@ -389,6 +535,8 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
           scrollContainerRef={handleScrollContainerRef}
           isSelecting={isSelecting}
           data-playlist-state={isReady ? 'ready' : 'loading'}
+          trackControlsSlots={trackControlsSlots}
+          timescaleGapHeight={timeScaleHeight > 0 ? timeScaleHeight + 1 : 0}
           timescale={
             timeScaleHeight > 0 ? (
               <>
@@ -401,7 +549,6 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
                     regionColor={theme.loopRegionColor}
                     minPosition={0}
                     maxPosition={tracksFullWidth}
-                    controlsOffset={controls.show ? controls.width : 0}
                     onLoopRegionChange={(startPixels, endPixels) => {
                       const startSeconds = (startPixels * samplesPerPixel) / sampleRate;
                       const endSeconds = (endPixels * samplesPerPixel) / sampleRate;
@@ -418,97 +565,11 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
               const track = tracks[trackIndex];
               if (!track) return null;
 
-              const trackState = trackStates[trackIndex] || {
-                name: `Track ${trackIndex + 1}`,
-                muted: false,
-                soloed: false,
-                volume: 1.0,
-                pan: 0,
-              };
-
+              const hasMidiNotes = track.clips.some((c) => c.midiNotes && c.midiNotes.length > 0);
               const effectiveRenderMode =
                 spectrogram?.trackSpectrogramOverrides.get(track.id)?.renderMode ??
                 track.renderMode ??
-                'waveform';
-
-              const trackControls = renderTrackControls ? (
-                renderTrackControls(trackIndex)
-              ) : (
-                <Controls onClick={() => selectTrack(trackIndex)}>
-                  <Header style={{ justifyContent: 'center', position: 'relative' }}>
-                    {onRemoveTrack && (
-                      <CloseButton
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRemoveTrack(trackIndex);
-                        }}
-                      />
-                    )}
-                    <span
-                      style={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        padding: '0 24px',
-                        display: 'block',
-                      }}
-                    >
-                      {trackState.name || `Track ${trackIndex + 1}`}
-                    </span>
-                    {spectrogram?.renderMenuItems && (
-                      <span style={{ position: 'absolute', right: 0, top: 0 }}>
-                        <TrackMenu
-                          items={(onClose) =>
-                            spectrogram.renderMenuItems!({
-                              renderMode: effectiveRenderMode,
-                              onRenderModeChange: (mode) =>
-                                spectrogram.setTrackRenderMode(track.id, mode),
-                              onOpenSettings: () => setSettingsModalTrackId(track.id),
-                              onClose,
-                            })
-                          }
-                        />
-                      </span>
-                    )}
-                  </Header>
-                  <ButtonGroup>
-                    <Button
-                      $variant={trackState.muted ? 'danger' : 'outline'}
-                      onClick={() => setTrackMute(trackIndex, !trackState.muted)}
-                    >
-                      Mute
-                    </Button>
-                    <Button
-                      $variant={trackState.soloed ? 'info' : 'outline'}
-                      onClick={() => setTrackSolo(trackIndex, !trackState.soloed)}
-                    >
-                      Solo
-                    </Button>
-                  </ButtonGroup>
-                  <SliderWrapper>
-                    <VolumeDownIcon />
-                    <Slider
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={trackState.volume}
-                      onChange={(e) => setTrackVolume(trackIndex, parseFloat(e.target.value))}
-                    />
-                    <VolumeUpIcon />
-                  </SliderWrapper>
-                  <SliderWrapper>
-                    <span>L</span>
-                    <Slider
-                      min="-1"
-                      max="1"
-                      step="0.01"
-                      value={trackState.pan}
-                      onChange={(e) => setTrackPan(trackIndex, parseFloat(e.target.value))}
-                    />
-                    <span>R</span>
-                  </SliderWrapper>
-                </Controls>
-              );
+                (hasMidiNotes ? 'piano-roll' : 'waveform');
 
               const maxChannels =
                 trackClipPeaks.length > 0
@@ -516,146 +577,154 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
                   : 1;
 
               return (
-                <TrackControlsContext.Provider key={track.id} value={trackControls}>
-                  <TrackComponent
-                    numChannels={maxChannels}
-                    backgroundColor={waveformColorToCss(theme.waveOutlineColor)}
-                    offset={0}
-                    width={tracksFullWidth}
-                    hasClipHeaders={showClipHeaders}
-                    trackId={track.id}
-                    isSelected={track.id === selectedTrackId}
-                  >
-                    {effectiveRenderMode !== 'waveform' &&
-                      (() => {
-                        const helpers = perTrackSpectrogramHelpers.get(track.id);
-                        const trackCfg = helpers?.config;
-                        if (!trackCfg?.labels || !helpers) return null;
-                        return (
-                          <SpectrogramLabels
-                            waveHeight={waveHeight}
-                            numChannels={maxChannels}
-                            frequencyScaleFn={helpers.frequencyScaleFn}
-                            minFrequency={trackCfg.minFrequency ?? 0}
-                            maxFrequency={trackCfg.maxFrequency ?? sampleRate / 2}
-                            labelsColor={trackCfg.labelsColor}
-                            labelsBackground={trackCfg.labelsBackground}
-                            renderMode={effectiveRenderMode as 'spectrogram' | 'both'}
-                            hasClipHeaders={showClipHeaders}
-                          />
-                        );
-                      })()}
-                    {trackClipPeaks.map((clip, clipIndex) => {
-                      const peaksData = clip.peaks;
-                      const width = peaksData.length;
-
+                <TrackComponent
+                  key={track.id}
+                  numChannels={maxChannels}
+                  backgroundColor={
+                    effectiveRenderMode === 'piano-roll'
+                      ? theme.pianoRollBackgroundColor || '#1a1a2e'
+                      : waveformColorToCss(theme.waveOutlineColor)
+                  }
+                  offset={0}
+                  width={tracksFullWidth}
+                  hasClipHeaders={showClipHeaders}
+                  trackId={track.id}
+                  isSelected={track.id === selectedTrackId}
+                >
+                  {effectiveRenderMode !== 'waveform' &&
+                    (() => {
+                      const helpers = perTrackSpectrogramHelpers.get(track.id);
+                      const trackCfg = helpers?.config;
+                      if (!trackCfg?.labels || !helpers) return null;
                       return (
-                        <Clip
-                          key={clip.clipId}
-                          clipId={clip.clipId}
-                          trackIndex={trackIndex}
-                          clipIndex={clipIndex}
-                          trackName={clip.trackName}
-                          startSample={clip.startSample}
-                          durationSamples={clip.durationSamples}
-                          samplesPerPixel={samplesPerPixel}
-                          showHeader={showClipHeaders}
-                          disableHeaderDrag={!interactiveClips}
-                          isSelected={track.id === selectedTrackId}
-                          trackId={track.id}
-                          fadeIn={clip.fadeIn}
-                          fadeOut={clip.fadeOut}
-                          sampleRate={sampleRate}
-                          showFades={showFades}
-                          touchOptimized={touchOptimized}
-                          onMouseDown={(e) => {
-                            const target = e.target as HTMLElement;
-                            const isDraggable = target.closest(
-                              '[role="button"][aria-roledescription="draggable"]'
-                            );
-                            if (isDraggable) {
-                              return;
-                            }
-                            selectTrack(trackIndex);
-                          }}
-                        >
-                          {peaksData.data.map((channelPeaks: Peaks, channelIndex: number) => {
-                            const clipSpectrograms = spectrogram?.spectrogramDataMap.get(
-                              clip.clipId
-                            );
-                            const channelSpectrogram =
-                              clipSpectrograms?.[channelIndex] ?? clipSpectrograms?.[0];
-                            const helpers = perTrackSpectrogramHelpers.get(track.id);
-                            const trackCfg = helpers?.config;
-
-                            return (
-                              <ChannelWithProgress
-                                key={`${clip.clipId}-${channelIndex}`}
-                                index={channelIndex}
-                                data={channelPeaks}
-                                bits={peaksData.bits}
-                                length={width}
-                                isSelected={track.id === selectedTrackId}
-                                clipStartSample={clip.startSample}
-                                clipDurationSamples={clip.durationSamples}
-                                renderMode={effectiveRenderMode}
-                                spectrogramData={channelSpectrogram}
-                                samplesPerPixel={samplesPerPixel}
-                                spectrogramColorLUT={helpers?.colorLUT}
-                                spectrogramFrequencyScaleFn={helpers?.frequencyScaleFn}
-                                spectrogramMinFrequency={trackCfg?.minFrequency}
-                                spectrogramMaxFrequency={trackCfg?.maxFrequency}
-                                spectrogramWorkerApi={workerCanvasApi}
-                                spectrogramClipId={clip.clipId}
-                                spectrogramOnCanvasesReady={
-                                  spectrogram
-                                    ? (canvasIds, canvasWidths) => {
-                                        spectrogram.registerSpectrogramCanvases(
-                                          clip.clipId,
-                                          channelIndex,
-                                          canvasIds,
-                                          canvasWidths
-                                        );
-                                      }
-                                    : undefined
-                                }
-                              />
-                            );
-                          })}
-                        </Clip>
+                        <SpectrogramLabels
+                          waveHeight={waveHeight}
+                          numChannels={maxChannels}
+                          frequencyScaleFn={helpers.frequencyScaleFn}
+                          minFrequency={trackCfg.minFrequency ?? 0}
+                          maxFrequency={trackCfg.maxFrequency ?? sampleRate / 2}
+                          labelsColor={trackCfg.labelsColor}
+                          labelsBackground={trackCfg.labelsBackground}
+                          renderMode={effectiveRenderMode as 'spectrogram' | 'both'}
+                          hasClipHeaders={showClipHeaders}
+                        />
                       );
-                    })}
-                    {recordingState?.isRecording &&
-                      recordingState.trackId === track.id &&
-                      recordingState.peaks.length > 0 && (
-                        <Clip
-                          key={`${track.id}-recording`}
-                          clipId="recording-preview"
-                          trackIndex={trackIndex}
-                          clipIndex={trackClipPeaks.length}
-                          trackName="Recording..."
-                          startSample={recordingState.startSample}
-                          durationSamples={recordingState.durationSamples}
-                          samplesPerPixel={samplesPerPixel}
-                          showHeader={showClipHeaders}
-                          disableHeaderDrag={true}
+                    })()}
+                  {trackClipPeaks.map((clip, clipIndex) => {
+                    const peaksData = clip.peaks;
+                    const width = peaksData.length;
+
+                    return (
+                      <Clip
+                        key={clip.clipId}
+                        clipId={clip.clipId}
+                        trackIndex={trackIndex}
+                        clipIndex={clipIndex}
+                        trackName={clip.trackName}
+                        startSample={clip.startSample}
+                        durationSamples={clip.durationSamples}
+                        samplesPerPixel={samplesPerPixel}
+                        showHeader={showClipHeaders}
+                        disableHeaderDrag={!interactiveClips}
+                        isSelected={track.id === selectedTrackId}
+                        trackId={track.id}
+                        fadeIn={clip.fadeIn}
+                        fadeOut={clip.fadeOut}
+                        sampleRate={sampleRate}
+                        showFades={showFades}
+                        touchOptimized={touchOptimized}
+                        onMouseDown={(e) => {
+                          const target = e.target as HTMLElement;
+                          const isDraggable = target.closest(
+                            '[role="button"][aria-roledescription="draggable"]'
+                          );
+                          if (isDraggable) {
+                            return;
+                          }
+                          selectTrack(trackIndex);
+                        }}
+                      >
+                        {peaksData.data.map((channelPeaks: Peaks, channelIndex: number) => {
+                          const clipSpectrograms = spectrogram?.spectrogramDataMap.get(clip.clipId);
+                          const channelSpectrogram =
+                            clipSpectrograms?.[channelIndex] ?? clipSpectrograms?.[0];
+                          const helpers = perTrackSpectrogramHelpers.get(track.id);
+                          const trackCfg = helpers?.config;
+
+                          return (
+                            <ChannelWithProgress
+                              key={`${clip.clipId}-${channelIndex}`}
+                              index={channelIndex}
+                              data={channelPeaks}
+                              bits={peaksData.bits}
+                              length={width}
+                              isSelected={track.id === selectedTrackId}
+                              clipStartSample={clip.startSample}
+                              clipDurationSamples={clip.durationSamples}
+                              renderMode={clip.midiNotes ? 'piano-roll' : effectiveRenderMode}
+                              midiNotes={clip.midiNotes}
+                              clipSampleRate={clip.sampleRate}
+                              clipOffsetSeconds={
+                                clip.offsetSamples != null
+                                  ? clip.offsetSamples / (clip.sampleRate || sampleRate)
+                                  : 0
+                              }
+                              spectrogramData={channelSpectrogram}
+                              samplesPerPixel={samplesPerPixel}
+                              spectrogramColorLUT={helpers?.colorLUT}
+                              spectrogramFrequencyScaleFn={helpers?.frequencyScaleFn}
+                              spectrogramMinFrequency={trackCfg?.minFrequency}
+                              spectrogramMaxFrequency={trackCfg?.maxFrequency}
+                              spectrogramWorkerApi={workerCanvasApi}
+                              spectrogramClipId={clip.clipId}
+                              spectrogramOnCanvasesReady={
+                                spectrogram
+                                  ? (canvasIds, canvasWidths) => {
+                                      spectrogram.registerSpectrogramCanvases(
+                                        clip.clipId,
+                                        channelIndex,
+                                        canvasIds,
+                                        canvasWidths
+                                      );
+                                    }
+                                  : undefined
+                              }
+                            />
+                          );
+                        })}
+                      </Clip>
+                    );
+                  })}
+                  {recordingState?.isRecording &&
+                    recordingState.trackId === track.id &&
+                    recordingState.peaks.length > 0 && (
+                      <Clip
+                        key={`${track.id}-recording`}
+                        clipId="recording-preview"
+                        trackIndex={trackIndex}
+                        clipIndex={trackClipPeaks.length}
+                        trackName="Recording..."
+                        startSample={recordingState.startSample}
+                        durationSamples={recordingState.durationSamples}
+                        samplesPerPixel={samplesPerPixel}
+                        showHeader={showClipHeaders}
+                        disableHeaderDrag={true}
+                        isSelected={track.id === selectedTrackId}
+                        trackId={track.id}
+                      >
+                        <ChannelWithProgress
+                          key={`${track.id}-recording-0`}
+                          index={0}
+                          data={recordingState.peaks}
+                          bits={16}
+                          length={Math.floor(recordingState.peaks.length / 2)}
                           isSelected={track.id === selectedTrackId}
-                          trackId={track.id}
-                        >
-                          <ChannelWithProgress
-                            key={`${track.id}-recording-0`}
-                            index={0}
-                            data={recordingState.peaks}
-                            bits={16}
-                            length={Math.floor(recordingState.peaks.length / 2)}
-                            isSelected={track.id === selectedTrackId}
-                            clipStartSample={recordingState.startSample}
-                            clipDurationSamples={recordingState.durationSamples}
-                          />
-                        </Clip>
-                      )}
-                  </TrackComponent>
-                </TrackControlsContext.Provider>
+                          clipStartSample={recordingState.startSample}
+                          clipDurationSamples={recordingState.durationSamples}
+                        />
+                      </Clip>
+                    )}
+                </TrackComponent>
               );
             })}
             {annotations.length > 0 && annotationIntegration && (
@@ -686,12 +755,10 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
             {selectionStart !== selectionEnd && (
               <Selection
                 startPosition={
-                  (Math.min(selectionStart, selectionEnd) * sampleRate) / samplesPerPixel +
-                  (controls.show ? controls.width : 0)
+                  (Math.min(selectionStart, selectionEnd) * sampleRate) / samplesPerPixel
                 }
                 endPosition={
-                  (Math.max(selectionStart, selectionEnd) * sampleRate) / samplesPerPixel +
-                  (controls.show ? controls.width : 0)
+                  (Math.max(selectionStart, selectionEnd) * sampleRate) / samplesPerPixel
                 }
                 color={theme.selectionColor}
               />
@@ -699,9 +766,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
             {(isPlaying || selectionStart === selectionEnd) &&
               (renderPlayhead ? (
                 renderPlayhead({
-                  position:
-                    ((currentTimeRef.current ?? 0) * sampleRate) / samplesPerPixel +
-                    (controls.show ? controls.width : 0),
+                  position: ((currentTimeRef.current ?? 0) * sampleRate) / samplesPerPixel,
                   color: theme.playheadColor,
                   isPlaying,
                   currentTimeRef,
@@ -709,15 +774,12 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
                   audioStartPositionRef,
                   samplesPerPixel,
                   sampleRate,
-                  controlsOffset: controls.show ? controls.width : 0,
+                  controlsOffset: 0,
                   getAudioContextTime: () => getContext().currentTime,
                   getPlaybackTime,
                 })
               ) : (
-                <AnimatedPlayhead
-                  color={theme.playheadColor}
-                  controlsOffset={controls.show ? controls.width : 0}
-                />
+                <AnimatedPlayhead color={theme.playheadColor} />
               ))}
           </>
         </Playlist>

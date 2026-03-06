@@ -130,6 +130,14 @@ export interface WaveformPlaylistTheme {
   annotationResizeHandleActiveColor: string;
   annotationTextItemHoverBackground: string;
 
+  // Playlist container background (falls back to waveOutlineColor when unset)
+  playlistBackgroundColor?: string;
+
+  // Piano roll colors (MIDI visualization)
+  pianoRollNoteColor: string;
+  pianoRollSelectedNoteColor: string;
+  pianoRollBackgroundColor: string;
+
   // Spacing and sizing
   borderRadius: string;
   fontFamily: string;
@@ -195,6 +203,11 @@ export const defaultTheme: WaveformPlaylistTheme = {
   annotationResizeHandleColor: 'rgba(0, 0, 0, 0.4)',
   annotationResizeHandleActiveColor: 'rgba(0, 0, 0, 0.8)',
   annotationTextItemHoverBackground: 'rgba(0, 0, 0, 0.03)',
+
+  // Piano roll colors
+  pianoRollNoteColor: '#2a7070',
+  pianoRollSelectedNoteColor: '#3d9e9e',
+  pianoRollBackgroundColor: '#1a1a2e',
 
   // Spacing and sizing
   borderRadius: '4px',
@@ -263,6 +276,11 @@ export const darkTheme: WaveformPlaylistTheme = {
   annotationResizeHandleColor: 'rgba(200, 160, 120, 0.5)',
   annotationResizeHandleActiveColor: 'rgba(220, 180, 140, 0.8)',
   annotationTextItemHoverBackground: 'rgba(200, 160, 120, 0.08)',
+
+  // Piano roll colors
+  pianoRollNoteColor: '#c49a6c',
+  pianoRollSelectedNoteColor: '#e8c090',
+  pianoRollBackgroundColor: '#0d0d14',
 
   // Spacing and sizing
   borderRadius: '4px',

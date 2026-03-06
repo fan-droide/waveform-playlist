@@ -2,6 +2,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
   useRef,
@@ -24,8 +25,25 @@ export interface ScrollViewport {
  * when their derived value changes, not on every viewport update.
  */
 class ViewportStore {
-  private _state: ScrollViewport | null = null;
+  private _state: ScrollViewport | null;
   private _listeners = new Set<() => void>();
+  private _notifyRafId: number | null = null;
+
+  constructor(containerEl?: HTMLElement | null) {
+    // Seed with actual container width if available, otherwise estimate from
+    // window.innerWidth. This prevents the first render from mounting ALL
+    // canvas chunks (viewport=null → no filtering), only to prune them to
+    // ~3 visible chunks after the first measurement.
+    const width =
+      containerEl?.clientWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 1024);
+    const buffer = width * 1.5;
+    this._state = {
+      scrollLeft: 0,
+      containerWidth: width,
+      visibleStart: 0,
+      visibleEnd: width + buffer,
+    };
+  }
 
   subscribe = (callback: () => void): (() => void) => {
     this._listeners.add(callback);
@@ -38,6 +56,11 @@ class ViewportStore {
    * Update viewport state. Applies a 100px scroll threshold to skip updates
    * that don't affect chunk visibility (1000px chunks with 1.5× overscan buffer).
    * Only notifies listeners when the state actually changes.
+   *
+   * Listener notification is deferred by one frame via requestAnimationFrame
+   * to avoid conflicting with React 19's concurrent rendering. When React
+   * time-slices a render across frames, synchronous useSyncExternalStore
+   * notifications can trigger "Should not already be working" errors.
    */
   update(scrollLeft: number, containerWidth: number): void {
     const buffer = containerWidth * 1.5;
@@ -54,8 +77,24 @@ class ViewportStore {
     }
 
     this._state = { scrollLeft, containerWidth, visibleStart, visibleEnd };
-    for (const listener of this._listeners) {
-      listener();
+
+    // Defer listener notification to the next frame so it doesn't fire
+    // during React's concurrent render time-slice. getSnapshot() returns
+    // the new state immediately, so React picks it up on the next render.
+    if (this._notifyRafId === null) {
+      this._notifyRafId = requestAnimationFrame(() => {
+        this._notifyRafId = null;
+        for (const listener of this._listeners) {
+          listener();
+        }
+      });
+    }
+  }
+
+  cancelPendingNotification(): void {
+    if (this._notifyRafId !== null) {
+      cancelAnimationFrame(this._notifyRafId);
+      this._notifyRafId = null;
     }
   }
 }
@@ -74,7 +113,7 @@ type ScrollViewportProviderProps = {
 export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewportProviderProps) => {
   const storeRef = useRef<ViewportStore | null>(null);
   if (storeRef.current === null) {
-    storeRef.current = new ViewportStore();
+    storeRef.current = new ViewportStore(containerRef.current);
   }
   const store = storeRef.current;
   const rafIdRef = useRef<number | null>(null);
@@ -93,37 +132,20 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
     });
   }, [measure]);
 
+  // Synchronous initial measurement so children have viewport data on first render.
+  // Without this, viewport is null during the first paint and all canvas chunks
+  // mount (e.g., 8 per track × 13 tracks = 104 canvases), only to be pruned to
+  // ~3 visible chunks after the useEffect measurement fires post-paint.
+  useLayoutEffect(() => {
+    measure();
+  }, [measure]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    // Initial measurement
-    measure();
-
     // Scroll listener throttled via requestAnimationFrame
     el.addEventListener('scroll', scheduleUpdate, { passive: true });
-
-    // Reset spurious scrollLeft that browsers may introduce when React renders
-    // wide content into a previously narrow container (layout-triggered scroll
-    // with no JavaScript in the call stack). Listen for the first scroll event
-    // and reset if it happens before any user interaction.
-    let userHasInteracted = false;
-    const markInteracted = () => {
-      userHasInteracted = true;
-    };
-    el.addEventListener('pointerdown', markInteracted, { once: true });
-    el.addEventListener('keydown', markInteracted, { once: true });
-    el.addEventListener('wheel', markInteracted, { once: true, passive: true });
-
-    const resetHandler = () => {
-      if (!userHasInteracted && el.scrollLeft !== 0) {
-        el.scrollLeft = 0;
-        measure();
-      }
-      // Remove after first scroll event regardless
-      el.removeEventListener('scroll', resetHandler);
-    };
-    el.addEventListener('scroll', resetHandler);
 
     // ResizeObserver for container width changes
     const resizeObserver = new ResizeObserver(() => {
@@ -133,17 +155,14 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
 
     return () => {
       el.removeEventListener('scroll', scheduleUpdate);
-      el.removeEventListener('scroll', resetHandler);
-      el.removeEventListener('pointerdown', markInteracted);
-      el.removeEventListener('keydown', markInteracted);
-      el.removeEventListener('wheel', markInteracted);
       resizeObserver.disconnect();
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
+      store.cancelPendingNotification();
     };
-  }, [containerRef, measure, scheduleUpdate]);
+  }, [containerRef, scheduleUpdate, store]);
 
   return <ViewportStoreContext.Provider value={store}>{children}</ViewportStoreContext.Provider>;
 };

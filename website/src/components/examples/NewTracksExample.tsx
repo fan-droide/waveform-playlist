@@ -7,7 +7,7 @@
  * - Multiple tracks with independent controls
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import styled from 'styled-components';
 import {
   WaveformPlaylistProvider,
@@ -22,7 +22,7 @@ import {
   useDynamicTracks,
 } from '@waveform-playlist/browser';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
-import { FolderOpenIcon, MusicNotesIcon } from '@phosphor-icons/react';
+import { FileDropZone } from '../FileDropZone';
 
 const Container = styled.div`
   max-width: 1400px;
@@ -53,65 +53,25 @@ const ControlGroup = styled.div`
   }
 `;
 
-const DropZone = styled.div<{ $isDragging: boolean }>`
-  padding: 3rem 2rem;
-  border: 3px dashed ${(props) => (props.$isDragging ? '#3498db' : 'var(--ifm-color-emphasis-400, #ced4da)')};
-  border-radius: 0.5rem;
-  text-align: center;
-  background: ${(props) => (props.$isDragging ? 'rgba(52, 152, 219, 0.1)' : 'var(--ifm-background-surface-color, #f8f9fa)')};
-  margin-bottom: 1.5rem;
-  transition: all 0.2s ease-in-out;
-  cursor: pointer;
-
-  &:hover {
-    border-color: #3498db;
-    background: var(--ifm-color-emphasis-100, #e3f2fd);
-  }
-`;
-
-const DropZoneText = styled.p`
-  margin: 0;
-  color: var(--ifm-font-color-base, #495057);
-  font-size: 1rem;
-`;
-
-const DropZoneSubtext = styled.p`
-  margin: 0.5rem 0 0 0;
+const Subtext = styled.p`
+  margin: 0.25rem 0 0 0;
   color: var(--ifm-color-emphasis-700, #6c757d);
   font-size: 0.875rem;
 `;
 
-const HiddenFileInput = styled.input`
-  display: none;
+const StyledDropZone = styled(FileDropZone)`
+  margin-bottom: 1.5rem;
 `;
 
 export function NewTracksExample() {
   const { theme } = useDocusaurusTheme();
   const { tracks, addTracks, removeTrack, loadingCount, isLoading, errors } = useDynamicTracks();
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragging(false);
-
-      const files = (Array.from(e.dataTransfer.files) as File[]).filter((file) =>
-        file.type.startsWith('audio/')
-      );
-
-      if (files.length > 0) {
-        addTracks(files);
-      }
-    },
-    [addTracks]
-  );
-
-  const handleFileInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-        addTracks(Array.from(files) as File[]);
+  const handleFiles = useCallback(
+    (files: File[]) => {
+      const audioFiles = files.filter((file) => file.type.startsWith('audio/'));
+      if (audioFiles.length > 0) {
+        addTracks(audioFiles);
       }
     },
     [addTracks]
@@ -124,55 +84,27 @@ export function NewTracksExample() {
     }
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDropZoneClick = () => {
-    fileInputRef.current?.click();
-  };
-
   return (
     <Container>
-      <DropZone
-        $isDragging={isDragging}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onClick={handleDropZoneClick}
-      >
-        {isLoading ? (
-          <>
-            <DropZoneText>
-              Decoding {loadingCount} file{loadingCount !== 1 ? 's' : ''}...
-            </DropZoneText>
-            <DropZoneSubtext>Placeholder tracks are shown below while audio decodes</DropZoneSubtext>
-          </>
-        ) : (
-          <>
-            <DropZoneText>
-              {isDragging ? <><FolderOpenIcon size={20} weight="light" style={{ marginRight: '8px', verticalAlign: 'text-bottom' }} /> Drop audio files here</> : <><MusicNotesIcon size={20} weight="light" style={{ marginRight: '8px', verticalAlign: 'text-bottom' }} /> Drop audio files here to add tracks</>}
-            </DropZoneText>
-            <DropZoneSubtext>
-              or click to browse (supports MP3, WAV, OGG, and more)
-            </DropZoneSubtext>
-          </>
-        )}
-      </DropZone>
-
-      <HiddenFileInput
-        ref={fileInputRef}
-        type="file"
+      <StyledDropZone
         accept="audio/*"
-        multiple
-        onChange={handleFileInput}
-      />
+        onFiles={handleFiles}
+        fileFilter={(f) => f.type.startsWith('audio/')}
+        label="Drop audio files here to add tracks, or click to browse"
+        dragLabel="Drop audio files here"
+        loadingContent={
+          isLoading ? (
+            <>
+              <p style={{ margin: 0 }}>
+                Decoding {loadingCount} file{loadingCount !== 1 ? 's' : ''}...
+              </p>
+              <Subtext>Placeholder tracks are shown below while audio decodes</Subtext>
+            </>
+          ) : undefined
+        }
+      >
+        <Subtext>Supports MP3, WAV, OGG, and more</Subtext>
+      </StyledDropZone>
 
       {errors.length > 0 && (
         <div role="alert" style={{

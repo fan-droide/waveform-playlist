@@ -24,8 +24,13 @@ test.describe('Multi-Clip Example', () => {
       // Get the first clip container - this ensures we click on actual waveform content
       const clipContainer = page.locator('[data-clip-container]').first();
       await expect(clipContainer).toBeVisible();
-      const box = await clipContainer.boundingBox();
-      expect(box).toBeTruthy();
+
+      // Wait for the element to have a non-null bounding box (layout complete)
+      let box: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        box = await clipContainer.boundingBox();
+        expect(box).toBeTruthy();
+      }).toPass({ timeout: 5000 });
 
       // Click somewhere in the middle of the clip (not at the very start)
       const clickX = box!.x + box!.width / 2;
@@ -45,24 +50,31 @@ test.describe('Multi-Clip Example', () => {
 
   test.describe('Clip Boundaries', () => {
     test('clip boundaries exist and have correct dimensions', async ({ page }) => {
-      // Check that boundary elements exist
+      // Check that boundary elements exist — use retrying assertion
+      // since clips may still be rendering after playlist is "ready"
       const leftBoundaries = page.locator('[data-boundary-edge="left"]');
       const rightBoundaries = page.locator('[data-boundary-edge="right"]');
 
-      const leftCount = await leftBoundaries.count();
-      const rightCount = await rightBoundaries.count();
-
-      expect(leftCount).toBeGreaterThan(0);
-      expect(rightCount).toBeGreaterThan(0);
-      expect(leftCount).toBe(rightCount); // Each clip has both boundaries
+      await expect(leftBoundaries.first()).toBeVisible();
+      await expect(async () => {
+        const leftCount = await leftBoundaries.count();
+        const rightCount = await rightBoundaries.count();
+        expect(leftCount).toBeGreaterThan(0);
+        expect(rightCount).toBeGreaterThan(0);
+        expect(leftCount).toBe(rightCount); // Each clip has both boundaries
+      }).toPass({ timeout: 5000 });
     });
 
     test('clip boundaries are clickable (not blocked by other elements)', async ({ page }) => {
       // Get the first left boundary
       const boundary = page.locator('[data-boundary-edge="left"]').first();
       await expect(boundary).toBeVisible();
-      const box = await boundary.boundingBox();
-      expect(box).toBeTruthy();
+
+      let box: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        box = await boundary.boundingBox();
+        expect(box).toBeTruthy();
+      }).toPass({ timeout: 5000 });
 
       // Use elementFromPoint to verify the boundary is the topmost element
       const isClickable = await page.evaluate(({ x, y }) => {
@@ -77,22 +89,24 @@ test.describe('Multi-Clip Example', () => {
       const boundary = page.locator('[data-boundary-edge="left"]').first();
       await expect(boundary).toBeVisible();
 
-      const cursor = await boundary.evaluate((el) => {
-        return window.getComputedStyle(el).cursor;
-      });
-
-      expect(cursor).toBe('col-resize');
+      await expect(async () => {
+        const cursor = await boundary.evaluate((el) => {
+          return window.getComputedStyle(el).cursor;
+        });
+        expect(cursor).toBe('col-resize');
+      }).toPass({ timeout: 5000 });
     });
 
     test('boundary has pointer-events: auto', async ({ page }) => {
       const boundary = page.locator('[data-boundary-edge="left"]').first();
       await expect(boundary).toBeVisible();
 
-      const pointerEvents = await boundary.evaluate((el) => {
-        return window.getComputedStyle(el).pointerEvents;
-      });
-
-      expect(pointerEvents).toBe('auto');
+      await expect(async () => {
+        const pointerEvents = await boundary.evaluate((el) => {
+          return window.getComputedStyle(el).pointerEvents;
+        });
+        expect(pointerEvents).toBe('auto');
+      }).toPass({ timeout: 5000 });
     });
   });
 
@@ -110,9 +124,12 @@ test.describe('Multi-Clip Example', () => {
       const header = page.locator('[data-clip-id]').first();
       await expect(header).toBeVisible();
 
-      // Check for dnd-kit draggable attributes
-      const roleDescription = await header.getAttribute('aria-roledescription');
-      expect(roleDescription).toBe('draggable');
+      // Check for dnd-kit draggable attributes — use retrying assertion
+      // since dnd-kit may attach attributes after initial render
+      await expect(async () => {
+        const roleDescription = await header.getAttribute('aria-roledescription');
+        expect(roleDescription).toBe('draggable');
+      }).toPass({ timeout: 5000 });
     });
 
     test('clip headers have pointer-events: auto', async ({ page }) => {
@@ -120,22 +137,24 @@ test.describe('Multi-Clip Example', () => {
       const headerContainer = page.locator('[data-clip-id]').first();
       await expect(headerContainer).toBeVisible();
 
-      const pointerEvents = await headerContainer.evaluate((el) => {
-        return window.getComputedStyle(el).pointerEvents;
-      });
-
-      expect(pointerEvents).toBe('auto');
+      await expect(async () => {
+        const pointerEvents = await headerContainer.evaluate((el) => {
+          return window.getComputedStyle(el).pointerEvents;
+        });
+        expect(pointerEvents).toBe('auto');
+      }).toPass({ timeout: 5000 });
     });
 
     test('clip headers show grab cursor', async ({ page }) => {
       const headerContainer = page.locator('[data-clip-id]').first();
       await expect(headerContainer).toBeVisible();
 
-      const cursor = await headerContainer.evaluate((el) => {
-        return window.getComputedStyle(el).cursor;
-      });
-
-      expect(cursor).toBe('grab');
+      await expect(async () => {
+        const cursor = await headerContainer.evaluate((el) => {
+          return window.getComputedStyle(el).cursor;
+        });
+        expect(cursor).toBe('grab');
+      }).toPass({ timeout: 5000 });
     });
   });
 
@@ -158,16 +177,17 @@ test.describe('Multi-Clip Example', () => {
       const playButton = page.getByRole('button', { name: 'Play' });
       await expect(playButton).toBeVisible();
 
-      // Press Space to start playing
-      await page.keyboard.press('Space');
+      // Use Play button for reliable AudioContext init
+      await playButton.click();
 
-      // Wait a moment for playback to start
-      await page.waitForTimeout(100);
-
-      // Time should have advanced from 00:00:00.000
+      // Wait for time to advance (tolerates AudioContext init delay)
       const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
 
-      // Press Space again to pause
+      // Press Space to pause (tests keyboard shortcut after audio is initialized)
       await page.keyboard.press('Space');
 
       // Capture time after pause
@@ -184,19 +204,29 @@ test.describe('Multi-Clip Example', () => {
       // Click somewhere to set a non-zero position
       const tracksContainer = page.locator('[data-scroll-container]');
       await expect(tracksContainer).toBeVisible();
-      const box = await tracksContainer.boundingBox();
+
+      let box: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        box = await tracksContainer.boundingBox();
+        expect(box).toBeTruthy();
+      }).toPass({ timeout: 5000 });
       await page.mouse.click(box!.x + box!.width / 3, box!.y + box!.height / 2);
 
-      // Start playback
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(100);
+      // Start playback via button for reliable AudioContext init
+      await page.getByRole('button', { name: 'Play' }).click();
+
+      // Wait for playback to start
+      const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
 
       // Press Escape to stop
       await page.keyboard.press('Escape');
 
       // Time should reset to the start position (where we clicked, not 00:00:00.000)
       // Just verify playback stopped - the exact behavior depends on implementation
-      const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
       const timeAfterStop = await timeDisplay.textContent();
 
       // Wait and verify time isn't advancing
@@ -207,17 +237,19 @@ test.describe('Multi-Clip Example', () => {
     });
 
     test('pressing 0 rewinds to start', async ({ page }) => {
-      // Start playback and let it run briefly to advance time
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(300);
+      const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+
+      // Use Play button for reliable AudioContext init + playback start
+      await page.getByRole('button', { name: 'Play' }).click();
+
+      // Wait for time to advance (tolerates AudioContext init delay)
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
 
       // Pause playback
-      await page.keyboard.press('Space');
-
-      // Verify time has advanced from start
-      const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
-      const timeBeforeRewind = await timeDisplay.textContent();
-      expect(timeBeforeRewind).not.toBe('00:00:00.000');
+      await page.getByRole('button', { name: 'Pause' }).click();
 
       // Press 0 to rewind
       await page.keyboard.press('0');
@@ -235,11 +267,14 @@ test.describe('Multi-Clip Example', () => {
       const clipsBefore = await page.locator('[data-clip-container]').count();
 
       // Click on the waveform to position playhead within the clip
-      // Get the clip container position to click within it
       const clipContainer = page.locator('[data-clip-container]').first();
       await expect(clipContainer).toBeVisible();
-      const clipBox = await clipContainer.boundingBox();
-      expect(clipBox).toBeTruthy();
+
+      let clipBox: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        clipBox = await clipContainer.boundingBox();
+        expect(clipBox).toBeTruthy();
+      }).toPass({ timeout: 5000 });
 
       // Click in the middle of the clip
       await page.mouse.click(clipBox!.x + clipBox!.width / 2, clipBox!.y + clipBox!.height / 2);
@@ -265,15 +300,24 @@ test.describe('Multi-Clip Example', () => {
       // Position playhead within the Bass clip (it spans most of the timeline)
       const tracksContainer = page.locator('[data-scroll-container]');
       await expect(tracksContainer).toBeVisible();
-      const box = await tracksContainer.boundingBox();
+
+      let box: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        box = await tracksContainer.boundingBox();
+        expect(box).toBeTruthy();
+      }).toPass({ timeout: 5000 });
       await page.mouse.click(box!.x + 100, box!.y + box!.height / 2);
 
-      // Start playback
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(200);
+      // Start playback via button for reliable AudioContext init
+      await page.getByRole('button', { name: 'Play' }).click();
 
-      // Verify we're playing (time is advancing)
+      // Wait for playback to start
       const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
+
       const timeBeforeSplit = await timeDisplay.textContent();
 
       // Split the clip while playing
@@ -320,8 +364,12 @@ test.describe('Multi-Clip Example', () => {
       // Get the first clip header (use data-clip-id selector)
       const header = page.locator('[data-clip-id]').first();
       await expect(header).toBeVisible();
-      const headerBox = await header.boundingBox();
-      expect(headerBox).toBeTruthy();
+
+      let headerBox: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        headerBox = await header.boundingBox();
+        expect(headerBox).toBeTruthy();
+      }).toPass({ timeout: 5000 });
 
       // Get initial clip position
       const clipContainer = page.locator('[data-clip-container]').first();
@@ -348,8 +396,12 @@ test.describe('Multi-Clip Example', () => {
       // Get the first right boundary (easier to test trimming from the end)
       const boundary = page.locator('[data-boundary-edge="right"]').first();
       await expect(boundary).toBeVisible();
-      const boundaryBox = await boundary.boundingBox();
-      expect(boundaryBox).toBeTruthy();
+
+      let boundaryBox: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        boundaryBox = await boundary.boundingBox();
+        expect(boundaryBox).toBeTruthy();
+      }).toPass({ timeout: 5000 });
 
       // Get initial clip width
       const clipContainer = page.locator('[data-clip-container]').first();

@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import styled from 'styled-components';
+import { FileDropZone } from '../FileDropZone';
 import { DragDropProvider } from '@dnd-kit/react';
 import { RestrictToHorizontalAxis } from '@dnd-kit/abstract/modifiers';
 import * as Tone from 'tone';
@@ -273,29 +274,15 @@ const TimeControlsBar = styled.div`
   flex-wrap: wrap;
 `;
 
-const DropZone = styled.div<{ $isDragging: boolean }>`
-  padding: 1.5rem;
-  border: 2px dashed ${(props) => (props.$isDragging ? '#3498db' : 'var(--ifm-color-emphasis-400, #ced4da)')};
-  border-radius: 0.5rem;
-  text-align: center;
-  background: ${(props) => (props.$isDragging ? 'rgba(52, 152, 219, 0.1)' : 'var(--ifm-background-surface-color, #f8f9fa)')};
-  transition: all 0.2s ease-in-out;
-  cursor: pointer;
-
-  &:hover {
-    border-color: #3498db;
-    background: var(--ifm-color-emphasis-100, #e3f2fd);
-  }
-`;
-
-const DropZoneText = styled.p`
-  margin: 0;
-  color: var(--ifm-font-color-base, #495057);
-  font-size: 0.9rem;
-`;
-
 const HiddenFileInput = styled.input`
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
 `;
 
 const ActionButton = styled.button`
@@ -358,9 +345,7 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
   const { setAnnotations, setActiveAnnotationId, scrollContainerRef, play } = usePlaylistControls();
   const { currentTime } = usePlaybackAnimation();
 
-  const [isDragging, setIsDragging] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
-  const audioInputRef = useRef<HTMLInputElement>(null);
   const jsonInputRef = useRef<HTMLInputElement>(null);
 
   const sensors = useDragSensors();
@@ -384,7 +369,6 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
     scrollContainerRef,
     samplesPerPixel,
     sampleRate,
-    controlsWidth: controls.show ? controls.width : 0,
     onPlay: play,
   });
 
@@ -544,26 +528,12 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
     setTimeout(() => setIsLoadingAudio(false), 500);
   };
 
-  // Handle file drop
-  const handleDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragging(false);
-
-      const files = Array.from(e.dataTransfer.files) as File[];
-      if (files.length > 0) {
-        loadAudioFiles(files);
-      }
-    },
-    [tracks]
-  );
-
-  // Handle file input change
-  const handleAudioInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-        loadAudioFiles(Array.from(files) as File[]);
+  // Handle dropped/selected audio files
+  const handleFiles = useCallback(
+    (files: File[]) => {
+      const audioFiles = files.filter((f) => f.type.startsWith('audio/'));
+      if (audioFiles.length > 0) {
+        loadAudioFiles(audioFiles);
       }
     },
     [tracks]
@@ -597,16 +567,6 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
     [onAnnotationsLoaded]
   );
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
   return (
     <DragDropProvider
       sensors={sensors}
@@ -617,28 +577,13 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
     >
       <Container>
         {/* Drop Zone for Audio */}
-        <DropZone
-          $isDragging={isDragging}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => audioInputRef.current?.click()}
-        >
-          <DropZoneText>
-            {isLoadingAudio
-              ? 'Loading audio...'
-              : isDragging
-              ? 'Drop audio files here'
-              : 'Drop audio files here or click to browse'}
-          </DropZoneText>
-        </DropZone>
-
-        <HiddenFileInput
-          ref={audioInputRef}
-          type="file"
+        <FileDropZone
           accept="audio/*"
-          multiple
-          onChange={handleAudioInput}
+          onFiles={handleFiles}
+          fileFilter={(f) => f.type.startsWith('audio/')}
+          label="Drop audio files here or click to browse"
+          dragLabel="Drop audio files here"
+          loadingContent={isLoadingAudio ? <p style={{ margin: 0 }}>Loading audio...</p> : undefined}
         />
 
         <TopBar>

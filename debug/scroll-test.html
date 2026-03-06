@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scroll Offset Debug - Isolated Layout</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: monospace; background: #111; color: #ccc; padding: 20px; }
+
+  h2 { margin: 10px 0; font-size: 14px; }
+
+  .info {
+    background: #222;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #444;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+
+  /* ===== Playlist layout (matches Playlist.tsx exactly) ===== */
+
+  .wrapper {
+    display: flex;
+    overflow-y: hidden;
+    position: relative;
+    border: 2px solid #555;
+    margin-bottom: 20px;
+  }
+
+  .controls-column {
+    flex-shrink: 0;
+    overflow: hidden;
+    width: 200px;
+    background: #1a1a2e;
+  }
+
+  .timescale-gap {
+    height: 30px;
+    background: #222;
+    border-bottom: 1px solid #333;
+  }
+
+  .track-control {
+    height: 100px;
+    border-bottom: 1px solid #333;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    font-size: 11px;
+    color: #888;
+  }
+
+  .scroll-area {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overflow-anchor: none;
+    flex: 1;
+    position: relative;
+  }
+
+  .scroll-container-inner {
+    position: relative;
+    background: #0d0d14;
+  }
+
+  .timescale-wrapper {
+    background: #222;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+    height: 30px;
+  }
+
+  .timescale-marker {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    border-left: 1px solid #555;
+    font-size: 9px;
+    color: #777;
+    padding-left: 3px;
+  }
+
+  .tracks-container {
+    position: relative;
+    background: #0d0d14;
+    width: 100%;
+  }
+
+  .track {
+    position: relative;
+    height: 100px;
+  }
+
+  .channel-container {
+    position: relative;
+    background: transparent;
+    height: 100%;
+  }
+
+  .clip {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: #1a1a2e;
+    border: 1px solid #333;
+  }
+
+  .canvas-chunk {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: rgba(42, 112, 112, 0.3);
+  }
+
+  .click-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    cursor: crosshair;
+    z-index: 1;
+  }
+
+  .test-label {
+    font-size: 12px;
+    padding: 5px;
+    margin-top: 15px;
+    background: #333;
+    color: #aaa;
+  }
+</style>
+</head>
+<body>
+
+<h2>Scroll Offset Debug - Isolated from React/Docusaurus</h2>
+<div class="info" id="info">Measuring...</div>
+
+<!-- Test 1: Full reproduction of current layout (controls outside scroll) -->
+<div class="test-label">Test 1: Controls OUTSIDE scroll (current layout) - 13 tracks, 11663px wide</div>
+<div class="wrapper" id="test1">
+  <div class="controls-column" id="controls1">
+    <div class="timescale-gap"></div>
+  </div>
+  <div class="scroll-area" id="scroll1">
+    <div class="scroll-container-inner" id="inner1">
+      <div class="timescale-wrapper" id="timescale1"></div>
+      <div class="tracks-container" id="tracks1"></div>
+      <div class="click-overlay"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Test 2: Same but WITHOUT controls column -->
+<div class="test-label">Test 2: No controls column at all</div>
+<div class="wrapper" id="test2">
+  <div class="scroll-area" id="scroll2">
+    <div class="scroll-container-inner" id="inner2">
+      <div class="timescale-wrapper" id="timescale2"></div>
+      <div class="tracks-container" id="tracks2"></div>
+      <div class="click-overlay"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Test 3: Controls INSIDE scroll container with sticky (OLD layout) -->
+<div class="test-label">Test 3: Controls INSIDE scroll container with position: sticky (OLD layout)</div>
+<div class="wrapper" id="test3" style="display: block;">
+  <div class="scroll-area" id="scroll3" style="flex: none;">
+    <div class="scroll-container-inner" id="inner3">
+      <div style="position: sticky; left: 0; z-index: 10; width: 200px; background: #1a1a2e; float: left;">
+        <div class="timescale-gap"></div>
+        <div id="controls3"></div>
+      </div>
+      <div>
+        <div class="timescale-wrapper" id="timescale3"></div>
+        <div class="tracks-container" id="tracks3"></div>
+      </div>
+      <div class="click-overlay"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Test 4: Dynamically added content (simulates React rendering) -->
+<div class="test-label">Test 4: Content added after initial render (simulates React)</div>
+<div class="wrapper" id="test4">
+  <div class="controls-column" id="controls4">
+    <div class="timescale-gap"></div>
+  </div>
+  <div class="scroll-area" id="scroll4">
+    <div class="scroll-container-inner" id="inner4">
+      <!-- Content will be added by JavaScript after a delay -->
+    </div>
+  </div>
+</div>
+
+<script>
+  const TOTAL_WIDTH = 11663;
+  const NUM_TRACKS = 13;
+  const CHUNK_WIDTH = 1000;
+
+  function buildTimescale(container) {
+    container.style.minWidth = TOTAL_WIDTH + 'px';
+    for (let x = 0; x < TOTAL_WIDTH; x += 500) {
+      const marker = document.createElement('div');
+      marker.className = 'timescale-marker';
+      marker.style.left = x + 'px';
+      marker.textContent = (x / 100).toFixed(0) + 's';
+      container.appendChild(marker);
+    }
+  }
+
+  function buildTracks(tracksContainer, controlsContainer) {
+    tracksContainer.style.minWidth = TOTAL_WIDTH + 'px';
+    for (let t = 0; t < NUM_TRACKS; t++) {
+      if (controlsContainer) {
+        const ctrl = document.createElement('div');
+        ctrl.className = 'track-control';
+        ctrl.textContent = 'Track ' + (t + 1);
+        controlsContainer.appendChild(ctrl);
+      }
+
+      const track = document.createElement('div');
+      track.className = 'track';
+
+      const channel = document.createElement('div');
+      channel.className = 'channel-container';
+
+      const clip = document.createElement('div');
+      clip.className = 'clip';
+      clip.style.left = '0px';
+      clip.style.width = TOTAL_WIDTH + 'px';
+
+      for (let c = 0; c * CHUNK_WIDTH < TOTAL_WIDTH; c++) {
+        const chunk = document.createElement('div');
+        chunk.className = 'canvas-chunk';
+        chunk.style.left = (c * CHUNK_WIDTH) + 'px';
+        chunk.style.width = Math.min(CHUNK_WIDTH, TOTAL_WIDTH - c * CHUNK_WIDTH) + 'px';
+        clip.appendChild(chunk);
+      }
+
+      channel.appendChild(clip);
+      track.appendChild(channel);
+      tracksContainer.appendChild(track);
+    }
+  }
+
+  // Build tests 1-3 immediately (static HTML equivalent)
+  buildTimescale(document.getElementById('timescale1'));
+  buildTracks(document.getElementById('tracks1'), document.getElementById('controls1'));
+  document.getElementById('inner1').style.width = TOTAL_WIDTH + 'px';
+
+  buildTimescale(document.getElementById('timescale2'));
+  buildTracks(document.getElementById('tracks2'), null);
+  document.getElementById('inner2').style.width = TOTAL_WIDTH + 'px';
+
+  buildTimescale(document.getElementById('timescale3'));
+  buildTracks(document.getElementById('tracks3'), document.getElementById('controls3'));
+  document.getElementById('inner3').style.width = (TOTAL_WIDTH + 200) + 'px';
+
+  // Test 4: Simulate React-style delayed rendering
+  // First render: empty container with width set
+  document.getElementById('inner4').style.width = TOTAL_WIDTH + 'px';
+
+  // Second render: add content after microtask (like React commit)
+  Promise.resolve().then(() => {
+    const inner4 = document.getElementById('inner4');
+    const ts4 = document.createElement('div');
+    ts4.className = 'timescale-wrapper';
+    ts4.id = 'timescale4';
+    inner4.appendChild(ts4);
+    buildTimescale(ts4);
+
+    const tc4 = document.createElement('div');
+    tc4.className = 'tracks-container';
+    inner4.appendChild(tc4);
+    buildTracks(tc4, document.getElementById('controls4'));
+  });
+
+  // Measure after all layouts settle
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const results = [];
+      for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById('scroll' + i);
+        results.push(`Test ${i}: scrollLeft = ${el.scrollLeft}`);
+      }
+      document.getElementById('info').textContent = results.join('\n');
+    });
+  });
+</script>
+
+</body>
+</html>
