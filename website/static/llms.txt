@@ -27,6 +27,7 @@ waveform-playlist is a React component library for building browser-based audio 
 - `@waveform-playlist/recording` — Microphone access, AudioWorklet recording, VU meter, integrated recording hook
 - `@waveform-playlist/webaudio-peaks` — Peak extraction from AudioBuffer
 - `@waveform-playlist/media-element-playout` — HTMLAudioElement playback with pitch-preserving speed control
+- `@waveform-playlist/midi` — MIDI file loading and parsing: .mid file fetch/parse via @tonejs/midi, `useMidiTracks` hook converts to ClipTrack[] with midiNotes for piano roll visualization and SoundFont/PolySynth playback
 - `@waveform-playlist/spectrogram` — Optional spectrogram package: FFT computation, worker-based rendering, color maps, frequency scales. Integrates via `SpectrogramProvider` wrapper
 
 ## Quick Start
@@ -81,6 +82,12 @@ Both providers use React Context with 4 split contexts for performance.
 - `useExportWav()` — Offline WAV export with effects support
 - `useKeyboardShortcuts(opts)` — Custom keyboard shortcuts
 - `usePlaybackShortcuts(opts)` — Default playback shortcuts (Space, Escape, 0)
+
+### MIDI Hooks (from `@waveform-playlist/midi`)
+
+- `useMidiTracks(configs)` — Load .mid files into ClipTrack[] with midiNotes for piano roll rendering. One config can produce multiple tracks (one per MIDI channel). Supports pre-parsed notes via `midiNotes` prop.
+- `parseMidiFile(data, options?)` — Pure function: ArrayBuffer → ParsedMidi with tracks, notes, tempo, time signature. No React dependency.
+- `parseMidiUrl(url, options?, signal?)` — Fetch + parse convenience wrapper with AbortSignal support.
 
 ### Virtual Scrolling Hooks (from `@waveform-playlist/ui-components`)
 

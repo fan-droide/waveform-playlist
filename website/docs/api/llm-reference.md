@@ -489,6 +489,73 @@ Delegates to `engine.splitClip()` — engine handles clip creation, adapter sync
 
 ---
 
+## MIDI (`@waveform-playlist/midi`)
+
+Load and parse MIDI files into `ClipTrack[]` with `midiNotes` for piano roll visualization and SoundFont/PolySynth playback.
+
+### useMidiTracks
+
+```typescript
+function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn;
+
+interface MidiTrackConfig {
+  src?: string;                    // URL to .mid file
+  midiNotes?: MidiNoteData[];      // Pre-parsed notes (skip fetch+parse)
+  name?: string;                   // Track display name
+  muted?: boolean;
+  soloed?: boolean;
+  volume?: number;                 // Default: 1.0
+  pan?: number;                    // Default: 0
+  color?: string;
+  startTime?: number;              // Clip position in seconds (default 0)
+  duration?: number;               // Override clip duration in seconds
+  sampleRate?: number;             // For sample-based positioning (default 44100)
+  flatten?: boolean;               // Merge all MIDI tracks into one (default false)
+}
+
+interface UseMidiTracksReturn {
+  tracks: ClipTrack[];             // Loaded tracks with midiNotes on clips
+  loading: boolean;
+  error: string | null;
+  loadedCount: number;
+  totalCount: number;
+}
+```
+
+One `MidiTrackConfig` with `src` can produce multiple `ClipTrack` objects (one per MIDI channel in the file). Configs with `midiNotes` produce exactly one track. All tracks are returned at once after loading completes.
+
+### parseMidiFile / parseMidiUrl
+
+```typescript
+function parseMidiFile(data: ArrayBuffer, options?: ParseMidiOptions): ParsedMidi;
+function parseMidiUrl(url: string, options?: ParseMidiOptions, signal?: AbortSignal): Promise<ParsedMidi>;
+
+interface ParseMidiOptions {
+  flatten?: boolean;               // Merge all tracks into one
+}
+
+interface ParsedMidi {
+  tracks: ParsedMidiTrack[];
+  duration: number;                // Total duration in seconds
+  name: string;                    // Song name from MIDI header
+  bpm: number;                     // First tempo (default 120)
+  timeSignature: [number, number]; // Default [4, 4]
+}
+
+interface ParsedMidiTrack {
+  name: string;                    // Track name
+  notes: MidiNoteData[];           // Notes in MidiNoteData format
+  duration: number;                // Duration in seconds
+  channel: number;                 // MIDI channel (9 = percussion)
+  instrument: string;              // GM instrument name
+  programNumber: number;           // GM program number (0-127)
+}
+```
+
+Pure functions — no React dependency. `parseMidiFile` takes an `ArrayBuffer`, `parseMidiUrl` fetches then parses. Notes are in seconds (tempo-adjusted by `@tonejs/midi`).
+
+---
+
 ## Engine (`@waveform-playlist/engine`)
 
 Framework-agnostic timeline engine. Used internally by the browser package provider.
