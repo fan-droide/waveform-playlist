@@ -335,6 +335,7 @@ const LazyExample = createLazyExample(() =>
 20. **Adding a New Rendering Mode** — Requires changes across packages: `RenderMode` type in core, theme colors + `*Channel` component in ui-components, `SmartChannel` branch, `ChannelWithProgress` background, `ClipPeaks` data fields in browser, `PlaylistVisualization` auto-detection. Follow `Channel.tsx` pattern for virtual scrolling.
 21. **will-change Budget** — Only use `will-change` on actively animating elements (playheads, progress overlays). Firefox enforces a 3× document surface area budget; static canvas chunks with `translateZ(0)` don't need it.
 22. **Always Use getGlobalAudioContext()** — Never `new AudioContext()`. Firefox blocks contexts created before user gesture. Use `getGlobalAudioContext()` from playout package (shared with Tone.js, resumed on first play).
+23. **Gate Provider Behind Async Readiness** — When multiple async resources must load before rendering (e.g., MIDI tracks + SoundFont), gate the `WaveformPlaylistProvider` mount behind all resources being ready. This prevents double engine rebuilds. Check both the loading flag AND `tracks.length > 0` since hooks can briefly report `loading: false` with empty data.
 
 ---
 

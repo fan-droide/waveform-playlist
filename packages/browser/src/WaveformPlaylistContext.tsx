@@ -707,9 +707,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     loopEndRef,
     isLoopEnabledRef,
     stableZoomLevels,
-    // soundFontCache is intentionally excluded — read from soundFontCacheRef inside
-    // the effect body. Including it causes a full engine+playout rebuild when the
-    // SoundFont finishes loading after tracks, doubling the rebuild cost.
+    soundFontCache,
   ]);
 
   // Regenerate peaks when zoom, mono, or waveformDataCache changes (without reloading audio)

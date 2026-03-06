@@ -86,6 +86,8 @@ AudioBufferSourceNode (native, one-shot, created per play/loop)
 
 **Rule:** Always use `getGlobalAudioContext()` — never `new AudioContext()`. Firefox blocks AudioContexts created before user gesture. The global context is shared with Tone.js and properly resumed via `Tone.start()` on first play. This applies to SoundFont loading, recording, monitoring, and any feature needing audio processing.
 
+**SoundFontCache uses OfflineAudioContext by default:** The `context` constructor arg is optional. When omitted, `SoundFontCache` creates an `OfflineAudioContext(1, 1, 44100)` — sufficient for `createBuffer()` and doesn't trigger Firefox's autoplay block. Only pass a real AudioContext if you need the buffers connected to live audio output (which SoundFontCache doesn't).
+
 ## Tone.js Initialization
 
 **Critical:** Call `await Tone.start()` after user interaction and before `Tone.now()`.

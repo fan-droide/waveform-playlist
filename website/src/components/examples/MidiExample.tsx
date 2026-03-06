@@ -14,8 +14,9 @@ import {
   PauseButton,
   StopButton,
   AudioPosition,
-  AutomaticScrollCheckbox,
   usePlaybackShortcuts,
+  usePlaylistState,
+  usePlaylistControls,
 } from '@waveform-playlist/browser';
 import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
 import { useMidiTracks } from '@waveform-playlist/midi';
@@ -91,6 +92,13 @@ const Container = styled.div`
   margin: 0 auto;
 `;
 
+const ToggleGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-left: auto;
+`;
+
 const ToggleLabel = styled.label`
   display: inline-flex;
   align-items: center;
@@ -99,7 +107,6 @@ const ToggleLabel = styled.label`
   font-size: 0.875rem;
   color: var(--ifm-color-emphasis-700, #495057);
   user-select: none;
-  margin-left: auto;
 `;
 
 const ToggleSwitch = styled.div<{ $active: boolean }>`
@@ -134,31 +141,62 @@ const InfoBanner = styled.div`
   color: var(--ifm-color-emphasis-700, #495057);
 `;
 
+const LoadingOverlay = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+  color: var(--ifm-color-emphasis-600, #868e96);
+  font-size: 0.9rem;
+  gap: 0.5rem;
+`;
+
 function PlaybackShortcuts() {
   usePlaybackShortcuts();
   return null;
+}
+
+function AutoScrollToggle() {
+  const { isAutomaticScroll } = usePlaylistState();
+  const { setAutomaticScroll } = usePlaylistControls();
+
+  return (
+    <ToggleLabel>
+      Auto-scroll
+      <ToggleSwitch
+        $active={isAutomaticScroll}
+        onClick={() => setAutomaticScroll(!isAutomaticScroll)}
+      />
+    </ToggleLabel>
+  );
 }
 
 /**
  * Load a SoundFont file and return a SoundFontCache instance.
  * The cache is created once and persists across re-renders.
  */
-function useSoundFontCache(url?: string): SoundFontCache | undefined {
+function useSoundFontCache(url?: string): { cache?: SoundFontCache; loading: boolean } {
   const cacheRef = React.useRef<SoundFontCache | null>(null);
   const [cache, setCache] = React.useState<SoundFontCache | undefined>(undefined);
+  const [loading, setLoading] = React.useState(false);
 
   React.useEffect(() => {
     if (!url) {
       setCache(undefined);
+      setLoading(false);
       return;
     }
 
     let cancelled = false;
+    setLoading(true);
 
     const loadSoundFont = async () => {
       // Reuse existing cache if already loaded
       if (cacheRef.current?.isLoaded) {
         setCache(cacheRef.current);
+        if (!cancelled) setLoading(false);
         return;
       }
 
@@ -172,9 +210,11 @@ function useSoundFontCache(url?: string): SoundFontCache | undefined {
         if (!cancelled) {
           cacheRef.current = sfCache;
           setCache(sfCache);
+          setLoading(false);
         }
       } catch (err) {
         console.warn('[waveform-playlist] Failed to load SoundFont:', err);
+        if (!cancelled) setLoading(false);
       }
     };
 
@@ -185,7 +225,7 @@ function useSoundFontCache(url?: string): SoundFontCache | undefined {
     };
   }, [url]);
 
-  return cache;
+  return { cache, loading };
 }
 
 export function MidiExample() {
@@ -197,7 +237,7 @@ export function MidiExample() {
   const soundFontUrl = useSoundFont
     ? '/waveform-playlist/media/soundfont/A320U.sf2'
     : undefined;
-  const soundFontCache = useSoundFontCache(soundFontUrl);
+  const { cache: soundFontCache, loading: soundFontLoading } = useSoundFontCache(soundFontUrl);
 
   const midiConfigs = React.useMemo(
     () => [
@@ -219,12 +259,30 @@ export function MidiExample() {
     );
   }
 
+  const midiLoading = loading || tracks.length === 0;
+  const isReady = !soundFontLoading && !midiLoading;
+
+  if (!isReady) {
+    return (
+      <Container>
+        <LoadingOverlay>
+          {soundFontLoading && <div>Loading SoundFont...</div>}
+          {midiLoading && (
+            <div>
+              Loading MIDI tracks ({loadedCount}/{totalCount})...
+            </div>
+          )}
+        </LoadingOverlay>
+      </Container>
+    );
+  }
+
   return (
     <Container>
       <InfoBanner>
         {soundFontCache
           ? 'MIDI tracks use SoundFont sample playback for realistic instrument sounds.'
-          : 'MIDI tracks are synthesized in the browser using Tone.js PolySynth.'}
+          : 'MIDI tracks are synthesized in the browser using Tone.js PolySynth. Notes may be dropped when exceeding the polyphony limit.'}
         {' Each MIDI track becomes a separate timeline track with its own volume and pan controls.'}
         {flatten
           ? ' All MIDI channels are merged into a single track.'
@@ -249,20 +307,17 @@ export function MidiExample() {
           <PauseButton />
           <StopButton />
           <AudioPosition />
-          {loading && (
-            <span style={{ fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-600)' }}>
-              Loading ({loadedCount}/{totalCount})...
-            </span>
-          )}
-          <AutomaticScrollCheckbox />
-          <ToggleLabel>
-            SoundFont
-            <ToggleSwitch $active={useSoundFont} onClick={() => setUseSoundFont((s) => !s)} />
-          </ToggleLabel>
-          <ToggleLabel>
-            Flatten
-            <ToggleSwitch $active={flatten} onClick={() => setFlatten((f) => !f)} />
-          </ToggleLabel>
+          <ToggleGroup>
+            <AutoScrollToggle />
+            <ToggleLabel>
+              SoundFont
+              <ToggleSwitch $active={useSoundFont} onClick={() => setUseSoundFont((s) => !s)} />
+            </ToggleLabel>
+            <ToggleLabel>
+              Flatten
+              <ToggleSwitch $active={flatten} onClick={() => setFlatten((f) => !f)} />
+            </ToggleLabel>
+          </ToggleGroup>
         </Controls>
 
         <Waveform />
