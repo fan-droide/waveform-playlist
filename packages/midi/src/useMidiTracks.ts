@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   type ClipTrack,
   type MidiNoteData,
@@ -82,6 +82,10 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
   const [loadedCount, setLoadedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(configs.length);
 
+  // Cache fetched ArrayBuffers by URL so re-parses (e.g. flatten toggle)
+  // skip the network entirely.
+  const bufferCacheRef = useRef(new Map<string, ArrayBuffer>());
+
   useEffect(() => {
     if (configs.length === 0) {
       setTracks([]);
@@ -127,12 +131,18 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
       });
     };
 
+    // Check if all src URLs are already cached — if so, skip loading state
+    // to avoid flashing the loading overlay on re-parse-only changes.
+    const allCached = configs.every((c) => !c.src || bufferCacheRef.current.has(c.src));
+
     const loadTracks = async () => {
       try {
         const t0 = performance.now();
-        setLoading(true);
+        if (!allCached) {
+          setLoading(true);
+          setLoadedCount(0);
+        }
         setError(null);
-        setLoadedCount(0);
 
         const allTracks: ClipTrack[] = [];
 
@@ -147,16 +157,22 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
             const trackName = config.name || 'MIDI Track';
             allTracks.push(createTrackFromNotes(config, notes, trackName, duration));
           } else if (config.src) {
-            // Fetch and parse .mid file
-            const tFetch = performance.now();
-            const response = await fetch(config.src, {
-              signal: abortController.signal,
-            });
-            if (!response.ok) {
-              throw new Error(`Failed to fetch ${config.src}: ${response.statusText}`);
+            // Use cached buffer if available, otherwise fetch
+            let buffer = bufferCacheRef.current.get(config.src);
+            if (!buffer) {
+              const tFetch = performance.now();
+              const response = await fetch(config.src, {
+                signal: abortController.signal,
+              });
+              if (!response.ok) {
+                throw new Error(`Failed to fetch ${config.src}: ${response.statusText}`);
+              }
+              buffer = await response.arrayBuffer();
+              bufferCacheRef.current.set(config.src, buffer);
+              console.log(
+                `[midi] fetch ${config.src}: ${(performance.now() - tFetch).toFixed(1)}ms`
+              );
             }
-            const buffer = await response.arrayBuffer();
-            console.log(`[midi] fetch ${config.src}: ${(performance.now() - tFetch).toFixed(1)}ms`);
 
             const tParse = performance.now();
             const parsed = parseMidiFile(buffer, {

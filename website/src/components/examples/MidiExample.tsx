@@ -3,6 +3,7 @@
  *
  * Demonstrates loading a .mid file via @waveform-playlist/midi,
  * with a toggle to switch between multi-track and flattened modes.
+ * Users can drop additional .mid files or click to browse.
  */
 
 import React from 'react';
@@ -20,8 +21,10 @@ import {
 } from '@waveform-playlist/browser';
 import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
 import { useMidiTracks } from '@waveform-playlist/midi';
+import type { MidiTrackConfig } from '@waveform-playlist/midi';
 import { SoundFontCache } from '@waveform-playlist/playout';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
+import { FolderOpenIcon, MusicNotesIcon } from '@phosphor-icons/react';
 
 const darkThemeOverrides: Partial<WaveformPlaylistTheme> = {
   waveformDrawMode: 'inverted',
@@ -153,6 +156,51 @@ const LoadingOverlay = styled.div`
   gap: 0.5rem;
 `;
 
+const ClearButton = styled.button`
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--ifm-color-emphasis-400, #ced4da);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ifm-font-color-base, #495057);
+  cursor: pointer;
+  font-size: 0.8rem;
+
+  &:hover {
+    background: #dc3545;
+    color: white;
+    border-color: #dc3545;
+  }
+`;
+
+const DropZone = styled.div<{ $isDragging: boolean }>`
+  padding: 1.5rem 1rem;
+  border: 2px dashed
+    ${(props) => (props.$isDragging ? '#3498db' : 'var(--ifm-color-emphasis-400, #ced4da)')};
+  border-radius: 0.5rem;
+  text-align: center;
+  background: ${(props) =>
+    props.$isDragging
+      ? 'rgba(52, 152, 219, 0.1)'
+      : 'var(--ifm-background-surface-color, #f8f9fa)'};
+  margin-top: 1rem;
+  transition: all 0.2s ease-in-out;
+  cursor: pointer;
+
+  &:hover {
+    border-color: #3498db;
+  }
+`;
+
+const DropZoneText = styled.p`
+  margin: 0;
+  color: var(--ifm-font-color-base, #495057);
+  font-size: 0.9rem;
+`;
+
+const HiddenFileInput = styled.input`
+  display: none;
+`;
+
 function PlaybackShortcuts() {
   usePlaybackShortcuts();
   return null;
@@ -228,11 +276,23 @@ function useSoundFontCache(url?: string): { cache?: SoundFontCache; loading: boo
   return { cache, loading };
 }
 
+const BASE_MIDI_SRC = '/waveform-playlist/media/midi/RedHotChiliPeppers-Otherside.mid';
+
+function isMidiFile(file: File): boolean {
+  // Check MIME type first, fall back to extension
+  if (file.type === 'audio/midi' || file.type === 'audio/x-midi') return true;
+  return /\.(mid|midi)$/i.test(file.name);
+}
+
 export function MidiExample() {
   const { theme, isDarkMode } = useDocusaurusTheme();
   const gradientTheme = isDarkMode ? darkThemeOverrides : lightThemeOverrides;
   const [flatten, setFlatten] = React.useState(false);
   const [useSoundFont, setUseSoundFont] = React.useState(true);
+  const [userMidiConfigs, setUserMidiConfigs] = React.useState<MidiTrackConfig[]>([]);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const objectUrlsRef = React.useRef<string[]>([]);
 
   const soundFontUrl = useSoundFont
     ? '/waveform-playlist/media/soundfont/A320U.sf2'
@@ -241,15 +301,63 @@ export function MidiExample() {
 
   const midiConfigs = React.useMemo(
     () => [
-      {
-        src: '/waveform-playlist/media/midi/RedHotChiliPeppers-Otherside.mid',
-        flatten,
-      },
+      { src: BASE_MIDI_SRC, flatten },
+      ...userMidiConfigs.map((c) => ({ ...c, flatten })),
     ],
-    [flatten]
+    [flatten, userMidiConfigs]
   );
 
   const { tracks, loading, error, loadedCount, totalCount } = useMidiTracks(midiConfigs);
+
+  // Revoke object URLs on unmount
+  React.useEffect(() => {
+    const urls = objectUrlsRef.current;
+    return () => {
+      urls.forEach(URL.revokeObjectURL);
+    };
+  }, []);
+
+  const addMidiFiles = React.useCallback((files: File[]) => {
+    const midiFiles = files.filter(isMidiFile);
+    if (midiFiles.length === 0) return;
+
+    const newConfigs: MidiTrackConfig[] = midiFiles.map((f) => {
+      const url = URL.createObjectURL(f);
+      objectUrlsRef.current.push(url);
+      return {
+        src: url,
+        name: f.name.replace(/\.[^/.]+$/, ''),
+      };
+    });
+    setUserMidiConfigs((prev) => [...prev, ...newConfigs]);
+  }, []);
+
+  const handleClear = React.useCallback(() => {
+    // Revoke all user object URLs
+    objectUrlsRef.current.forEach(URL.revokeObjectURL);
+    objectUrlsRef.current = [];
+    setUserMidiConfigs([]);
+  }, []);
+
+  const handleDrop = React.useCallback(
+    (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      setIsDragging(false);
+      addMidiFiles(Array.from(e.dataTransfer.files));
+    },
+    [addMidiFiles]
+  );
+
+  const handleFileInput = React.useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files && e.target.files.length > 0) {
+        addMidiFiles(Array.from(e.target.files));
+      }
+      // Reset so the same file can be re-selected
+      e.target.value = '';
+    },
+    [addMidiFiles]
+  );
 
   if (error) {
     return (
@@ -317,11 +425,60 @@ export function MidiExample() {
               Flatten
               <ToggleSwitch $active={flatten} onClick={() => setFlatten((f) => !f)} />
             </ToggleLabel>
+            {userMidiConfigs.length > 0 && (
+              <ClearButton onClick={handleClear} title="Remove user-added MIDI files">
+                Clear Added
+              </ClearButton>
+            )}
           </ToggleGroup>
         </Controls>
 
         <Waveform />
       </WaveformPlaylistProvider>
+
+      <DropZone
+        $isDragging={isDragging}
+        onDrop={handleDrop}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault();
+          setIsDragging(false);
+        }}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <DropZoneText>
+          {isDragging ? (
+            <>
+              <FolderOpenIcon
+                size={18}
+                weight="light"
+                style={{ marginRight: 6, verticalAlign: 'text-bottom' }}
+              />
+              Drop MIDI files here
+            </>
+          ) : (
+            <>
+              <MusicNotesIcon
+                size={18}
+                weight="light"
+                style={{ marginRight: 6, verticalAlign: 'text-bottom' }}
+              />
+              Drop .mid files here to add tracks, or click to browse
+            </>
+          )}
+        </DropZoneText>
+      </DropZone>
+
+      <HiddenFileInput
+        ref={fileInputRef}
+        type="file"
+        accept=".mid,.midi"
+        multiple
+        onChange={handleFileInput}
+      />
     </Container>
   );
 }
