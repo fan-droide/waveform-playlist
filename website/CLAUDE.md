@@ -30,4 +30,4 @@ When a hero section uses `min-height: 100vh` + `align-items: center` and an elem
 
 ## Static Media Assets
 
-- `website/static/media/soundfont/A320U.sf2` — GPL SoundFont used by MIDI example (not distributed with npm packages). Served at `/waveform-playlist/media/soundfont/A320U.sf2`.
+- A320U.sf2 SoundFont — loaded from CDN (`musical-artifacts.com`) at runtime by the MIDI example. CC-BY 3.0 license. Not bundled in the repo.
