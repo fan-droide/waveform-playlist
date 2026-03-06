@@ -214,6 +214,7 @@ export class TonePlayout {
       // By advancing _lastUpdate to startTime, we skip the stale range.
       // The next Clock._loop() only processes [startTime, now()] — ticks
       // from the current play cycle with the correct offset.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Tone.js private internal, see CLAUDE.md ghost tick fix
       (transport as any)._clock._lastUpdate = startTime;
 
       // Start sources for clips that span the current Transport position.
