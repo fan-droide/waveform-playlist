@@ -3,15 +3,42 @@ import type { Key, Generator, ZoneMap } from 'soundfont2';
 
 /**
  * Result of looking up a MIDI note in the SoundFont.
- * Contains the AudioBuffer and the playbackRate needed to
- * pitch-shift the sample to the target note.
+ * Contains the AudioBuffer, playbackRate, loop points, and volume envelope.
  */
 export interface SoundFontSample {
   /** Cached AudioBuffer for this sample */
   buffer: AudioBuffer;
   /** Playback rate to pitch-shift from originalPitch to target note */
   playbackRate: number;
+  /** Loop mode: 0=no loop, 1=continuous, 3=sustain loop */
+  loopMode: number;
+  /** Loop start in seconds, relative to AudioBuffer start */
+  loopStart: number;
+  /** Loop end in seconds, relative to AudioBuffer start */
+  loopEnd: number;
+  /** Volume envelope attack time in seconds */
+  attackVolEnv: number;
+  /** Volume envelope hold time in seconds */
+  holdVolEnv: number;
+  /** Volume envelope decay time in seconds */
+  decayVolEnv: number;
+  /** Volume envelope sustain level as linear gain 0-1 */
+  sustainVolEnv: number;
+  /** Volume envelope release time in seconds */
+  releaseVolEnv: number;
 }
+
+/**
+ * Convert SF2 timecents to seconds.
+ * SF2 formula: seconds = 2^(timecents / 1200)
+ * Default -12000 timecents ≈ 0.001s (effectively instant).
+ */
+function timecentsToSeconds(tc: number): number {
+  return Math.pow(2, tc / 1200);
+}
+
+/** Max release time to prevent extremely long tails from stale generators */
+const MAX_RELEASE_SECONDS = 5;
 
 /**
  * Get a numeric generator value from a zone map.
@@ -97,7 +124,74 @@ export class SoundFontCache {
     // Priority: OverridingRootKey generator → sample.header.originalPitch → 60
     const playbackRate = this.calculatePlaybackRate(midiNote, keyData);
 
-    return { buffer, playbackRate };
+    // Extract per-zone loop points and volume envelope from generators
+    const loopAndEnvelope = this.extractLoopAndEnvelope(keyData);
+
+    return { buffer, playbackRate, ...loopAndEnvelope };
+  }
+
+  /**
+   * Extract loop points and volume envelope data from per-zone generators.
+   *
+   * Loop points are stored as absolute indices into the SF2 sample pool.
+   * We convert to AudioBuffer-relative seconds by subtracting header.start
+   * and dividing by sampleRate.
+   *
+   * Volume envelope times are in SF2 timecents; sustain is centibels attenuation.
+   */
+  private extractLoopAndEnvelope(keyData: Key): Omit<SoundFontSample, 'buffer' | 'playbackRate'> {
+    const { generators } = keyData;
+    const header = keyData.sample.header;
+
+    // --- Loop points ---
+    const loopMode = getGeneratorValue(generators, GeneratorType.SampleModes) ?? 0;
+
+    // Compute actual loop positions (header + fine/coarse generator offsets)
+    const rawLoopStart =
+      header.startLoop +
+      (getGeneratorValue(generators, GeneratorType.StartLoopAddrsOffset) ?? 0) +
+      (getGeneratorValue(generators, GeneratorType.StartLoopAddrsCoarseOffset) ?? 0) * 32768;
+    const rawLoopEnd =
+      header.endLoop +
+      (getGeneratorValue(generators, GeneratorType.EndLoopAddrsOffset) ?? 0) +
+      (getGeneratorValue(generators, GeneratorType.EndLoopAddrsCoarseOffset) ?? 0) * 32768;
+
+    // The soundfont2 library already converts startLoop/endLoop to be
+    // relative to sample.data (subtracts header.start during parsing),
+    // so we only need to divide by sampleRate to get seconds.
+    const loopStart = rawLoopStart / header.sampleRate;
+    const loopEnd = rawLoopEnd / header.sampleRate;
+
+    // --- Volume envelope ---
+    const attackVolEnv = timecentsToSeconds(
+      getGeneratorValue(generators, GeneratorType.AttackVolEnv) ?? -12000
+    );
+    const holdVolEnv = timecentsToSeconds(
+      getGeneratorValue(generators, GeneratorType.HoldVolEnv) ?? -12000
+    );
+    const decayVolEnv = timecentsToSeconds(
+      getGeneratorValue(generators, GeneratorType.DecayVolEnv) ?? -12000
+    );
+    const releaseVolEnv = Math.min(
+      timecentsToSeconds(getGeneratorValue(generators, GeneratorType.ReleaseVolEnv) ?? -12000),
+      MAX_RELEASE_SECONDS
+    );
+
+    // SustainVolEnv is centibels attenuation: 0 = full volume, 1440 = silence
+    // Convert to linear gain: 10^(-cb / 200)
+    const sustainCb = getGeneratorValue(generators, GeneratorType.SustainVolEnv) ?? 0;
+    const sustainVolEnv = Math.pow(10, -sustainCb / 200);
+
+    return {
+      loopMode,
+      loopStart,
+      loopEnd,
+      attackVolEnv,
+      holdVolEnv,
+      decayVolEnv,
+      sustainVolEnv,
+      releaseVolEnv,
+    };
   }
 
   /**

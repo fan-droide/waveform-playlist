@@ -131,15 +131,38 @@ export class SoundFontToneTrack implements PlayableTrack {
 
     const rawContext = getContext().rawContext as AudioContext;
 
-    // Create one-shot AudioBufferSourceNode
+    // Create AudioBufferSourceNode with optional looping
     const source = rawContext.createBufferSource();
     source.buffer = sfSample.buffer;
     source.playbackRate.value = sfSample.playbackRate;
 
-    // Per-note gain for velocity envelope
-    // Quadratic velocity curve feels more natural than linear
+    // Enable sample looping if SF2 zone defines loop mode
+    if (sfSample.loopMode === 1 || sfSample.loopMode === 3) {
+      source.loop = true;
+      source.loopStart = sfSample.loopStart;
+      source.loopEnd = sfSample.loopEnd;
+    }
+
+    // Per-note gain with SF2 volume ADSR envelope
+    const peakGain = velocity * velocity;
     const gainNode = rawContext.createGain();
-    gainNode.gain.value = velocity * velocity;
+    const { attackVolEnv, holdVolEnv, decayVolEnv, sustainVolEnv, releaseVolEnv } = sfSample;
+    const sustainGain = peakGain * sustainVolEnv;
+
+    // Attack: start silent, ramp to peak
+    gainNode.gain.setValueAtTime(0, time);
+    gainNode.gain.linearRampToValueAtTime(peakGain, time + attackVolEnv);
+    // Hold at peak
+    if (holdVolEnv > 0.001) {
+      gainNode.gain.setValueAtTime(peakGain, time + attackVolEnv + holdVolEnv);
+    }
+    // Decay to sustain level
+    const decayStart = time + attackVolEnv + holdVolEnv;
+    gainNode.gain.linearRampToValueAtTime(sustainGain, decayStart + decayVolEnv);
+    // Sustain holds until note-off
+    gainNode.gain.setValueAtTime(sustainGain, time + duration);
+    // Release: ramp to silence
+    gainNode.gain.linearRampToValueAtTime(0, time + duration + releaseVolEnv);
 
     // Connect: source → gainNode → Volume.input (Tone.js)
     source.connect(gainNode);
@@ -156,13 +179,8 @@ export class SoundFontToneTrack implements PlayableTrack {
       }
     };
 
-    // Start the source at the scheduled time with the note duration
     source.start(time);
-    // Apply a short release to avoid clicks
-    const releaseTime = 0.05;
-    gainNode.gain.setValueAtTime(velocity * velocity, time + duration);
-    gainNode.gain.linearRampToValueAtTime(0, time + duration + releaseTime);
-    source.stop(time + duration + releaseTime);
+    source.stop(time + duration + releaseVolEnv);
   }
 
   private gainToDb(gain: number): number {

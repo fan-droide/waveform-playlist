@@ -113,12 +113,12 @@ Without `Tone.start()`, `Tone.now()` returns null → RangeError in scheduling.
 **Audio graph per note:**
 ```
 AudioBufferSourceNode (native, one-shot, pitch-shifted via playbackRate)
-  → GainNode (native, per-note velocity, quadratic curve)
+  → GainNode (native, per-note ADSR volume envelope)
   → Volume.input (Tone.js, shared per-track)
   → Panner → muteGain → effects/destination
 ```
 
-**SoundFontCache:** Fetches SF2 URL → parses with `soundfont2` library → caches `AudioBuffer` per sample index. `getAudioBuffer(midiNote, bank, preset)` returns `{ buffer, playbackRate }`. Lazily converts `Int16Array` → `Float32Array` → `AudioBuffer` on first access.
+**SoundFontCache:** Fetches SF2 URL → parses with `soundfont2` library → caches `AudioBuffer` per sample index. `getAudioBuffer(midiNote, bank, preset)` returns `SoundFontSample` with `buffer`, `playbackRate`, loop points, and volume envelope. AudioBuffer is cached by sample index (shared across zones), but loop/envelope data is per-zone (extracted from generators on each lookup). Lazily converts `Int16Array` → `Float32Array` → `AudioBuffer` on first access.
 
 **SF2 Pitch Resolution (critical gotcha):** Many SF2 files use the `OverridingRootKey` generator, NOT `sample.header.originalPitch`, for the actual root pitch. Using only `originalPitch` causes badly out-of-tune playback. Full generator chain:
 1. `OverridingRootKey` generator (most specific, per-zone)
@@ -129,7 +129,11 @@ AudioBufferSourceNode (native, one-shot, pitch-shifted via playbackRate)
 
 **Per-note channel routing:** Same as MidiToneTrack — channel 9 → bank 128 (drums), others → bank 0 with `programNumber`. Works with flattened mixed-channel clips.
 
-**Release envelope:** 50ms linear ramp to 0 on `GainNode` to avoid clicks on note-off.
+**SF2 Sample Looping:** `SampleModes` generator controls: 0=no loop, 1=continuous, 3=sustain loop. Loop points computed from `header.startLoop`/`endLoop` + coarse/fine generator offsets, converted to AudioBuffer-relative seconds. Web Audio's `source.loop`/`loopStart`/`loopEnd` handles both modes.
+
+**soundfont2 library gotcha:** The `soundfont2` npm library already subtracts `header.start` from `startLoop`/`endLoop` during parsing — loop indices are already relative to `sample.data[0]`. Do NOT subtract `header.start` again when converting to seconds. Double-subtraction shifts the loop window to the wrong position, producing a buzzy saw-wave artifact. Local source available at `/Users/naomiaro/Code/soundfont2`.
+
+**SF2 Volume ADSR Envelope:** Replaces the old flat gain + 50ms release. Per-zone generators define attack/hold/decay (timecents → seconds via `2^(tc/1200)`), sustain (centibels attenuation → linear gain via `10^(-cb/200)`), and release (capped at 5s). Full envelope: silent → attack ramp → hold → decay to sustain → sustain until note-off → release ramp to 0.
 
 **Dependency:** `soundfont2` (MIT) in `package.json`. SF2 files have separate licenses — not bundled in npm package, users provide via URL.
 
