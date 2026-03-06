@@ -15,6 +15,7 @@ A multi-track audio editor and player built with React, Tone.js, and the Web Aud
 - **Export** - WAV export with effects, individual tracks or full mix
 - **Annotations** - Time-synced text annotations with keyboard navigation
 - **Theming** - Full theme customization with dark/light mode support
+- **MIDI playback** - MIDI file parsing with piano roll visualization and SoundFont sample playback
 - **TypeScript** - Full type definitions included
 
 ## Quick Start
@@ -80,6 +81,7 @@ function App() {
 | [Multi-Clip](https://naomiaro.github.io/waveform-playlist/examples/multi-clip) | Drag-and-drop clip editing with trim handles |
 | [Annotations](https://naomiaro.github.io/waveform-playlist/examples/annotations) | Time-synced text with keyboard navigation |
 | [Waveform Data](https://naomiaro.github.io/waveform-playlist/examples/waveform-data) | Pre-computed peaks for fast loading |
+| [MIDI](https://naomiaro.github.io/waveform-playlist/examples/midi) | MIDI file playback with piano roll and SoundFont samples |
 
 ## Packages
 
@@ -89,6 +91,7 @@ function App() {
 | `@waveform-playlist/core` | Types, utilities, and clip/track creation |
 | `@waveform-playlist/engine` | Framework-agnostic timeline engine with pure operations |
 | `@waveform-playlist/ui-components` | Styled UI components (buttons, sliders, etc.) |
+| `@waveform-playlist/midi` | MIDI file parsing, piano roll visualization, and SoundFont playback |
 | `@waveform-playlist/playout` | Tone.js audio engine |
 | `@waveform-playlist/media-element-playout` | HTMLMediaElement-based playout with pitch-preserving playback rate |
 | `@waveform-playlist/annotations` | Optional annotation support |
