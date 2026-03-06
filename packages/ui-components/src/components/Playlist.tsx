@@ -34,6 +34,7 @@ const TimescaleGap = styled.div.attrs<TimescaleGapProps>((props) => ({
 const ScrollArea = styled.div`
   overflow-x: auto;
   overflow-y: hidden;
+  overflow-anchor: none;
   flex: 1;
   position: relative;
 `;

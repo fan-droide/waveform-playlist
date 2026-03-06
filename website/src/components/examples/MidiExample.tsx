@@ -194,7 +194,7 @@ export function MidiExample() {
   const [useSoundFont, setUseSoundFont] = React.useState(true);
 
   const soundFontUrl = useSoundFont
-    ? 'https://musical-artifacts.com/artifacts/5906/A320U.sf2'
+    ? '/waveform-playlist/media/soundfont/A320U.sf2'
     : undefined;
   const soundFontCache = useSoundFontCache(soundFontUrl);
 

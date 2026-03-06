@@ -149,6 +149,8 @@
 
 **Why:** Sticky-positioned controls inside `overflow-x: auto` caused browsers to set non-zero `scrollLeft` during layout recalculation when React rendered wide content.
 
+**Scroll anchoring fix:** `ScrollArea` uses `overflow-anchor: none` to prevent browsers from adjusting scroll position when content size changes (e.g., 13 MIDI tracks rendering ~12,000px of wide content). Pure CSS, no JS event listeners.
+
 **Props:** `Playlist` accepts `trackControlsSlots?: React.ReactNode[]` and `timescaleGapHeight?: number`. Track is channels-only (no controls rendering).
 
 **Implications:** No `controlsOffset` or `controlWidth` in click handlers, playhead positioning, selection, auto-scroll, or zoom calculations. `Playhead.controlsOffset` is deprecated (always 0).
