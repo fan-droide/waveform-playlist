@@ -242,8 +242,11 @@ export class MidiToneTrack implements PlayableTrack {
           // NoiseSynth is monophonic — wrap in try-catch for rare overlaps
           try {
             this.snareSynth.triggerAttackRelease(duration, time, velocity);
-          } catch {
-            // Overlap — previous snare still decaying, skip this hit
+          } catch (err) {
+            console.warn(
+              '[waveform-playlist] Snare overlap — previous hit still decaying, skipped:',
+              err
+            );
           }
           break;
         case 'tom': {

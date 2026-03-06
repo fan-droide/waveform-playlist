@@ -36,6 +36,8 @@ interface ScheduledMidiClip {
  *     → Panner → muteGain → effects/destination
  */
 export class SoundFontToneTrack implements PlayableTrack {
+  /** Rate-limit missing sample warnings — one per class lifetime */
+  private static _missingSampleWarned = false;
   private scheduledClips: ScheduledMidiClip[];
   private activeSources: Set<AudioBufferSourceNode> = new Set();
   private soundFontCache: SoundFontCache;
@@ -127,9 +129,18 @@ export class SoundFontToneTrack implements PlayableTrack {
     const preset = channel === 9 ? 0 : this.programNumber;
 
     const sfSample = this.soundFontCache.getAudioBuffer(midiNote, bank, preset);
-    if (!sfSample) return;
+    if (!sfSample) {
+      if (!SoundFontToneTrack._missingSampleWarned) {
+        console.warn(
+          `[waveform-playlist] SoundFont sample not found for MIDI note ${midiNote} (bank ${bank}, preset ${preset}). ` +
+            'Subsequent missing samples will be silent.'
+        );
+        SoundFontToneTrack._missingSampleWarned = true;
+      }
+      return;
+    }
 
-    const rawContext = getContext().rawContext as AudioContext;
+    const rawContext = getContext().rawContext as BaseAudioContext;
 
     // Create AudioBufferSourceNode with optional looping
     const source = rawContext.createBufferSource();
@@ -159,10 +170,14 @@ export class SoundFontToneTrack implements PlayableTrack {
     // Decay to sustain level
     const decayStart = time + attackVolEnv + holdVolEnv;
     gainNode.gain.linearRampToValueAtTime(sustainGain, decayStart + decayVolEnv);
-    // Sustain holds until note-off
-    gainNode.gain.setValueAtTime(sustainGain, time + duration);
+    // Sustain/release: ensure events are after AHD phase to avoid out-of-order
+    // automation. For very short notes (duration < attack+hold+decay), the
+    // release starts after the decay finishes rather than at the note-off time.
+    const envEndTime = decayStart + decayVolEnv;
+    const releaseStart = Math.max(time + duration, envEndTime);
+    gainNode.gain.setValueAtTime(sustainGain, releaseStart);
     // Release: ramp to silence
-    gainNode.gain.linearRampToValueAtTime(0, time + duration + releaseVolEnv);
+    gainNode.gain.linearRampToValueAtTime(0, releaseStart + releaseVolEnv);
 
     // Connect: source → gainNode → Volume.input (Tone.js)
     source.connect(gainNode);
@@ -174,13 +189,13 @@ export class SoundFontToneTrack implements PlayableTrack {
       this.activeSources.delete(source);
       try {
         gainNode.disconnect();
-      } catch {
-        // Already disconnected
+      } catch (err) {
+        console.warn('[waveform-playlist] GainNode already disconnected:', err);
       }
     };
 
     source.start(time);
-    source.stop(time + duration + releaseVolEnv);
+    source.stop(releaseStart + releaseVolEnv);
   }
 
   private gainToDb(gain: number): number {
@@ -236,9 +251,10 @@ export class SoundFontToneTrack implements PlayableTrack {
   stopAllSources(): void {
     for (const source of this.activeSources) {
       try {
+        source.disconnect();
         source.stop();
-      } catch {
-        // Already stopped
+      } catch (err) {
+        console.warn('[waveform-playlist] Error stopping AudioBufferSourceNode:', err);
       }
     }
     this.activeSources.clear();

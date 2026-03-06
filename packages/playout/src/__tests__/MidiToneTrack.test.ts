@@ -378,6 +378,55 @@ describe('MidiToneTrack', () => {
     });
   });
 
+  describe('percussion routing', () => {
+    it('routes channel 9 notes to percussion synths', () => {
+      createTrack({
+        clips: [
+          makeMidiClip({
+            notes: [
+              // Channel 9 kick drum (note 36)
+              { midi: 36, name: 'C2', time: 0, duration: 0.1, velocity: 0.9, channel: 9 },
+              // Channel 9 snare (note 38)
+              { midi: 38, name: 'D2', time: 0.25, duration: 0.1, velocity: 0.8, channel: 9 },
+              // Channel 9 hi-hat (note 42)
+              { midi: 42, name: 'F#2', time: 0.5, duration: 0.06, velocity: 0.7, channel: 9 },
+              // Non-percussion note (channel 0)
+              { midi: 60, name: 'C4', time: 0, duration: 1.0, velocity: 0.8, channel: 0 },
+            ],
+            startTime: 0,
+            duration: 1.0,
+            offset: 0,
+          }),
+        ],
+        track: makeTrack(),
+      });
+
+      // Trigger all notes via the Part callback
+      const part = mockPartInstances[0];
+      for (const event of part.events as Array<{
+        time: number;
+        note: string;
+        midi: number;
+        duration: number;
+        velocity: number;
+        channel?: number;
+      }>) {
+        part.callback(event.time, event);
+      }
+
+      // Channel 0 note → melodic synth
+      expect(mockTriggerAttackRelease).toHaveBeenCalledWith(
+        'C4',
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number)
+      );
+
+      // Channel 9 notes → percussion synths (kick/cymbal use PolySynth mocks)
+      expect(mockPercTriggerAttackRelease).toHaveBeenCalled();
+    });
+  });
+
   describe('startMidClipSources', () => {
     it('triggers notes that should be sounding at given offset', () => {
       const track = createTrack({

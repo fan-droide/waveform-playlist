@@ -39,8 +39,6 @@ export interface MidiTrackConfig {
   sampleRate?: number;
   /** Merge all MIDI tracks from the file into one ClipTrack (default false) */
   flatten?: boolean;
-  /** URL to a .sf2 SoundFont file for sample-based playback */
-  soundFontUrl?: string;
 }
 
 export interface UseMidiTracksReturn {
@@ -136,7 +134,6 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
 
     const loadTracks = async () => {
       try {
-        const t0 = performance.now();
         if (!allCached) {
           setLoading(true);
           setLoadedCount(0);
@@ -159,7 +156,6 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
             // Use cached buffer if available, otherwise fetch
             let buffer = bufferCacheRef.current.get(config.src);
             if (!buffer) {
-              const tFetch = performance.now();
               const response = await fetch(config.src, {
                 signal: abortController.signal,
               });
@@ -168,19 +164,11 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
               }
               buffer = await response.arrayBuffer();
               bufferCacheRef.current.set(config.src, buffer);
-              console.log(
-                `[midi] fetch ${config.src}: ${(performance.now() - tFetch).toFixed(1)}ms`
-              );
             }
 
-            const tParse = performance.now();
             const parsed = parseMidiFile(buffer, {
               flatten: config.flatten,
             });
-            console.log(
-              `[midi] parse ${parsed.tracks.length} tracks: ${(performance.now() - tParse).toFixed(1)}ms`
-            );
-
             for (const parsedTrack of parsed.tracks) {
               if (cancelled) break;
               const trackName = parsedTrack.name;
@@ -205,9 +193,6 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
           setLoadedCount(allTracks.length);
           setTotalCount(allTracks.length);
           setLoading(false);
-          console.log(
-            `[midi] total load: ${(performance.now() - t0).toFixed(1)}ms, ${allTracks.length} tracks`
-          );
         }
       } catch (err) {
         if (!cancelled) {

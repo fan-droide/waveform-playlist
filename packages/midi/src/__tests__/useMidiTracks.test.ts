@@ -167,7 +167,7 @@ describe('useMidiTracks', () => {
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
       expect(result.current.tracks).toHaveLength(1);
-      expect(result.current.tracks[0].name).toBe('Song - Piano');
+      expect(result.current.tracks[0].name).toBe('Piano');
       expect(result.current.tracks[0].clips[0].midiNotes).toHaveLength(2);
     });
 

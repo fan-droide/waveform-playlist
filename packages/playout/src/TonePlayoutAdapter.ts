@@ -142,6 +142,11 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
             effects: track.effects,
           });
         } else {
+          if (options?.soundFontCache) {
+            console.warn(
+              `[waveform-playlist] SoundFont not loaded for track "${track.name}" — falling back to PolySynth.`
+            );
+          }
           playout.addMidiTrack({
             clips: midiClipInfos,
             track: trackObj,

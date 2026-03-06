@@ -85,14 +85,26 @@ export class SoundFontCache {
       throw new Error(`Failed to fetch SoundFont ${url}: ${response.statusText}`);
     }
     const arrayBuffer = await response.arrayBuffer();
-    this.sf2 = new SoundFont2(new Uint8Array(arrayBuffer));
+    try {
+      this.sf2 = new SoundFont2(new Uint8Array(arrayBuffer));
+    } catch (err) {
+      throw new Error(
+        `Failed to parse SoundFont ${url}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
   }
 
   /**
    * Load from an already-fetched ArrayBuffer.
    */
   loadFromBuffer(data: ArrayBuffer): void {
-    this.sf2 = new SoundFont2(new Uint8Array(data));
+    try {
+      this.sf2 = new SoundFont2(new Uint8Array(data));
+    } catch (err) {
+      throw new Error(
+        `Failed to parse SoundFont from buffer: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
   }
 
   get isLoaded(): boolean {

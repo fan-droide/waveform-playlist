@@ -199,20 +199,27 @@ function AutoScrollToggle() {
  * Load a SoundFont file and return a SoundFontCache instance.
  * The cache is created once and persists across re-renders.
  */
-function useSoundFontCache(url?: string): { cache?: SoundFontCache; loading: boolean } {
+function useSoundFontCache(url?: string): {
+  cache?: SoundFontCache;
+  loading: boolean;
+  error: string | null;
+} {
   const cacheRef = React.useRef<SoundFontCache | null>(null);
   const [cache, setCache] = React.useState<SoundFontCache | undefined>(undefined);
   const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!url) {
       setCache(undefined);
       setLoading(false);
+      setError(null);
       return;
     }
 
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     const loadSoundFont = async () => {
       // Reuse existing cache if already loaded
@@ -236,7 +243,10 @@ function useSoundFontCache(url?: string): { cache?: SoundFontCache; loading: boo
         }
       } catch (err) {
         console.warn('[waveform-playlist] Failed to load SoundFont:', err);
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load SoundFont');
+          setLoading(false);
+        }
       }
     };
 
@@ -247,7 +257,7 @@ function useSoundFontCache(url?: string): { cache?: SoundFontCache; loading: boo
     };
   }, [url]);
 
-  return { cache, loading };
+  return { cache, loading, error };
 }
 
 const BASE_MIDI_SRC = '/waveform-playlist/media/midi/RedHotChiliPeppers-Otherside.mid';
@@ -270,7 +280,11 @@ export function MidiExample() {
   const soundFontUrl = useSoundFont
     ? '/waveform-playlist/media/soundfont/A320U.sf2'
     : undefined;
-  const { cache: soundFontCache, loading: soundFontLoading } = useSoundFontCache(soundFontUrl);
+  const {
+    cache: soundFontCache,
+    loading: soundFontLoading,
+    error: soundFontError,
+  } = useSoundFontCache(soundFontUrl);
 
   // Build configs: base (unless hidden) + user-added
   const midiConfigs = React.useMemo(() => {
@@ -361,9 +375,11 @@ export function MidiExample() {
   return (
     <Container>
       <InfoBanner>
-        {soundFontCache
-          ? 'MIDI tracks use SoundFont sample playback for realistic instrument sounds.'
-          : 'MIDI tracks are synthesized in the browser using Tone.js PolySynth. Notes may be dropped when exceeding the polyphony limit.'}
+        {soundFontError
+          ? `SoundFont failed to load: ${soundFontError}. Falling back to PolySynth synthesis.`
+          : soundFontCache
+            ? 'MIDI tracks use SoundFont sample playback for realistic instrument sounds.'
+            : 'MIDI tracks are synthesized in the browser using Tone.js PolySynth. Notes may be dropped when exceeding the polyphony limit.'}
         {filteredTracks.length > 0 &&
           ` Showing ${filteredTracks.length} individual MIDI track${filteredTracks.length !== 1 ? 's' : ''}.`}
       </InfoBanner>
