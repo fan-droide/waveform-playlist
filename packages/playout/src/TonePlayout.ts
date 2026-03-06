@@ -11,6 +11,7 @@ import {
 import { ToneTrack, ToneTrackOptions } from './ToneTrack';
 import { MidiToneTrack, MidiToneTrackOptions } from './MidiToneTrack';
 import type { PlayableTrack } from './MidiToneTrack';
+import { SoundFontToneTrack, SoundFontToneTrackOptions } from './SoundFontToneTrack';
 
 export type EffectsFunction = (
   masterGainNode: Volume,
@@ -108,6 +109,20 @@ export class TonePlayout {
       this.soloedTracks.add(midiTrack.id);
     }
     return midiTrack;
+  }
+
+  addSoundFontTrack(trackOptions: SoundFontToneTrackOptions): SoundFontToneTrack {
+    const optionsWithDestination = {
+      ...trackOptions,
+      destination: this.masterVolume,
+    };
+    const sfTrack = new SoundFontToneTrack(optionsWithDestination);
+    this.tracks.set(sfTrack.id, sfTrack);
+    this.manualMuteState.set(sfTrack.id, trackOptions.track.muted ?? false);
+    if (trackOptions.track.soloed) {
+      this.soloedTracks.add(sfTrack.id);
+    }
+    return sfTrack;
   }
 
   /**

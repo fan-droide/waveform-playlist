@@ -49,11 +49,12 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "@waveform-playlist/core": "workspace:*"
+    "@waveform-playlist/core": "workspace:*",
+    "soundfont2": "^0.5.0"
   },
   "peerDependencies": {
-    "tone": "^15.0.0",
-    "@waveform-playlist/engine": ">=7.0.0"
+    "@waveform-playlist/engine": ">=7.0.0",
+    "tone": "^15.0.0"
   },
   "peerDependenciesMeta": {
     "@waveform-playlist/engine": {

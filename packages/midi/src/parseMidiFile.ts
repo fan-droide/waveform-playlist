@@ -12,6 +12,8 @@ export interface ParsedMidiTrack {
   channel: number;
   /** Instrument name from MIDI program change */
   instrument: string;
+  /** GM program number (0-127) from MIDI program change event */
+  programNumber: number;
 }
 
 export interface ParsedMidi {
@@ -81,6 +83,7 @@ export function parseMidiFile(data: ArrayBuffer, options: ParseMidiOptions = {})
         duration: getTrackDuration(notes),
         channel: track.channel,
         instrument,
+        programNumber: track.instrument.number,
       };
     });
 
@@ -97,6 +100,7 @@ export function parseMidiFile(data: ArrayBuffer, options: ParseMidiOptions = {})
           duration,
           channel: parsedTracks[0].channel,
           instrument: parsedTracks[0].instrument,
+          programNumber: parsedTracks[0].programNumber,
         },
       ],
       duration,

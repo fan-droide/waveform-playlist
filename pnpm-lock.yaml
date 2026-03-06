@@ -250,6 +250,9 @@ importers:
       '@waveform-playlist/core':
         specifier: workspace:*
         version: link:../core
+      soundfont2:
+        specifier: ^0.5.0
+        version: 0.5.0
       tone:
         specifier: ^15.0.0
         version: 15.1.22
@@ -14299,6 +14302,10 @@ packages:
   /sort-css-media-queries@2.2.0:
     resolution: {integrity: sha512-0xtkGhWCC9MGt/EzgnvbbbKhqWjl1+/rncmhTh5qCpbYguXh6S/qwePfv/JQ8jePXXmqingylxoC49pCkSPIbA==}
     engines: {node: '>= 6.3.0'}
+    dev: false
+
+  /soundfont2@0.5.0:
+    resolution: {integrity: sha512-dcmNVtHT/Y8BOOrtmjt7hn6Bk6bB1g+O2bWB9fa6emW7kfwiEiEL4VvGQfwVt8g0m58LyoqVyuQ4ZFukMLwGHQ==}
     dev: false
 
   /source-map-js@1.2.1:

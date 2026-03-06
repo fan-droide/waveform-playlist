@@ -10,10 +10,13 @@ import { TonePlayout } from './TonePlayout';
 import type { EffectsFunction } from './TonePlayout';
 import type { ClipInfo } from './ToneTrack';
 import type { MidiClipInfo } from './MidiToneTrack';
+import type { SoundFontCache } from './SoundFontCache';
 import { now } from 'tone';
 
 export interface ToneAdapterOptions {
   effects?: EffectsFunction;
+  /** When provided, MIDI clips use SoundFont sample playback instead of PolySynth */
+  soundFontCache?: SoundFontCache;
 }
 
 export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter {
@@ -121,11 +124,30 @@ export function createToneAdapter(options?: ToneAdapterOptions): PlayoutAdapter 
           offset: clipOffsetTime(clip),
         }));
 
-        playout.addMidiTrack({
-          clips: midiClipInfos,
-          track: trackObj,
-          effects: track.effects,
-        });
+        // Route to SoundFontToneTrack when a SoundFont cache is loaded,
+        // otherwise fall back to MidiToneTrack (PolySynth)
+        if (options?.soundFontCache?.isLoaded) {
+          // Determine program number and percussion from the first MIDI clip
+          const firstClip = midiClips[0];
+          const midiChannel = firstClip.midiChannel;
+          const isPercussion = midiChannel === 9;
+          const programNumber = firstClip.midiProgram ?? 0;
+
+          playout.addSoundFontTrack({
+            clips: midiClipInfos,
+            track: trackObj,
+            soundFontCache: options.soundFontCache,
+            programNumber,
+            isPercussion,
+            effects: track.effects,
+          });
+        } else {
+          playout.addMidiTrack({
+            clips: midiClipInfos,
+            track: trackObj,
+            effects: track.effects,
+          });
+        }
       }
     }
 

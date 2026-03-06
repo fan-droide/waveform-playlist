@@ -39,6 +39,8 @@ export interface MidiTrackConfig {
   sampleRate?: number;
   /** Merge all MIDI tracks from the file into one ClipTrack (default false) */
   flatten?: boolean;
+  /** URL to a .sf2 SoundFont file for sample-based playback */
+  soundFontUrl?: string;
 }
 
 export interface UseMidiTracksReturn {
@@ -122,7 +124,8 @@ export function useMidiTracks(
       notes: MidiNoteData[],
       trackName: string,
       noteDuration: number,
-      midiChannel?: number
+      midiChannel?: number,
+      midiProgram?: number
     ): ClipTrack[] => {
       const sampleRate = config.sampleRate ?? 44100;
       const clipDuration = config.duration ?? noteDuration;
@@ -137,6 +140,7 @@ export function useMidiTracks(
         sourceDuration: clipDuration,
         midiNotes: notes,
         midiChannel,
+        midiProgram,
         name: trackName,
       });
 
@@ -192,7 +196,8 @@ export function useMidiTracks(
                 parsedTrack.notes,
                 trackName,
                 parsedTrack.duration,
-                parsedTrack.channel
+                parsedTrack.channel,
+                parsedTrack.programNumber
               );
             });
           } else {

@@ -149,6 +149,9 @@ export interface AudioClip {
 
   /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
   midiChannel?: number;
+
+  /** MIDI program number (0-127). GM instrument number for SoundFont playback. */
+  midiProgram?: number;
 }
 
 /**
@@ -248,6 +251,8 @@ export interface CreateClipOptions {
   midiNotes?: MidiNoteData[];
   /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
   midiChannel?: number;
+  /** MIDI program number (0-127). GM instrument for SoundFont playback. */
+  midiProgram?: number;
 }
 
 /**
@@ -277,6 +282,8 @@ export interface CreateClipOptionsSeconds {
   midiNotes?: MidiNoteData[];
   /** MIDI channel (0-indexed). Channel 9 = GM percussion. */
   midiChannel?: number;
+  /** MIDI program number (0-127). GM instrument for SoundFont playback. */
+  midiProgram?: number;
 }
 
 /**
@@ -315,6 +322,7 @@ export function createClip(options: CreateClipOptions): AudioClip {
     waveformData,
     midiNotes,
     midiChannel,
+    midiProgram,
   } = options;
 
   // Determine sample rate: audioBuffer > explicit option > waveformData
@@ -364,6 +372,7 @@ export function createClip(options: CreateClipOptions): AudioClip {
     waveformData,
     midiNotes,
     midiChannel,
+    midiProgram,
   };
 }
 
@@ -388,6 +397,7 @@ export function createClipFromSeconds(options: CreateClipOptionsSeconds): AudioC
     waveformData,
     midiNotes,
     midiChannel,
+    midiProgram,
   } = options;
 
   // Determine sample rate: audioBuffer > explicit option > waveformData
@@ -432,6 +442,7 @@ export function createClipFromSeconds(options: CreateClipOptionsSeconds): AudioC
     waveformData,
     midiNotes,
     midiChannel,
+    midiProgram,
   });
 }
 

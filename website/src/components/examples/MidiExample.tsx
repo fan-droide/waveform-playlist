@@ -19,6 +19,7 @@ import {
 } from '@waveform-playlist/browser';
 import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
 import { useMidiTracks } from '@waveform-playlist/midi';
+import { SoundFontCache } from '@waveform-playlist/playout';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
 
 const darkThemeOverrides: Partial<WaveformPlaylistTheme> = {
@@ -138,10 +139,64 @@ function PlaybackShortcuts() {
   return null;
 }
 
+/**
+ * Load a SoundFont file and return a SoundFontCache instance.
+ * The cache is created once and persists across re-renders.
+ */
+function useSoundFontCache(url?: string): SoundFontCache | undefined {
+  const cacheRef = React.useRef<SoundFontCache | null>(null);
+  const [cache, setCache] = React.useState<SoundFontCache | undefined>(undefined);
+
+  React.useEffect(() => {
+    if (!url) {
+      setCache(undefined);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSoundFont = async () => {
+      // Reuse existing cache if already loaded
+      if (cacheRef.current?.isLoaded) {
+        setCache(cacheRef.current);
+        return;
+      }
+
+      // Need an AudioContext for creating AudioBuffers
+      const audioContext = new AudioContext();
+      const sfCache = new SoundFontCache(audioContext);
+
+      try {
+        await sfCache.load(url);
+        if (!cancelled) {
+          cacheRef.current = sfCache;
+          setCache(sfCache);
+        }
+      } catch (err) {
+        console.warn('[waveform-playlist] Failed to load SoundFont:', err);
+      }
+    };
+
+    loadSoundFont();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+
+  return cache;
+}
+
 export function MidiExample() {
   const { theme, isDarkMode } = useDocusaurusTheme();
   const gradientTheme = isDarkMode ? darkThemeOverrides : lightThemeOverrides;
   const [flatten, setFlatten] = React.useState(false);
+  const [useSoundFont, setUseSoundFont] = React.useState(true);
+
+  const soundFontUrl = useSoundFont
+    ? '/waveform-playlist/media/soundfont/A320U.sf2'
+    : undefined;
+  const soundFontCache = useSoundFontCache(soundFontUrl);
 
   const midiConfigs = React.useMemo(
     () => [
@@ -166,8 +221,10 @@ export function MidiExample() {
   return (
     <Container>
       <InfoBanner>
-        MIDI tracks are synthesized in the browser using Tone.js PolySynth. Each MIDI track becomes
-        a separate timeline track with its own volume and pan controls.
+        {soundFontCache
+          ? 'MIDI tracks use SoundFont sample playback for realistic instrument sounds.'
+          : 'MIDI tracks are synthesized in the browser using Tone.js PolySynth.'}
+        {' Each MIDI track becomes a separate timeline track with its own volume and pan controls.'}
         {flatten
           ? ' All MIDI channels are merged into a single track.'
           : ` Showing ${tracks.length} individual MIDI track${tracks.length !== 1 ? 's' : ''}.`}
@@ -178,6 +235,7 @@ export function MidiExample() {
         samplesPerPixel={1500}
         mono
         theme={{ ...theme, ...gradientTheme }}
+        soundFontCache={soundFontCache}
         progressBarWidth={2}
         controls={{ show: true, width: 200 }}
         waveHeight={100}
@@ -196,6 +254,10 @@ export function MidiExample() {
             </span>
           )}
           <AutomaticScrollCheckbox />
+          <ToggleLabel>
+            SoundFont
+            <ToggleSwitch $active={useSoundFont} onClick={() => setUseSoundFont((s) => !s)} />
+          </ToggleLabel>
           <ToggleLabel>
             Flatten
             <ToggleSwitch $active={flatten} onClick={() => setFlatten((f) => !f)} />

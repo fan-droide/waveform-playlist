@@ -13,6 +13,7 @@ import {
   createToneAdapter,
   type EffectsFunction,
   type TrackEffectsFunction,
+  type SoundFontCache,
 } from '@waveform-playlist/playout';
 import { PlaylistEngine, type EngineState } from '@waveform-playlist/engine';
 import {
@@ -229,6 +230,9 @@ export interface WaveformPlaylistProviderProps {
    * identity (`tracks === engineTracksRef.current`) to detect engine-originated
    * updates and skip the expensive `loadAudio` rebuild. */
   onTracksChange?: (tracks: ClipTrack[]) => void;
+  /** SoundFont cache for sample-based MIDI playback. When provided, MIDI clips
+   *  use SoundFont samples instead of PolySynth synthesis. */
+  soundFontCache?: SoundFontCache;
   children: ReactNode;
 }
 
@@ -251,6 +255,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   barGap = 0,
   progressBarWidth: progressBarWidthProp,
   onTracksChange,
+  soundFontCache,
   children,
 }) => {
   // Default progressBarWidth to barWidth + barGap (fills gaps)
@@ -575,7 +580,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         // Create engine with Tone.js adapter
         // Reset init flag — new adapter needs Tone.start() on first play
         audioInitializedRef.current = false;
-        const adapter = createToneAdapter({ effects });
+        const adapter = createToneAdapter({ effects, soundFontCache });
         const engine = new PlaylistEngine({
           adapter,
           samplesPerPixel: samplesPerPixelRef.current,
@@ -697,6 +702,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     loopEndRef,
     isLoopEnabledRef,
     stableZoomLevels,
+    soundFontCache,
   ]);
 
   // Regenerate peaks when zoom, mono, or waveformDataCache changes (without reloading audio)
