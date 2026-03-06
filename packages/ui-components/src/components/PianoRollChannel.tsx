@@ -1,4 +1,4 @@
-import React, { FunctionComponent, useLayoutEffect, useMemo } from 'react';
+import React, { FunctionComponent, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
 import type { MidiNoteData } from '@waveform-playlist/core';
 import { MAX_CANVAS_WIDTH } from '@waveform-playlist/core';
@@ -96,7 +96,10 @@ export const PianoRollChannel: FunctionComponent<PianoRollChannelProps> = ({
 
   const color = isSelected ? selectedNoteColor : noteColor;
 
-  useLayoutEffect(() => {
+  // useEffect (not useLayoutEffect) so the browser paints the track layout
+  // (controls + empty canvas containers) before heavy canvas drawing starts.
+  useEffect(() => {
+    const tDraw = performance.now();
     const noteRange = maxMidi - minMidi + 1;
     const noteHeight = Math.max(2, waveHeight / noteRange);
     const pixelsPerSecond = sampleRate / samplesPerPixel;
@@ -144,6 +147,9 @@ export const PianoRollChannel: FunctionComponent<PianoRollChannelProps> = ({
 
       ctx.globalAlpha = 1;
     }
+    console.log(
+      `[piano-roll] draw ch${index}: ${canvasMapRef.current.size} chunks, ${midiNotes.length} notes, ${(performance.now() - tDraw).toFixed(1)}ms`
+    );
   }, [
     canvasMapRef,
     midiNotes,
@@ -157,6 +163,7 @@ export const PianoRollChannel: FunctionComponent<PianoRollChannelProps> = ({
     maxMidi,
     length,
     visibleChunkIndices,
+    index,
   ]);
 
   const canvases = visibleChunkIndices.map((i) => {

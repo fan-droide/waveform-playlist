@@ -291,7 +291,7 @@ describe('useMidiTracks', () => {
         expect(result.current.loading).toBe(false);
       });
 
-      expect(result.current.error).toContain('Must provide src or midiNotes');
+      expect(result.current.error).toContain('must provide src or midiNotes');
     });
   });
 
@@ -318,8 +318,8 @@ describe('useMidiTracks', () => {
     });
   });
 
-  describe('progressive loading', () => {
-    it('adds tracks as they load', async () => {
+  describe('batch loading', () => {
+    it('returns all tracks at once after loading completes', async () => {
       const notes1: MidiNoteData[] = [
         { midi: 60, name: 'C4', time: 0, duration: 1.0, velocity: 0.8 },
       ];
@@ -331,9 +331,8 @@ describe('useMidiTracks', () => {
         { midiNotes: notes1, name: 'Track 1' },
         { midiNotes: notes2, name: 'Track 2' },
       ];
-      const options = { progressive: true };
 
-      const { result } = renderHook(() => useMidiTracks(configs, options));
+      const { result } = renderHook(() => useMidiTracks(configs));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -341,6 +340,7 @@ describe('useMidiTracks', () => {
 
       expect(result.current.tracks).toHaveLength(2);
       expect(result.current.loadedCount).toBe(2);
+      expect(result.current.totalCount).toBe(2);
     });
   });
 });

@@ -2,6 +2,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
   useRef,
@@ -24,8 +25,24 @@ export interface ScrollViewport {
  * when their derived value changes, not on every viewport update.
  */
 class ViewportStore {
-  private _state: ScrollViewport | null = null;
+  private _state: ScrollViewport | null;
   private _listeners = new Set<() => void>();
+
+  constructor(containerEl?: HTMLElement | null) {
+    // Seed with actual container width if available, otherwise estimate from
+    // window.innerWidth. This prevents the first render from mounting ALL
+    // canvas chunks (viewport=null → no filtering), only to prune them to
+    // ~3 visible chunks after the first measurement.
+    const width =
+      containerEl?.clientWidth ?? (typeof window !== 'undefined' ? window.innerWidth : 1024);
+    const buffer = width * 1.5;
+    this._state = {
+      scrollLeft: 0,
+      containerWidth: width,
+      visibleStart: 0,
+      visibleEnd: width + buffer,
+    };
+  }
 
   subscribe = (callback: () => void): (() => void) => {
     this._listeners.add(callback);
@@ -74,7 +91,7 @@ type ScrollViewportProviderProps = {
 export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewportProviderProps) => {
   const storeRef = useRef<ViewportStore | null>(null);
   if (storeRef.current === null) {
-    storeRef.current = new ViewportStore();
+    storeRef.current = new ViewportStore(containerRef.current);
   }
   const store = storeRef.current;
   const rafIdRef = useRef<number | null>(null);
@@ -93,12 +110,17 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
     });
   }, [measure]);
 
+  // Synchronous initial measurement so children have viewport data on first render.
+  // Without this, viewport is null during the first paint and all canvas chunks
+  // mount (e.g., 8 per track × 13 tracks = 104 canvases), only to be pruned to
+  // ~3 visible chunks after the useEffect measurement fires post-paint.
+  useLayoutEffect(() => {
+    measure();
+  }, [measure]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-
-    // Initial measurement
-    measure();
 
     // Scroll listener throttled via requestAnimationFrame
     el.addEventListener('scroll', scheduleUpdate, { passive: true });
@@ -117,7 +139,7 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
         rafIdRef.current = null;
       }
     };
-  }, [containerRef, measure, scheduleUpdate]);
+  }, [containerRef, scheduleUpdate]);
 
   return <ViewportStoreContext.Provider value={store}>{children}</ViewportStoreContext.Provider>;
 };

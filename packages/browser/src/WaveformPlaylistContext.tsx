@@ -320,6 +320,8 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   const playStartPositionRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
   const tracksRef = useRef<ClipTrack[]>(tracks);
+  const soundFontCacheRef = useRef(soundFontCache);
+  soundFontCacheRef.current = soundFontCache;
   const trackStatesRef = useRef<TrackState[]>(trackStates);
   const playbackStartTimeRef = useRef<number>(0); // context.currentTime when playback started
   const audioStartPositionRef = useRef<number>(0); // Audio position when playback started
@@ -521,6 +523,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
 
     const loadAudio = async () => {
       try {
+        const tEngine = performance.now();
         // Extract all audio buffers from clips (only those that have audioBuffer)
         // For now, collect the first clip's buffer from each track
         const buffers: AudioBuffer[] = [];
@@ -579,7 +582,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         // Create engine with Tone.js adapter
         // Reset init flag — new adapter needs Tone.start() on first play
         audioInitializedRef.current = false;
-        const adapter = createToneAdapter({ effects, soundFontCache });
+        const adapter = createToneAdapter({ effects, soundFontCache: soundFontCacheRef.current });
         const engine = new PlaylistEngine({
           adapter,
           samplesPerPixel: samplesPerPixelRef.current,
@@ -646,6 +649,9 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         engineRef.current = engine;
 
         setIsReady(true);
+        console.log(
+          `[engine] rebuild: ${tracks.length} tracks, ${(performance.now() - tEngine).toFixed(1)}ms`
+        );
 
         // Dispatch custom event for external listeners
         const event = new CustomEvent('waveform-playlist:ready', {
@@ -701,7 +707,9 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     loopEndRef,
     isLoopEnabledRef,
     stableZoomLevels,
-    soundFontCache,
+    // soundFontCache is intentionally excluded — read from soundFontCacheRef inside
+    // the effect body. Including it causes a full engine+playout rebuild when the
+    // SoundFont finishes loading after tracks, doubling the rebuild cost.
   ]);
 
   // Regenerate peaks when zoom, mono, or waveformDataCache changes (without reloading audio)

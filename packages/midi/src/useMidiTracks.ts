@@ -50,26 +50,18 @@ export interface UseMidiTracksReturn {
   loading: boolean;
   /** Error message if loading failed, null otherwise */
   error: string | null;
-  /** Number of configs that have finished loading */
+  /** Number of tracks that have finished loading */
   loadedCount: number;
-  /** Total number of configs */
+  /** Total number of tracks (known after parsing) */
   totalCount: number;
-}
-
-export interface UseMidiTracksOptions {
-  /**
-   * When true, tracks are added progressively as they load.
-   * Default: false (wait for all tracks)
-   */
-  progressive?: boolean;
 }
 
 /**
  * Hook to load MIDI files and convert to ClipTrack format with midiNotes.
  *
- * Mirrors the useAudioTracks API shape from @waveform-playlist/browser.
- * Each .mid file can produce multiple ClipTracks (one per MIDI track),
- * or a single merged track when `flatten: true`.
+ * All tracks are returned at once after loading completes. This ensures
+ * all track controls and layout containers appear simultaneously in React,
+ * while canvas rendering is deferred to the UI layer for progressive drawing.
  *
  * @example
  * ```typescript
@@ -83,56 +75,36 @@ export interface UseMidiTracksOptions {
  * ]);
  * ```
  */
-export function useMidiTracks(
-  configs: MidiTrackConfig[],
-  options: UseMidiTracksOptions = {}
-): UseMidiTracksReturn {
-  const { progressive = false } = options;
+export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
   const [tracks, setTracks] = useState<ClipTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadedCount, setLoadedCount] = useState(0);
-
-  const totalCount = configs.length;
+  const [totalCount, setTotalCount] = useState(configs.length);
 
   useEffect(() => {
     if (configs.length === 0) {
       setTracks([]);
       setLoading(false);
       setLoadedCount(0);
+      setTotalCount(0);
       return;
     }
 
     let cancelled = false;
     const abortController = new AbortController();
-    // Each config may expand to multiple tracks; store by config index
-    const loadedTracksMap = new Map<number, ClipTrack[]>();
 
-    const buildTracksArray = (): ClipTrack[] => {
-      const result: ClipTrack[] = [];
-      for (let i = 0; i < configs.length; i++) {
-        const configTracks = loadedTracksMap.get(i);
-        if (configTracks) {
-          result.push(...configTracks);
-        }
-      }
-      return result;
-    };
-
-    const createTracksFromNotes = (
+    const createTrackFromNotes = (
       config: MidiTrackConfig,
       notes: MidiNoteData[],
       trackName: string,
       noteDuration: number,
       midiChannel?: number,
       midiProgram?: number
-    ): ClipTrack[] => {
+    ): ClipTrack => {
       const sampleRate = config.sampleRate ?? 44100;
       const clipDuration = config.duration ?? noteDuration;
 
-      // MIDI has no native sample rate — we use sampleRate purely for
-      // sample-based timeline positioning. sourceDuration = clipDuration
-      // because there's no underlying audio buffer to trim into.
       const clip = createClipFromSeconds({
         startTime: config.startTime ?? 0,
         duration: clipDuration,
@@ -144,7 +116,7 @@ export function useMidiTracks(
         name: trackName,
       });
 
-      const track = createTrack({
+      return createTrack({
         name: trackName,
         clips: [clip],
         muted: config.muted ?? false,
@@ -153,28 +125,30 @@ export function useMidiTracks(
         pan: config.pan ?? 0,
         color: config.color,
       });
-
-      return [track];
     };
 
     const loadTracks = async () => {
       try {
+        const t0 = performance.now();
         setLoading(true);
         setError(null);
         setLoadedCount(0);
 
-        const loadPromises = configs.map(async (config, index) => {
-          let configTracks: ClipTrack[];
+        const allTracks: ClipTrack[] = [];
+
+        for (const config of configs) {
+          if (cancelled) break;
 
           if (config.midiNotes) {
             // Pre-parsed notes — no fetch needed
             const notes = config.midiNotes;
             const duration =
               notes.length > 0 ? Math.max(...notes.map((n) => n.time + n.duration)) : 0;
-            const trackName = config.name || `MIDI Track ${index + 1}`;
-            configTracks = createTracksFromNotes(config, notes, trackName, duration);
+            const trackName = config.name || 'MIDI Track';
+            allTracks.push(createTrackFromNotes(config, notes, trackName, duration));
           } else if (config.src) {
             // Fetch and parse .mid file
+            const tFetch = performance.now();
             const response = await fetch(config.src, {
               signal: abortController.signal,
             });
@@ -182,46 +156,45 @@ export function useMidiTracks(
               throw new Error(`Failed to fetch ${config.src}: ${response.statusText}`);
             }
             const buffer = await response.arrayBuffer();
+            console.log(`[midi] fetch ${config.src}: ${(performance.now() - tFetch).toFixed(1)}ms`);
+
+            const tParse = performance.now();
             const parsed = parseMidiFile(buffer, {
               flatten: config.flatten,
             });
+            console.log(
+              `[midi] parse ${parsed.tracks.length} tracks: ${(performance.now() - tParse).toFixed(1)}ms`
+            );
 
-            // Each parsed MIDI track becomes a ClipTrack
-            configTracks = parsed.tracks.flatMap((parsedTrack) => {
+            for (const parsedTrack of parsed.tracks) {
+              if (cancelled) break;
               const trackName = config.name
                 ? `${config.name} - ${parsedTrack.name}`
                 : parsedTrack.name;
-              return createTracksFromNotes(
-                config,
-                parsedTrack.notes,
-                trackName,
-                parsedTrack.duration,
-                parsedTrack.channel,
-                parsedTrack.programNumber
+              allTracks.push(
+                createTrackFromNotes(
+                  config,
+                  parsedTrack.notes,
+                  trackName,
+                  parsedTrack.duration,
+                  parsedTrack.channel,
+                  parsedTrack.programNumber
+                )
               );
-            });
+            }
           } else {
-            throw new Error(`MIDI track ${index + 1}: Must provide src or midiNotes`);
+            throw new Error('MIDI track config must provide src or midiNotes');
           }
-
-          if (progressive && !cancelled) {
-            loadedTracksMap.set(index, configTracks);
-            setLoadedCount((prev) => prev + 1);
-            setTracks(buildTracksArray());
-          }
-
-          return configTracks;
-        });
-
-        const allConfigTracks = await Promise.all(loadPromises);
+        }
 
         if (!cancelled) {
-          if (!progressive) {
-            const flatTracks = allConfigTracks.flat();
-            setTracks(flatTracks);
-            setLoadedCount(allConfigTracks.length);
-          }
+          setTracks(allTracks);
+          setLoadedCount(allTracks.length);
+          setTotalCount(allTracks.length);
           setLoading(false);
+          console.log(
+            `[midi] total load: ${(performance.now() - t0).toFixed(1)}ms, ${allTracks.length} tracks`
+          );
         }
       } catch (err) {
         if (!cancelled) {
@@ -239,7 +212,7 @@ export function useMidiTracks(
       cancelled = true;
       abortController.abort();
     };
-  }, [configs, progressive]);
+  }, [configs]);
 
   return { tracks, loading, error, loadedCount, totalCount };
 }
