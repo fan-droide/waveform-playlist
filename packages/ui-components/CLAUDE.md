@@ -141,6 +141,14 @@
 
 **Location:** `src/components/PianoRollChannel.tsx`
 
+## Browser-Initiated Scroll Reset (ScrollViewportProvider)
+
+**Problem:** When React renders wide content (~12000px) into a previously narrow scroll container, the browser's layout engine may set a non-zero `scrollLeft` during layout recalculation (no JS in the call stack). Only happens with React's multi-phase rendering — not reproducible in plain HTML.
+
+**Fix:** One-shot scroll event listener in `ScrollViewportProvider` resets `scrollLeft` to 0 on the first browser-initiated scroll before user interaction. Self-removes after first scroll event (zero ongoing cost). Interaction guards (`pointerdown`, `keydown`, `wheel`) prevent resetting user-initiated scrolling.
+
+**Debugging note:** Dynamic DevTools testing (removing elements, changing styles) does NOT re-trigger this behavior — only code changes + rebuild + hard reload reproduce it.
+
 ## Important Patterns (UI-Specific)
 
 - **Stable React Keys for Tracks/Clips** - Always use `track.id` / `clip.clipId` as React keys, never array indices. Index-based keys cause DOM reuse on removal, breaking `transferControlToOffscreen()` (can only be called once per canvas) and causing stale OffscreenCanvas references.

@@ -161,6 +161,9 @@ export const Clip: FunctionComponent<ClipProps> = ({
       data-clip-container="true"
       data-track-id={trackId}
       onMouseDown={onMouseDown}
+      // Pre-set tabIndex so @dnd-kit skips adding tabindex="0" when drag is disabled.
+      // Without this, the browser auto-scrolls overflow containers to show the focused element.
+      {...(!enableDrag ? { tabIndex: -1 } : {})}
     >
       {showHeader && (
         <ClipHeader
