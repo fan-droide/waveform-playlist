@@ -141,12 +141,15 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
   });
 
   // Mouse handlers for click-to-seek
+  const mouseDownTimeRef = useRef<number>(0);
+
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
       const x = e.clientX - rect.left;
       const clickTime = (x * samplesPerPixel) / sampleRate;
 
+      mouseDownTimeRef.current = clickTime;
       setIsSelecting(true);
       setSelectionStart(clickTime);
       setSelectionEnd(clickTime);
@@ -173,6 +176,19 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
 
       setIsSelecting(false);
 
+      // During playback, use the time captured at mouseDown — auto-scroll shifts the
+      // overlay between mouseDown and mouseUp, so recomputing from getBoundingClientRect()
+      // would produce a wrong (shifted) position.
+      if (isPlaying && playoutRef.current) {
+        const clickTime = Math.max(0, mouseDownTimeRef.current);
+        seekTo(clickTime);
+        setSelectionStart(clickTime);
+        setSelectionEnd(clickTime);
+        playoutRef.current.stop();
+        play(clickTime);
+        return;
+      }
+
       const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
       const x = e.clientX - rect.left;
       const endTime = (x * samplesPerPixel) / sampleRate;
@@ -185,11 +201,6 @@ export const MediaElementPlaylist: React.FC<MediaElementPlaylistProps> = ({
         seekTo(start);
         setSelectionStart(start);
         setSelectionEnd(start);
-
-        if (isPlaying && playoutRef.current) {
-          playoutRef.current.stop();
-          play(start);
-        }
       } else {
         // It was a drag - finalize the selection
         setSelectionStart(start);

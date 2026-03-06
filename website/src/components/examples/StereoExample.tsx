@@ -67,7 +67,7 @@ export function StereoExample() {
   return (
     <WaveformPlaylistProvider
       tracks={tracks}
-      samplesPerPixel={1000}
+      samplesPerPixel={1024}
       theme={theme}
       barWidth={2}
       barGap={0}

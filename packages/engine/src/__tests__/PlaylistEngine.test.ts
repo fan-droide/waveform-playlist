@@ -58,8 +58,6 @@ describe('PlaylistEngine', () => {
       const state = engine.getState();
       expect(state.tracks).toEqual([]);
       expect(state.sampleRate).toBe(44100);
-      // Default samplesPerPixel (1000) is not in default zoom levels [256..8192],
-      // so findClosestZoomIndex picks the closest value (1024)
       expect(state.samplesPerPixel).toBe(1024);
       expect(state.isPlaying).toBe(false);
       expect(state.currentTime).toBe(0);
@@ -81,6 +79,12 @@ describe('PlaylistEngine', () => {
 
     it('throws on empty zoomLevels', () => {
       expect(() => new PlaylistEngine({ zoomLevels: [] })).toThrow('zoomLevels must not be empty');
+    });
+
+    it('throws when samplesPerPixel is not in zoomLevels', () => {
+      expect(() => new PlaylistEngine({ samplesPerPixel: 1500 })).toThrow(
+        'samplesPerPixel 1500 is not in zoomLevels'
+      );
     });
 
     it('returns a defensive copy of tracks from getState', () => {

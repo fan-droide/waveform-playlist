@@ -14,6 +14,10 @@
 
 **No React, no Tone.js** — zero framework dependencies. Only peer dependency is `@waveform-playlist/core`.
 
+## Zoom Level Validation
+
+`samplesPerPixel` must exist in the `zoomLevels` array — engine constructor throws if not (`indexOf` check, not `findClosestZoomIndex`). Default zoom levels: `[256, 512, 1024, 2048, 4096, 8192]`. Default `samplesPerPixel`: 1024. When adding examples, always use a value from the zoom levels array.
+
 ## Patterns
 
 - All mutating methods (moveClip, trimClip, removeTrack, setZoomLevel) guard against no-op statechange emissions — bail early when constrained delta is 0, track not found, or zoom unchanged

@@ -342,6 +342,8 @@ const LazyExample = createLazyExample(() =>
 
 **Debug tests:** `debug/tonejs/` contains standalone HTML reproductions of upstream Tone.js bugs. Each file loads Tone.js from CDN with a one-click reproduce button — change the `<script src>` version to test new releases. See `debug/tonejs/README.md`.
 
+**Debug apps:** `debug/standalone-midi/` is a standalone Vite+React app using workspace components (not Docusaurus) for isolating rendering bugs. Run with `cd debug/standalone-midi && pnpm exec vite`.
+
 **Deployment:** Site deploys automatically via GitHub Actions on push to `main`.
 
 ---

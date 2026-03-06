@@ -232,7 +232,7 @@ export function MidiExample() {
 
       <WaveformPlaylistProvider
         tracks={tracks}
-        samplesPerPixel={1500}
+        samplesPerPixel={2048}
         mono
         theme={{ ...theme, ...gradientTheme }}
         soundFontCache={soundFontCache}

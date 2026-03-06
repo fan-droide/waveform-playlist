@@ -235,6 +235,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
   const [settingsModalTrackId, setSettingsModalTrackId] = useState<string | null>(null);
 
   const [isSelecting, setIsSelecting] = useState(false);
+  const mouseDownTimeRef = useRef<number>(0);
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -328,6 +329,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
       selectTrack(clickedTrackIndex);
     }
 
+    mouseDownTimeRef.current = clickTime;
     setIsSelecting(true);
     setCurrentTime(clickTime);
     setSelection(clickTime, clickTime);
@@ -350,18 +352,20 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
 
     setIsSelecting(false);
 
-    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const endTime = (x * samplesPerPixel) / sampleRate;
-
-    // During playback, always seek to click point (no selection range)
+    // During playback, use the time captured at mouseDown — auto-scroll shifts the
+    // overlay between mouseDown and mouseUp, so recomputing from getBoundingClientRect()
+    // would produce a wrong (shifted) position.
     if (isPlaying) {
-      const clickTime = Math.max(0, endTime);
+      const clickTime = Math.max(0, mouseDownTimeRef.current);
       setCurrentTime(clickTime);
       setSelection(clickTime, clickTime);
       play(clickTime);
       return;
     }
+
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const endTime = (x * samplesPerPixel) / sampleRate;
 
     const start = Math.min(selectionStart, endTime);
     const end = Math.max(selectionStart, endTime);

@@ -224,6 +224,10 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 
 **Test helper:** `WaveformData.create()` requires JSON with `{ version: 2, channels: 1, sample_rate, samples_per_pixel, bits, length, data }` — omitting `version`/`channels` causes a TypeScript error.
 
+## Click-to-Seek During Auto-Scroll
+
+`handleMouseUp` must NOT recompute click time from `getBoundingClientRect()` during playback — auto-scroll shifts the overlay between mouseDown and mouseUp, producing wrong positions. Instead, `mouseDownTimeRef` captures the time at mouseDown, and mouseUp reuses it when `isPlaying`. Applied in both `PlaylistVisualization` and `MediaElementPlaylist`.
+
 ## Controls Offset Removed
 
 **Decision:** All `controlsOffset` / `controlWidth` arithmetic removed from mouse handlers, playhead positioning, selection, auto-scroll, and zoom calculations.
