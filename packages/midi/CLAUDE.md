@@ -111,3 +111,14 @@ Flatten merges `midiNotes` into one visual track but keeps separate `ClipTrack` 
 - **`@waveform-playlist/core`** — For `MidiNoteData`, `ClipTrack`, `createClipFromSeconds`, `createTrack`.
 - **`react`** — Peer dependency (for `useMidiTracks` hook).
 - No `tone` dependency — this package only does parsing, not playback.
+
+## Program Number (GM Instrument)
+
+`ParsedMidiTrack.programNumber` is set from `track.instrument.number` in `@tonejs/midi`. Passed through `useMidiTracks` → `clip.midiProgram` → `SoundFontToneTrack` for correct instrument sample lookup. Defaults to 0 (Acoustic Grand Piano). Preserved in flatten mode.
+
+## Track Naming Logic
+
+`@tonejs/midi` defaults `track.instrument.name` to `"acoustic grand piano"` (program 0) even when no program change event exists. Use `track.instrument.number > 0` to detect explicitly-set instruments. Naming priority:
+- Channel 9 → "Drums"
+- Program > 0 → title-cased GM name (e.g., "Electric Bass (Finger)")
+- Program 0 → track name from MIDI file → "Acoustic Grand Piano" → "Channel N"

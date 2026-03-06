@@ -27,3 +27,7 @@ When a hero section uses `min-height: 100vh` + `align-items: center` and an elem
 - Custom styles: `website/src/css/custom.css`
 - Example components: `website/src/components/examples/`
 - Lazy loading wrapper: `website/src/components/BrowserOnlyWrapper.tsx`
+
+## Static Media Assets
+
+- `website/static/media/soundfont/A320U.sf2` — GPL SoundFont used by MIDI example (not distributed with npm packages). Served at `/waveform-playlist/media/soundfont/A320U.sf2`.

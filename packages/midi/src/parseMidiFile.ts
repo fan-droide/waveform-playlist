@@ -34,6 +34,15 @@ export interface ParseMidiOptions {
   flatten?: boolean;
 }
 
+/**
+ * Title-case an instrument name from @tonejs/midi.
+ * "acoustic grand piano" → "Acoustic Grand Piano"
+ * "electric bass (finger)" → "Electric Bass (Finger)"
+ */
+function titleCase(str: string): string {
+  return str.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function mapNotes(track: Midi['tracks'][number]): MidiNoteData[] {
   return track.notes.map((note) => ({
     midi: note.midi,
@@ -70,13 +79,19 @@ export function parseMidiFile(data: ArrayBuffer, options: ParseMidiOptions = {})
     .map((track) => {
       const notes = mapNotes(track);
       const instrument = track.instrument.name;
-      // Prefer instrument name (e.g. "acoustic guitar (steel)") over track name,
-      // which in many MIDI files contains metadata (artist, title fragments).
+      const programNumber = track.instrument.number;
+      // Channel 9 = GM percussion. Use "Drums" for clarity.
+      // For melodic tracks: prefer GM instrument name when program is non-default (> 0),
+      // since @tonejs/midi defaults to "acoustic grand piano" even with no program change.
       // Fall back to track name, then channel number.
-      const name =
-        instrument !== 'acoustic grand piano'
-          ? instrument
-          : track.name.trim() || `Channel ${track.channel + 1}`;
+      let name: string;
+      if (track.channel === 9) {
+        name = 'Drums';
+      } else if (programNumber > 0) {
+        name = titleCase(instrument);
+      } else {
+        name = track.name.trim() || titleCase(instrument) || `Channel ${track.channel + 1}`;
+      }
       return {
         name,
         notes,

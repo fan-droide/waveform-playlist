@@ -104,6 +104,35 @@ Without `Tone.start()`, `Tone.now()` returns null → RangeError in scheduling.
 
 **Risk:** `_param` is a private Tone.js 15.x internal. Pin version carefully. See [Tone.js #1418](https://github.com/Tonejs/Tone.js/issues/1418).
 
+## SoundFont Playback (SoundFontToneTrack)
+
+**Location:** `src/SoundFontToneTrack.ts`, `src/SoundFontCache.ts`
+
+**Architecture:** Opt-in replacement for `MidiToneTrack`. When `soundFontCache` is provided to `TonePlayoutAdapter`, MIDI clips route to `SoundFontToneTrack` instead of `MidiToneTrack`. Falls back to PolySynth when no SoundFont loaded.
+
+**Audio graph per note:**
+```
+AudioBufferSourceNode (native, one-shot, pitch-shifted via playbackRate)
+  → GainNode (native, per-note velocity, quadratic curve)
+  → Volume.input (Tone.js, shared per-track)
+  → Panner → muteGain → effects/destination
+```
+
+**SoundFontCache:** Fetches SF2 URL → parses with `soundfont2` library → caches `AudioBuffer` per sample index. `getAudioBuffer(midiNote, bank, preset)` returns `{ buffer, playbackRate }`. Lazily converts `Int16Array` → `Float32Array` → `AudioBuffer` on first access.
+
+**SF2 Pitch Resolution (critical gotcha):** Many SF2 files use the `OverridingRootKey` generator, NOT `sample.header.originalPitch`, for the actual root pitch. Using only `originalPitch` causes badly out-of-tune playback. Full generator chain:
+1. `OverridingRootKey` generator (most specific, per-zone)
+2. `sample.header.originalPitch` (sample header, skip if 255 = "unpitched")
+3. Fallback to MIDI note 60 (middle C)
+4. Tuning: `CoarseTune` (semitones) + `FineTune` (cents) + `pitchCorrection` (cents)
+5. `playbackRate = 2^((midiNote - rootKey + coarseTune + (fineTune + pitchCorrection) / 100) / 12)`
+
+**Per-note channel routing:** Same as MidiToneTrack — channel 9 → bank 128 (drums), others → bank 0 with `programNumber`. Works with flattened mixed-channel clips.
+
+**Release envelope:** 50ms linear ramp to 0 on `GainNode` to avoid clicks on note-off.
+
+**Dependency:** `soundfont2` (MIT) in `package.json`. SF2 files have separate licenses — not bundled in npm package, users provide via URL.
+
 ## Firefox Compatibility (standardized-audio-context)
 
 **Problem 1: AudioListener Error**

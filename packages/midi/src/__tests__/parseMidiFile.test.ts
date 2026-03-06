@@ -210,7 +210,40 @@ describe('parseMidiFile', () => {
     });
 
     const result = parseMidiFile(buffer);
-    expect(result.tracks[0].name).toBe('Channel 4');
+    // No track name and program 0 → falls back to GM instrument name
+    expect(result.tracks[0].name).toBe('Acoustic Grand Piano');
+  });
+
+  it('uses GM instrument name for non-default programs', () => {
+    const buffer = createTestMidi({
+      tracks: [
+        {
+          name: 'My Track',
+          channel: 0,
+          instrument: 'electric bass (finger)',
+          notes: [{ midi: 36, time: 0, duration: 1.0 }],
+        },
+      ],
+    });
+
+    const result = parseMidiFile(buffer);
+    // Non-default program → GM instrument name takes priority, title-cased
+    expect(result.tracks[0].name).toBe('Electric Bass (Finger)');
+  });
+
+  it('labels percussion tracks as Drums', () => {
+    const buffer = createTestMidi({
+      tracks: [
+        {
+          name: 'Percussion',
+          channel: 9,
+          notes: [{ midi: 42, time: 0, duration: 0.1 }],
+        },
+      ],
+    });
+
+    const result = parseMidiFile(buffer);
+    expect(result.tracks[0].name).toBe('Drums');
   });
 
   it('calculates total duration from all tracks', () => {
