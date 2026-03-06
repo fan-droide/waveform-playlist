@@ -183,9 +183,7 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
 
             for (const parsedTrack of parsed.tracks) {
               if (cancelled) break;
-              const trackName = config.name
-                ? `${config.name} - ${parsedTrack.name}`
-                : parsedTrack.name;
+              const trackName = parsedTrack.name;
               allTracks.push(
                 createTrackFromNotes(
                   config,
