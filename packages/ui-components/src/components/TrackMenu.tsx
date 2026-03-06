@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, type ReactNode } from 'react';
+import React, { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
 import { DotsIcon } from './TrackControls/DotsIcon';
@@ -34,6 +34,8 @@ const MenuButton = styled.button`
   }
 `;
 
+const DROPDOWN_MIN_WIDTH = 180;
+
 const Dropdown = styled.div<{ $top: number; $left: number }>`
   position: fixed;
   top: ${(p) => p.$top}px;
@@ -44,7 +46,7 @@ const Dropdown = styled.div<{ $top: number; $left: number }>`
   border: 1px solid rgba(128, 128, 128, 0.4);
   border-radius: 6px;
   padding: 0.5rem 0;
-  min-width: 180px;
+  min-width: ${DROPDOWN_MIN_WIDTH}px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 `;
 
@@ -56,24 +58,55 @@ const Divider = styled.hr`
 
 export const TrackMenu: React.FC<TrackMenuProps> = ({ items: itemsProp }) => {
   const [open, setOpen] = useState(false);
-  const close = () => setOpen(false);
+  const close = useCallback(() => setOpen(false), []);
   const items = typeof itemsProp === 'function' ? itemsProp(close) : itemsProp;
   const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Position dropdown below the button when opening
-  useEffect(() => {
-    if (open && buttonRef.current) {
-      const rect = buttonRef.current.getBoundingClientRect();
-      setDropdownPos({
-        top: rect.bottom + 2,
-        left: Math.max(0, rect.right - 180),
-      });
-    }
-  }, [open]);
+  const updatePosition = useCallback(() => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const dropHeight = dropdownRef.current?.offsetHeight ?? 160;
 
-  // Close on outside click
+    // Prefer opening to the right of the button
+    let left = rect.right + 4;
+    if (left + DROPDOWN_MIN_WIDTH > vw) {
+      left = rect.left - DROPDOWN_MIN_WIDTH - 4;
+    }
+    left = Math.max(4, Math.min(left, vw - DROPDOWN_MIN_WIDTH - 4));
+
+    // Align top with the button, push up if it would overflow viewport
+    let top = rect.top;
+    if (top + dropHeight > vh - 4) {
+      top = Math.max(4, rect.bottom - dropHeight);
+    }
+
+    setDropdownPos({ top, left });
+  }, []);
+
+  // Position on open, refine after mount, reposition on scroll/resize
+  useEffect(() => {
+    if (!open) return;
+    updatePosition();
+
+    // Refine once the dropdown has mounted and has actual dimensions
+    const rafId = requestAnimationFrame(() => updatePosition());
+
+    const onScroll = () => updatePosition();
+    const onResize = () => updatePosition();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open, updatePosition]);
+
+  // Close on outside click or Escape
   useEffect(() => {
     if (!open) return;
 
@@ -88,8 +121,17 @@ export const TrackMenu: React.FC<TrackMenuProps> = ({ items: itemsProp }) => {
         setOpen(false);
       }
     };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+      }
+    };
     document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [open]);
 
   return (

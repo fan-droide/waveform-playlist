@@ -165,6 +165,21 @@
 
 Firefox enforces a `will-change` memory budget of 3× document surface area. Only use `will-change` on elements that actively animate (playheads, progress overlays). Static elements like canvas chunks and backgrounds should NOT have `will-change` — they already get GPU compositing from `transform: translateZ(0)` without triggering the budget.
 
+## TrackMenu Portal Positioning
+
+**Pattern:** `position: fixed` dropdown portaled to `document.body`, repositioned on scroll.
+
+- Opens to the **right** of the trigger button (not below) since controls column is narrow
+- Falls back to left if viewport edge reached
+- `window.addEventListener('scroll', handler, true)` — capture phase catches scrolls from any ancestor, not just window
+- `requestAnimationFrame` after open for position refinement (dropdown ref is null on first render)
+- **Never put function-derived `items` in effect deps** — `itemsProp(close)` creates a new array each render, causing infinite `setState` → render → effect loops
+- Escape key closes the menu
+
+## FileDropZone Hidden Input Pattern
+
+For programmatic `.click()` on file inputs, use `opacity: 0; width: 0; height: 0; pointer-events: none;` — NOT `clip: rect(0,0,0,0)` or `display: none`. Add `onClick={(e) => e.stopPropagation()}` on the input to prevent event bubbling back to the Zone's click handler.
+
 ## Important Patterns (UI-Specific)
 
 - **Stable React Keys for Tracks/Clips** - Always use `track.id` / `clip.clipId` as React keys, never array indices. Index-based keys cause DOM reuse on removal, breaking `transferControlToOffscreen()` (can only be called once per canvas) and causing stale OffscreenCanvas references.

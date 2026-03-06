@@ -67,7 +67,8 @@ export default function MidiExamplePage(): React.ReactElement {
           <p>
             The <code>@waveform-playlist/midi</code> package handles parsing only — it outputs{' '}
             <code>ClipTrack[]</code> with <code>midiNotes</code> on each clip. The playout layer
-            automatically routes these to <code>MidiToneTrack</code> for synthesis.
+            automatically routes these to <code>SoundFontToneTrack</code> (realistic instrument
+            samples) or <code>MidiToneTrack</code> (Tone.js PolySynth fallback) for synthesis.
           </p>
         </div>
       </main>
