@@ -7,6 +7,7 @@
 
 import React from 'react';
 import styled from 'styled-components';
+import * as Tone from 'tone';
 import {
   WaveformPlaylistProvider,
   Waveform,
@@ -19,6 +20,8 @@ import {
   usePlaylistControls,
 } from '@waveform-playlist/browser';
 import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
+import { createTrack, createClipFromSeconds } from '@waveform-playlist/core';
+import type { ClipTrack } from '@waveform-playlist/core';
 import { useMidiTracks } from '@waveform-playlist/midi';
 import type { MidiTrackConfig } from '@waveform-playlist/midi';
 import { SoundFontCache } from '@waveform-playlist/playout';
@@ -268,6 +271,10 @@ function isMidiFile(file: File): boolean {
   return /\.(mid|midi)$/i.test(file.name);
 }
 
+function isAudioFile(file: File): boolean {
+  return file.type.startsWith('audio/') && !isMidiFile(file);
+}
+
 export function MidiExample() {
   const { theme, isDarkMode } = useDocusaurusTheme();
   const gradientTheme = isDarkMode ? darkThemeOverrides : lightThemeOverrides;
@@ -275,6 +282,7 @@ export function MidiExample() {
   const [baseHidden, setBaseHidden] = React.useState(false);
   const [userMidiConfigs, setUserMidiConfigs] = React.useState<MidiTrackConfig[]>([]);
   const [removedTrackIds, setRemovedTrackIds] = React.useState<Set<string>>(new Set());
+  const [userAudioTracks, setUserAudioTracks] = React.useState<ClipTrack[]>([]);
   const objectUrlsRef = React.useRef<string[]>([]);
 
   const soundFontUrl = useSoundFont
@@ -298,10 +306,10 @@ export function MidiExample() {
 
   const { tracks: allTracks, loading, error, loadedCount, totalCount } = useMidiTracks(midiConfigs);
 
-  // Filter out individually removed tracks
+  // Merge MIDI + audio tracks and filter out removed ones
   const filteredTracks = React.useMemo(
-    () => allTracks.filter((t) => !removedTrackIds.has(t.id)),
-    [allTracks, removedTrackIds]
+    () => [...allTracks, ...userAudioTracks].filter((t) => !removedTrackIds.has(t.id)),
+    [allTracks, userAudioTracks, removedTrackIds]
   );
 
   // Revoke object URLs on unmount
@@ -327,6 +335,35 @@ export function MidiExample() {
     setUserMidiConfigs((prev) => [...prev, ...newConfigs]);
   }, []);
 
+  const addAudioFiles = React.useCallback(async (files: File[]) => {
+    const audioContext = Tone.getContext().rawContext as AudioContext;
+    for (const file of files) {
+      const arrayBuffer = await file.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      const clip = createClipFromSeconds({
+        audioBuffer,
+        startTime: 0,
+        duration: audioBuffer.duration,
+        offset: 0,
+      });
+      const newTrack = createTrack({
+        name: file.name.replace(/\.[^/.]+$/, ''),
+        clips: [clip],
+      });
+      setUserAudioTracks((prev) => [...prev, newTrack]);
+    }
+  }, []);
+
+  const handleFiles = React.useCallback(
+    (files: File[]) => {
+      const midiFiles = files.filter(isMidiFile);
+      const audioFiles = files.filter(isAudioFile);
+      if (midiFiles.length > 0) addMidiFiles(midiFiles);
+      if (audioFiles.length > 0) addAudioFiles(audioFiles);
+    },
+    [addMidiFiles, addAudioFiles]
+  );
+
   const handleRemoveTrack = React.useCallback(
     (index: number) => {
       const track = filteredTracks[index];
@@ -342,6 +379,7 @@ export function MidiExample() {
     objectUrlsRef.current = [];
     setBaseHidden(true);
     setUserMidiConfigs([]);
+    setUserAudioTracks([]);
     setRemovedTrackIds(new Set());
   }, []);
 
@@ -420,16 +458,16 @@ export function MidiExample() {
       ) : (
         <LoadingOverlay>
           <div>All tracks removed.</div>
-          <div>Drop a .mid file below or reload to restore defaults.</div>
+          <div>Drop a .mid or audio file below, or reload to restore defaults.</div>
         </LoadingOverlay>
       )}
 
       <StyledDropZone
-        accept=".mid,.midi"
-        onFiles={addMidiFiles}
-        fileFilter={isMidiFile}
-        label="Drop .mid files here to add tracks, or click to browse"
-        dragLabel="Drop MIDI files here"
+        accept=".mid,.midi,.mp3,.wav,.ogg,.flac,.aac,.m4a"
+        onFiles={handleFiles}
+        fileFilter={(file: File) => isMidiFile(file) || isAudioFile(file)}
+        label="Drop .mid or audio files here to add tracks, or click to browse"
+        dragLabel="Drop MIDI or audio files here"
       />
     </Container>
   );
