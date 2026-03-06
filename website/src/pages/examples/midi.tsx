@@ -20,12 +20,38 @@ export default function MidiExamplePage(): React.ReactElement {
           content="Load and play MIDI files with browser-synthesized instruments using Waveform Playlist"
         />
         <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://naomiaro.github.io/waveform-playlist/img/social/example-midi.png" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="MIDI Playback - Waveform Playlist" />
         <meta
           name="twitter:description"
           content="Load and play MIDI files with browser-synthesized instruments using Waveform Playlist"
         />
+        <meta name="twitter:image" content="https://naomiaro.github.io/waveform-playlist/img/social/example-midi.png" />
+        <script type="application/ld+json">
+          {JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'WebApplication',
+            name: 'Waveform Playlist MIDI Playback',
+            description: 'Load and play MIDI files with browser-synthesized instruments. Multi-track piano roll visualization with SoundFont sample playback.',
+            applicationCategory: 'MultimediaApplication',
+            operatingSystem: 'Any',
+            offers: {
+              '@type': 'Offer',
+              price: '0',
+              priceCurrency: 'USD',
+            },
+            featureList: [
+              'Standard MIDI file loading and parsing',
+              'Multi-track piano roll visualization',
+              'SoundFont sample playback (SF2)',
+              'Tone.js PolySynth fallback synthesis',
+              'Drag-and-drop MIDI file import',
+              'Per-track mute, solo, volume, and pan controls',
+              'Auto-scroll during playback',
+            ],
+          })}
+        </script>
       </Head>
       <main className="container margin-vert--lg">
         <h1>MIDI Playback</h1>
