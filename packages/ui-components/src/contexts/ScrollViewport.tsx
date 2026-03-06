@@ -188,7 +188,8 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
       }
       store.cancelPendingNotification();
     };
-  }, [containerRef, measure, scheduleUpdate, store]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- measure is stable (useCallback with stable deps) and already captured via scheduleUpdate
+  }, [containerRef, scheduleUpdate, store]);
 
   return <ViewportStoreContext.Provider value={store}>{children}</ViewportStoreContext.Provider>;
 };

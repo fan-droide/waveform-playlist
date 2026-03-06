@@ -154,6 +154,13 @@ export class SoundFontToneTrack implements PlayableTrack {
       source.loopEnd = sfSample.loopEnd;
     }
 
+    // For non-looping samples (percussion, one-shots), use the sample's natural
+    // buffer duration so cymbals/drums ring out fully. For looping samples
+    // (sustained instruments), use the MIDI note duration for note-off timing.
+    const sampleDuration = sfSample.buffer.duration / sfSample.playbackRate;
+    const effectiveDuration =
+      sfSample.loopMode === 0 ? Math.max(duration, sampleDuration) : duration;
+
     // Per-note gain with SF2 volume ADSR envelope
     const peakGain = velocity * velocity;
     const gainNode = rawContext.createGain();
@@ -170,14 +177,11 @@ export class SoundFontToneTrack implements PlayableTrack {
     // Decay to sustain level
     const decayStart = time + attackVolEnv + holdVolEnv;
     gainNode.gain.linearRampToValueAtTime(sustainGain, decayStart + decayVolEnv);
-    // Sustain/release: ensure events are after AHD phase to avoid out-of-order
-    // automation. For very short notes (duration < attack+hold+decay), the
-    // release starts after the decay finishes rather than at the note-off time.
-    const envEndTime = decayStart + decayVolEnv;
-    const releaseStart = Math.max(time + duration, envEndTime);
-    gainNode.gain.setValueAtTime(sustainGain, releaseStart);
-    // Release: ramp to silence
-    gainNode.gain.linearRampToValueAtTime(0, releaseStart + releaseVolEnv);
+    // Sustain holds until note-off, then release ramps to silence.
+    // For short notes (duration < AHD), setValueAtTime at note-off cancels the
+    // incomplete decay ramp — Web Audio handles this correctly.
+    gainNode.gain.setValueAtTime(sustainGain, time + effectiveDuration);
+    gainNode.gain.linearRampToValueAtTime(0, time + effectiveDuration + releaseVolEnv);
 
     // Connect: source → gainNode → Volume.input (Tone.js)
     source.connect(gainNode);
@@ -195,7 +199,7 @@ export class SoundFontToneTrack implements PlayableTrack {
     };
 
     source.start(time);
-    source.stop(releaseStart + releaseVolEnv);
+    source.stop(time + effectiveDuration + releaseVolEnv);
   }
 
   private gainToDb(gain: number): number {
@@ -251,7 +255,6 @@ export class SoundFontToneTrack implements PlayableTrack {
   stopAllSources(): void {
     for (const source of this.activeSources) {
       try {
-        source.disconnect();
         source.stop();
       } catch (err) {
         console.warn('[waveform-playlist] Error stopping AudioBufferSourceNode:', err);
