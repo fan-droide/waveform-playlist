@@ -30,6 +30,4 @@ bundle-stats.html
 .claude/settings.local.json
 .codex
 
-# SoundFont files (loaded from CDN at runtime)
-website/static/media/soundfont/
 
