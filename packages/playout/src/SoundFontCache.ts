@@ -65,8 +65,15 @@ export class SoundFontCache {
   private audioBufferCache: Map<number, AudioBuffer> = new Map();
   private context: BaseAudioContext;
 
-  constructor(context: BaseAudioContext) {
-    this.context = context;
+  /**
+   * @param context Optional AudioContext for createBuffer(). If omitted, uses
+   *   an OfflineAudioContext which doesn't require user gesture — safe to
+   *   construct before user interaction (avoids Firefox autoplay warnings).
+   */
+  constructor(context?: BaseAudioContext) {
+    // OfflineAudioContext only needs valid params; we never call startRendering().
+    // It's used solely for createBuffer() which works identically to AudioContext.
+    this.context = context ?? new OfflineAudioContext(1, 1, 44100);
   }
 
   /**

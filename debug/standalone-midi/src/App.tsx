@@ -16,7 +16,7 @@ import {
 } from '@waveform-playlist/browser';
 import type { WaveformPlaylistTheme } from '@waveform-playlist/ui-components';
 import { useMidiTracks } from '@waveform-playlist/midi';
-import { SoundFontCache, getGlobalAudioContext } from '@waveform-playlist/playout';
+import { SoundFontCache } from '@waveform-playlist/playout';
 
 const darkThemeOverrides: Partial<WaveformPlaylistTheme> = {
   waveformDrawMode: 'inverted',
@@ -103,8 +103,7 @@ function useSoundFontCache(url?: string): SoundFontCache | undefined {
         return;
       }
 
-      const audioContext = getGlobalAudioContext();
-      const sfCache = new SoundFontCache(audioContext);
+      const sfCache = new SoundFontCache();
 
       try {
         await sfCache.load(url);
