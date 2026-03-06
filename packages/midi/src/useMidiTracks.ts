@@ -82,8 +82,7 @@ export function useMidiTracks(configs: MidiTrackConfig[]): UseMidiTracksReturn {
   const [loadedCount, setLoadedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(configs.length);
 
-  // Cache fetched ArrayBuffers by URL so re-parses (e.g. flatten toggle)
-  // skip the network entirely.
+  // Cache fetched ArrayBuffers by URL so re-parses skip the network.
   const bufferCacheRef = useRef(new Map<string, ArrayBuffer>());
 
   useEffect(() => {

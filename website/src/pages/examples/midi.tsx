@@ -31,8 +31,8 @@ export default function MidiExamplePage(): React.ReactElement {
         <h1>MIDI Playback</h1>
         <p>
           Load a standard MIDI file and play it back using browser-synthesized instruments. Each MIDI
-          track becomes a separate timeline track, or toggle <strong>Flatten</strong> to merge all
-          channels into one.
+          track becomes a separate timeline track. Drop your own <code>.mid</code> files to add more
+          tracks.
         </p>
 
         <div
@@ -60,11 +60,9 @@ export default function MidiExamplePage(): React.ReactElement {
               Multi-track expansion — one MIDI file produces multiple timeline tracks (one per MIDI
               channel)
             </li>
-            <li>
-              Flatten mode — merge all MIDI channels into a single track with{' '}
-              <code>flatten: true</code>
-            </li>
-            <li>Browser-based MIDI synthesis via Tone.js PolySynth (no SoundFont required)</li>
+            <li>SoundFont sample playback for realistic instrument sounds</li>
+            <li>Drag-and-drop to add your own MIDI files</li>
+            <li>Per-track close buttons and Clear All</li>
           </ul>
           <p>
             The <code>@waveform-playlist/midi</code> package handles parsing only — it outputs{' '}

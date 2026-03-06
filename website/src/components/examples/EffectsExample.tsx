@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import styled from 'styled-components';
+import { FileDropZone } from '../FileDropZone';
 
 import JSZip from 'jszip';
 import { createTrack, createClipFromSeconds, type ClipTrack } from '@waveform-playlist/core';
@@ -135,40 +136,13 @@ const Separator = styled.div`
   background: var(--ifm-color-emphasis-300, #ddd);
 `;
 
-const DropZone = styled.div<{ $isDragging: boolean }>`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 1.5rem 2rem;
-  border: 2px dashed ${props => props.$isDragging ? 'var(--ifm-color-primary, #3578e5)' : 'var(--ifm-color-emphasis-300, #ddd)'};
-  border-radius: 0.5rem;
-  background: ${props => props.$isDragging ? 'var(--ifm-color-primary-lightest, #e6f0ff)' : 'var(--ifm-background-surface-color, #f5f5f5)'};
-  text-align: center;
-  transition: all 0.2s ease;
-  cursor: pointer;
-  margin-top: 1rem;
-
-  &:hover {
-    border-color: var(--ifm-color-primary, #3578e5);
-    background: var(--ifm-color-emphasis-100, #f0f0f0);
-  }
-`;
-
-const DropZoneText = styled.span`
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--ifm-color-content, #333);
-`;
-
 const DropZoneHint = styled.span`
   font-size: 0.875rem;
   color: var(--ifm-color-content-secondary, #666);
 `;
 
-const HiddenFileInput = styled.input`
-  display: none;
+const StyledDropZone = styled(FileDropZone)`
+  margin-top: 1rem;
 `;
 
 
@@ -455,9 +429,6 @@ const EffectsControls: React.FC<EffectsControlsProps> = ({
   loadedCount,
   totalCount,
 }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // Export options state
   const [exportMode, setExportMode] = useState<'master' | 'individual' | 'all'>('master');
   const [selectedTrackIndex, setSelectedTrackIndex] = useState<number>(0);
@@ -529,67 +500,12 @@ const EffectsControls: React.FC<EffectsControlsProps> = ({
     />
   );
 
-  // Handle file drop
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-
-    const files = Array.from(e.dataTransfer.files) as File[];
+  // Handle dropped/selected audio files
+  const handleFiles = useCallback(async (files: File[]) => {
     const audioFiles = files.filter(file => file.type.startsWith('audio/'));
-
     if (audioFiles.length === 0) return;
 
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const newTracks: ClipTrack[] = [];
-
-    for (const file of audioFiles) {
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-        const clip = createClipFromSeconds({
-          audioBuffer,
-          startTime: 0,
-          name: file.name,
-        });
-
-        const newTrack = createTrack({
-          name: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
-          clips: [clip],
-          muted: false,
-          soloed: false,
-          volume: 1.0,
-          pan: 0,
-        });
-
-        newTracks.push(newTrack);
-      } catch (error) {
-        console.error('Error loading audio file:', file.name, error);
-      }
-    }
-
-    if (newTracks.length > 0) {
-      onAddTracks(newTracks);
-    }
-  }, [onAddTracks]);
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  // Handle file input change
-  const handleFileInput = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const audioFiles = (Array.from(files) as File[]).filter(file => file.type.startsWith('audio/'));
     const newTracks: ClipTrack[] = [];
 
     for (const file of audioFiles) {
@@ -621,9 +537,6 @@ const EffectsControls: React.FC<EffectsControlsProps> = ({
     if (newTracks.length > 0) {
       onAddTracks(newTracks);
     }
-
-    // Reset input
-    e.target.value = '';
   }, [onAddTracks]);
 
   return (
@@ -719,28 +632,17 @@ const EffectsControls: React.FC<EffectsControlsProps> = ({
         </ExportOptionsWrapper>
       </TimeControlsBar>
 
-      <DropZone
-        $isDragging={isDragging}
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onClick={() => fileInputRef.current?.click()}
+      <StyledDropZone
+        accept="audio/*"
+        onFiles={handleFiles}
+        fileFilter={(f) => f.type.startsWith('audio/')}
+        label="Drop audio files or click to browse"
+        dragLabel="Drop audio files here"
       >
-        <DropZoneText>
-          {isDragging ? 'Drop audio files here' : 'Drop audio files or click to browse'}
-        </DropZoneText>
         <DropZoneHint>
           Add your own music to try out the effects! Supports MP3, WAV, OGG, and more.
         </DropZoneHint>
-      </DropZone>
-
-      <HiddenFileInput
-        ref={fileInputRef}
-        type="file"
-        accept="audio/*"
-        multiple
-        onChange={handleFileInput}
-      />
+      </StyledDropZone>
     </>
   );
 };

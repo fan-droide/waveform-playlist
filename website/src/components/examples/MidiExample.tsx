@@ -1,8 +1,7 @@
 /**
  * MIDI Playback Example
  *
- * Demonstrates loading a .mid file via @waveform-playlist/midi,
- * with a toggle to switch between multi-track and flattened modes.
+ * Demonstrates loading a .mid file via @waveform-playlist/midi.
  * Users can drop additional .mid files or click to browse.
  */
 
@@ -24,7 +23,7 @@ import { useMidiTracks } from '@waveform-playlist/midi';
 import type { MidiTrackConfig } from '@waveform-playlist/midi';
 import { SoundFontCache } from '@waveform-playlist/playout';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
-import { FolderOpenIcon, MusicNotesIcon } from '@phosphor-icons/react';
+import { FileDropZone } from '../FileDropZone';
 
 const darkThemeOverrides: Partial<WaveformPlaylistTheme> = {
   waveformDrawMode: 'inverted',
@@ -172,33 +171,8 @@ const ClearButton = styled.button`
   }
 `;
 
-const DropZone = styled.div<{ $isDragging: boolean }>`
-  padding: 1.5rem 1rem;
-  border: 2px dashed
-    ${(props) => (props.$isDragging ? '#3498db' : 'var(--ifm-color-emphasis-400, #ced4da)')};
-  border-radius: 0.5rem;
-  text-align: center;
-  background: ${(props) =>
-    props.$isDragging
-      ? 'rgba(52, 152, 219, 0.1)'
-      : 'var(--ifm-background-surface-color, #f8f9fa)'};
+const StyledDropZone = styled(FileDropZone)`
   margin-top: 1rem;
-  transition: all 0.2s ease-in-out;
-  cursor: pointer;
-
-  &:hover {
-    border-color: #3498db;
-  }
-`;
-
-const DropZoneText = styled.p`
-  margin: 0;
-  color: var(--ifm-font-color-base, #495057);
-  font-size: 0.9rem;
-`;
-
-const HiddenFileInput = styled.input`
-  display: none;
 `;
 
 function PlaybackShortcuts() {
@@ -287,11 +261,10 @@ function isMidiFile(file: File): boolean {
 export function MidiExample() {
   const { theme, isDarkMode } = useDocusaurusTheme();
   const gradientTheme = isDarkMode ? darkThemeOverrides : lightThemeOverrides;
-  const [flatten, setFlatten] = React.useState(false);
   const [useSoundFont, setUseSoundFont] = React.useState(true);
+  const [baseHidden, setBaseHidden] = React.useState(false);
   const [userMidiConfigs, setUserMidiConfigs] = React.useState<MidiTrackConfig[]>([]);
-  const [isDragging, setIsDragging] = React.useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [removedTrackIds, setRemovedTrackIds] = React.useState<Set<string>>(new Set());
   const objectUrlsRef = React.useRef<string[]>([]);
 
   const soundFontUrl = useSoundFont
@@ -299,15 +272,23 @@ export function MidiExample() {
     : undefined;
   const { cache: soundFontCache, loading: soundFontLoading } = useSoundFontCache(soundFontUrl);
 
-  const midiConfigs = React.useMemo(
-    () => [
-      { src: BASE_MIDI_SRC, flatten },
-      ...userMidiConfigs.map((c) => ({ ...c, flatten })),
-    ],
-    [flatten, userMidiConfigs]
-  );
+  // Build configs: base (unless hidden) + user-added
+  const midiConfigs = React.useMemo(() => {
+    const configs: MidiTrackConfig[] = [];
+    if (!baseHidden) {
+      configs.push({ src: BASE_MIDI_SRC });
+    }
+    configs.push(...userMidiConfigs);
+    return configs;
+  }, [baseHidden, userMidiConfigs]);
 
-  const { tracks, loading, error, loadedCount, totalCount } = useMidiTracks(midiConfigs);
+  const { tracks: allTracks, loading, error, loadedCount, totalCount } = useMidiTracks(midiConfigs);
+
+  // Filter out individually removed tracks
+  const filteredTracks = React.useMemo(
+    () => allTracks.filter((t) => !removedTrackIds.has(t.id)),
+    [allTracks, removedTrackIds]
+  );
 
   // Revoke object URLs on unmount
   React.useEffect(() => {
@@ -332,32 +313,23 @@ export function MidiExample() {
     setUserMidiConfigs((prev) => [...prev, ...newConfigs]);
   }, []);
 
-  const handleClear = React.useCallback(() => {
-    // Revoke all user object URLs
+  const handleRemoveTrack = React.useCallback(
+    (index: number) => {
+      const track = filteredTracks[index];
+      if (track) {
+        setRemovedTrackIds((prev) => new Set([...prev, track.id]));
+      }
+    },
+    [filteredTracks]
+  );
+
+  const handleClearAll = React.useCallback(() => {
     objectUrlsRef.current.forEach(URL.revokeObjectURL);
     objectUrlsRef.current = [];
+    setBaseHidden(true);
     setUserMidiConfigs([]);
+    setRemovedTrackIds(new Set());
   }, []);
-
-  const handleDrop = React.useCallback(
-    (e: React.DragEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      setIsDragging(false);
-      addMidiFiles(Array.from(e.dataTransfer.files));
-    },
-    [addMidiFiles]
-  );
-
-  const handleFileInput = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      if (e.target.files && e.target.files.length > 0) {
-        addMidiFiles(Array.from(e.target.files));
-      }
-      // Reset so the same file can be re-selected
-      e.target.value = '';
-    },
-    [addMidiFiles]
-  );
 
   if (error) {
     return (
@@ -367,15 +339,16 @@ export function MidiExample() {
     );
   }
 
-  const midiLoading = loading || tracks.length === 0;
-  const isReady = !soundFontLoading && !midiLoading;
+  // Only show loading overlay on initial load (configs present but tracks not ready)
+  const isInitialLoad = midiConfigs.length > 0 && (loading || allTracks.length === 0);
+  const isReady = !soundFontLoading && !isInitialLoad;
 
   if (!isReady) {
     return (
       <Container>
         <LoadingOverlay>
           {soundFontLoading && <div>Loading SoundFont...</div>}
-          {midiLoading && (
+          {isInitialLoad && (
             <div>
               Loading MIDI tracks ({loadedCount}/{totalCount})...
             </div>
@@ -391,93 +364,56 @@ export function MidiExample() {
         {soundFontCache
           ? 'MIDI tracks use SoundFont sample playback for realistic instrument sounds.'
           : 'MIDI tracks are synthesized in the browser using Tone.js PolySynth. Notes may be dropped when exceeding the polyphony limit.'}
-        {' Each MIDI track becomes a separate timeline track with its own volume and pan controls.'}
-        {flatten
-          ? ' All MIDI channels are merged into a single track.'
-          : ` Showing ${tracks.length} individual MIDI track${tracks.length !== 1 ? 's' : ''}.`}
+        {filteredTracks.length > 0 &&
+          ` Showing ${filteredTracks.length} individual MIDI track${filteredTracks.length !== 1 ? 's' : ''}.`}
       </InfoBanner>
 
-      <WaveformPlaylistProvider
-        tracks={tracks}
-        samplesPerPixel={2048}
-        mono
-        theme={{ ...theme, ...gradientTheme }}
-        soundFontCache={soundFontCache}
-        progressBarWidth={2}
-        controls={{ show: true, width: 200 }}
-        waveHeight={100}
-        timescale
-        automaticScroll
-      >
-        <PlaybackShortcuts />
-        <Controls>
-          <PlayButton />
-          <PauseButton />
-          <StopButton />
-          <AudioPosition />
-          <ToggleGroup>
-            <AutoScrollToggle />
-            <ToggleLabel>
-              SoundFont
-              <ToggleSwitch $active={useSoundFont} onClick={() => setUseSoundFont((s) => !s)} />
-            </ToggleLabel>
-            <ToggleLabel>
-              Flatten
-              <ToggleSwitch $active={flatten} onClick={() => setFlatten((f) => !f)} />
-            </ToggleLabel>
-            {userMidiConfigs.length > 0 && (
-              <ClearButton onClick={handleClear} title="Remove user-added MIDI files">
-                Clear Added
+      {filteredTracks.length > 0 ? (
+        <WaveformPlaylistProvider
+          tracks={filteredTracks}
+          samplesPerPixel={2048}
+          mono
+          theme={{ ...theme, ...gradientTheme }}
+          soundFontCache={soundFontCache}
+          progressBarWidth={2}
+          controls={{ show: true, width: 200 }}
+          waveHeight={100}
+          timescale
+          automaticScroll
+        >
+          <PlaybackShortcuts />
+          <Controls>
+            <PlayButton />
+            <PauseButton />
+            <StopButton />
+            <AudioPosition />
+            <ToggleGroup>
+              <AutoScrollToggle />
+              <ToggleLabel>
+                SoundFont
+                <ToggleSwitch $active={useSoundFont} onClick={() => setUseSoundFont((s) => !s)} />
+              </ToggleLabel>
+              <ClearButton onClick={handleClearAll} title="Remove all tracks">
+                Clear All
               </ClearButton>
-            )}
-          </ToggleGroup>
-        </Controls>
+            </ToggleGroup>
+          </Controls>
 
-        <Waveform />
-      </WaveformPlaylistProvider>
+          <Waveform onRemoveTrack={handleRemoveTrack} />
+        </WaveformPlaylistProvider>
+      ) : (
+        <LoadingOverlay>
+          <div>All tracks removed.</div>
+          <div>Drop a .mid file below or reload to restore defaults.</div>
+        </LoadingOverlay>
+      )}
 
-      <DropZone
-        $isDragging={isDragging}
-        onDrop={handleDrop}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragging(true);
-        }}
-        onDragLeave={(e) => {
-          e.preventDefault();
-          setIsDragging(false);
-        }}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <DropZoneText>
-          {isDragging ? (
-            <>
-              <FolderOpenIcon
-                size={18}
-                weight="light"
-                style={{ marginRight: 6, verticalAlign: 'text-bottom' }}
-              />
-              Drop MIDI files here
-            </>
-          ) : (
-            <>
-              <MusicNotesIcon
-                size={18}
-                weight="light"
-                style={{ marginRight: 6, verticalAlign: 'text-bottom' }}
-              />
-              Drop .mid files here to add tracks, or click to browse
-            </>
-          )}
-        </DropZoneText>
-      </DropZone>
-
-      <HiddenFileInput
-        ref={fileInputRef}
-        type="file"
+      <StyledDropZone
         accept=".mid,.midi"
-        multiple
-        onChange={handleFileInput}
+        onFiles={addMidiFiles}
+        fileFilter={isMidiFile}
+        label="Drop .mid files here to add tracks, or click to browse"
+        dragLabel="Drop MIDI files here"
       />
     </Container>
   );

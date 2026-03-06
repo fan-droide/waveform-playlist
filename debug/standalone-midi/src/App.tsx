@@ -168,7 +168,6 @@ export function App() {
     () => [
       {
         src: '/media/midi/RedHotChiliPeppers-Otherside.mid',
-        flatten: false,
       },
     ],
     []
