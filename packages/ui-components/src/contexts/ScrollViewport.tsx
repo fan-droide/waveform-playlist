@@ -147,28 +147,6 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
     // Scroll listener throttled via requestAnimationFrame
     el.addEventListener('scroll', scheduleUpdate, { passive: true });
 
-    // Reset spurious scrollLeft that browsers may introduce when React renders
-    // wide content into a previously narrow container (layout-triggered scroll
-    // with no JavaScript in the call stack). Listen for the first scroll event
-    // and reset if it happens before any user interaction.
-    let userHasInteracted = false;
-    const markInteracted = () => {
-      userHasInteracted = true;
-    };
-    el.addEventListener('pointerdown', markInteracted, { once: true });
-    el.addEventListener('keydown', markInteracted, { once: true });
-    el.addEventListener('wheel', markInteracted, { once: true, passive: true });
-
-    const resetHandler = () => {
-      if (!userHasInteracted && el.scrollLeft !== 0) {
-        el.scrollLeft = 0;
-        measure();
-      }
-      // Remove after first scroll event regardless
-      el.removeEventListener('scroll', resetHandler);
-    };
-    el.addEventListener('scroll', resetHandler);
-
     // ResizeObserver for container width changes
     const resizeObserver = new ResizeObserver(() => {
       scheduleUpdate();
@@ -177,10 +155,6 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
 
     return () => {
       el.removeEventListener('scroll', scheduleUpdate);
-      el.removeEventListener('scroll', resetHandler);
-      el.removeEventListener('pointerdown', markInteracted);
-      el.removeEventListener('keydown', markInteracted);
-      el.removeEventListener('wheel', markInteracted);
       resizeObserver.disconnect();
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current);
@@ -188,7 +162,6 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
       }
       store.cancelPendingNotification();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- measure is stable (useCallback with stable deps) and already captured via scheduleUpdate
   }, [containerRef, scheduleUpdate, store]);
 
   return <ViewportStoreContext.Provider value={store}>{children}</ViewportStoreContext.Provider>;

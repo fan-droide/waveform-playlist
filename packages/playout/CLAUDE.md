@@ -139,6 +139,12 @@ AudioBufferSourceNode (native, one-shot, pitch-shifted via playbackRate)
 
 **SF2 Volume ADSR Envelope:** Replaces the old flat gain + 50ms release. Per-zone generators define attack/hold/decay (timecents → seconds via `2^(tc/1200)`), sustain (centibels attenuation → linear gain via `10^(-cb/200)`), and release (capped at 5s). Full envelope: silent → attack ramp → hold → decay to sustain → sustain until note-off → release ramp to 0.
 
+**SF2 Non-Looping Sample Duration:** For `loopMode === 0` (percussion, piano, one-shots), use `buffer.duration / playbackRate` as effective note duration instead of MIDI note duration. MIDI percussion hits are often 0.06s but the sample needs to ring out fully. Looping samples (`loopMode === 1 or 3`) use MIDI note duration for note-off timing.
+
+**Web Audio Automation Ordering:** `setValueAtTime` at note-off correctly cancels incomplete `linearRampToValueAtTime` ramps — do NOT use `Math.max(noteOff, envEnd)` to "fix" ordering. That extends every note to the full AHD phase length, breaking instruments with long decay (piano, strings). The original `time + duration` approach is correct.
+
+**stopAllSources Pattern:** Only call `source.stop()`, never `source.disconnect()` before `stop()`. If `disconnect()` throws in a shared try-catch, `stop()` is skipped — leaving live sources running. The `onended` callback handles gainNode cleanup.
+
 **Dependency:** `soundfont2` (MIT) in `package.json`. SF2 files have separate licenses — not bundled in npm package, users provide via URL.
 
 ## Firefox Compatibility (standardized-audio-context)
