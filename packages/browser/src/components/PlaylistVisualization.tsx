@@ -315,7 +315,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isSelecting) return;
+    if (!isSelecting || isPlaying) return;
 
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
     const controlWidth = controls.show ? controls.width : 0;
@@ -337,15 +337,20 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
     const x = e.clientX - rect.left - controlWidth;
     const endTime = (x * samplesPerPixel) / sampleRate;
 
+    // During playback, always seek to click point (no selection range)
+    if (isPlaying) {
+      const clickTime = Math.max(0, endTime);
+      setCurrentTime(clickTime);
+      setSelection(clickTime, clickTime);
+      play(clickTime);
+      return;
+    }
+
     const start = Math.min(selectionStart, endTime);
     const end = Math.max(selectionStart, endTime);
 
     if (Math.abs(end - start) < 0.1) {
       setCurrentTime(start);
-
-      if (isPlaying) {
-        play(start);
-      }
     } else {
       setSelection(start, end);
     }
