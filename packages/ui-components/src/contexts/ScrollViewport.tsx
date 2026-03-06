@@ -27,6 +27,7 @@ export interface ScrollViewport {
 class ViewportStore {
   private _state: ScrollViewport | null;
   private _listeners = new Set<() => void>();
+  private _notifyRafId: number | null = null;
 
   constructor(containerEl?: HTMLElement | null) {
     // Seed with actual container width if available, otherwise estimate from
@@ -55,6 +56,11 @@ class ViewportStore {
    * Update viewport state. Applies a 100px scroll threshold to skip updates
    * that don't affect chunk visibility (1000px chunks with 1.5× overscan buffer).
    * Only notifies listeners when the state actually changes.
+   *
+   * Listener notification is deferred by one frame via requestAnimationFrame
+   * to avoid conflicting with React 19's concurrent rendering. When React
+   * time-slices a render across frames, synchronous useSyncExternalStore
+   * notifications can trigger "Should not already be working" errors.
    */
   update(scrollLeft: number, containerWidth: number): void {
     const buffer = containerWidth * 1.5;
@@ -71,8 +77,24 @@ class ViewportStore {
     }
 
     this._state = { scrollLeft, containerWidth, visibleStart, visibleEnd };
-    for (const listener of this._listeners) {
-      listener();
+
+    // Defer listener notification to the next frame so it doesn't fire
+    // during React's concurrent render time-slice. getSnapshot() returns
+    // the new state immediately, so React picks it up on the next render.
+    if (this._notifyRafId === null) {
+      this._notifyRafId = requestAnimationFrame(() => {
+        this._notifyRafId = null;
+        for (const listener of this._listeners) {
+          listener();
+        }
+      });
+    }
+  }
+
+  cancelPendingNotification(): void {
+    if (this._notifyRafId !== null) {
+      cancelAnimationFrame(this._notifyRafId);
+      this._notifyRafId = null;
     }
   }
 }
@@ -138,8 +160,9 @@ export const ScrollViewportProvider = ({ containerRef, children }: ScrollViewpor
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = null;
       }
+      store.cancelPendingNotification();
     };
-  }, [containerRef, scheduleUpdate]);
+  }, [containerRef, scheduleUpdate, store]);
 
   return <ViewportStoreContext.Provider value={store}>{children}</ViewportStoreContext.Provider>;
 };
