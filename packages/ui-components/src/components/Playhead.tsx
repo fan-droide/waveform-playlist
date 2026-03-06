@@ -42,8 +42,8 @@ export interface PlayheadProps {
   samplesPerPixel: number;
   /** Sample rate - for converting time to pixels */
   sampleRate: number;
-  /** Controls offset in pixels */
-  controlsOffset: number;
+  /** Controls offset in pixels (deprecated, always 0 — controls are now outside scroll area) */
+  controlsOffset?: number;
   /** Function to get current audio context time - required for smooth animation */
   getAudioContextTime?: () => number;
   /** Returns current playback time (auto-wraps at loop boundaries). Preferred over manual elapsed calculation. */
@@ -110,7 +110,7 @@ export const PlayheadWithMarker: React.FC<PlayheadProps> = ({
   audioStartPositionRef,
   samplesPerPixel,
   sampleRate,
-  controlsOffset,
+  controlsOffset = 0,
   getAudioContextTime,
   getPlaybackTime,
 }) => {

@@ -2,21 +2,51 @@ import styled, { DefaultTheme, withTheme } from 'styled-components';
 import React, { FunctionComponent, useRef, useCallback } from 'react';
 import { ScrollViewportProvider } from '../contexts/ScrollViewport';
 
+/**
+ * Outer wrapper: flex layout separating controls column from scroll area.
+ * overflow-y: hidden prevents vertical scrollbar on the wrapper itself.
+ */
 const Wrapper = styled.div`
+  display: flex;
   overflow-y: hidden;
-  overflow-x: auto;
   position: relative;
 `;
 
-interface ScrollContainerProps {
+interface ControlsColumnProps {
+  readonly $width: number;
+}
+
+const ControlsColumn = styled.div.attrs<ControlsColumnProps>((props) => ({
+  style: { width: `${props.$width}px` },
+}))<ControlsColumnProps>`
+  flex-shrink: 0;
+  overflow: hidden;
+`;
+
+interface TimescaleGapProps {
+  readonly $height: number;
+}
+
+const TimescaleGap = styled.div.attrs<TimescaleGapProps>((props) => ({
+  style: { height: `${props.$height}px` },
+}))<TimescaleGapProps>``;
+
+const ScrollArea = styled.div`
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex: 1;
+  position: relative;
+`;
+
+interface ScrollContainerInnerProps {
   readonly $backgroundColor?: string;
   readonly $width?: number;
 }
 
 // Use .attrs() for width to avoid generating new CSS classes on every render
-const ScrollContainer = styled.div.attrs<ScrollContainerProps>((props) => ({
+const ScrollContainerInner = styled.div.attrs<ScrollContainerInnerProps>((props) => ({
   style: props.$width !== undefined ? { width: `${props.$width}px` } : {},
-}))<ScrollContainerProps>`
+}))<ScrollContainerInnerProps>`
   position: relative;
   background: ${(props) => props.$backgroundColor || 'transparent'};
 `;
@@ -51,7 +81,6 @@ const TracksContainer = styled.div.attrs<TracksContainerProps>((props) => ({
 `;
 
 interface ClickOverlayProps {
-  readonly $controlsWidth?: number;
   readonly $isSelecting?: boolean;
 }
 
@@ -74,7 +103,6 @@ export interface PlaylistProps {
   readonly timescale?: JSX.Element;
   readonly timescaleWidth?: number;
   readonly tracksWidth?: number;
-  readonly scrollContainerWidth?: number;
   readonly controlsWidth?: number;
   readonly onTracksClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
   readonly onTracksMouseDown?: (e: React.MouseEvent<HTMLDivElement>) => void;
@@ -85,6 +113,10 @@ export interface PlaylistProps {
   readonly isSelecting?: boolean;
   /** Data attribute indicating playlist loading state ('loading' | 'ready') */
   readonly 'data-playlist-state'?: 'loading' | 'ready';
+  /** Track control slots rendered in the controls column, one per track */
+  readonly trackControlsSlots?: React.ReactNode[];
+  /** Height of the timescale gap spacer in the controls column (matches timescale height) */
+  readonly timescaleGapHeight?: number;
 }
 export const Playlist: FunctionComponent<PlaylistProps> = ({
   children,
@@ -93,7 +125,6 @@ export const Playlist: FunctionComponent<PlaylistProps> = ({
   timescale,
   timescaleWidth,
   tracksWidth,
-  scrollContainerWidth,
   controlsWidth,
   onTracksClick,
   onTracksMouseDown,
@@ -102,41 +133,52 @@ export const Playlist: FunctionComponent<PlaylistProps> = ({
   scrollContainerRef,
   isSelecting,
   'data-playlist-state': playlistState,
+  trackControlsSlots,
+  timescaleGapHeight = 0,
 }) => {
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const scrollAreaRef = useRef<HTMLDivElement | null>(null);
 
   const handleRef = useCallback(
     (el: HTMLDivElement | null) => {
-      wrapperRef.current = el;
+      scrollAreaRef.current = el;
       scrollContainerRef?.(el);
     },
     [scrollContainerRef]
   );
 
+  const showControls = controlsWidth !== undefined && controlsWidth > 0;
+
   return (
-    <Wrapper data-scroll-container="true" data-playlist-state={playlistState} ref={handleRef}>
-      <ScrollViewportProvider containerRef={wrapperRef}>
-        <ScrollContainer $backgroundColor={backgroundColor} $width={scrollContainerWidth}>
-          {timescale && (
-            <TimescaleWrapper $width={timescaleWidth} $backgroundColor={timescaleBackgroundColor}>
-              {timescale}
-            </TimescaleWrapper>
-          )}
-          <TracksContainer $width={tracksWidth} $backgroundColor={backgroundColor}>
-            {children}
-            {(onTracksClick || onTracksMouseDown) && (
-              <ClickOverlay
-                $controlsWidth={controlsWidth}
-                $isSelecting={isSelecting}
-                onClick={onTracksClick}
-                onMouseDown={onTracksMouseDown}
-                onMouseMove={onTracksMouseMove}
-                onMouseUp={onTracksMouseUp}
-              />
+    <Wrapper data-playlist-state={playlistState}>
+      {showControls && (
+        <ControlsColumn $width={controlsWidth}>
+          {timescaleGapHeight > 0 && <TimescaleGap $height={timescaleGapHeight} />}
+          {trackControlsSlots}
+        </ControlsColumn>
+      )}
+      <ScrollArea data-scroll-container="true" ref={handleRef}>
+        <ScrollViewportProvider containerRef={scrollAreaRef}>
+          <ScrollContainerInner $backgroundColor={backgroundColor} $width={tracksWidth}>
+            {timescale && (
+              <TimescaleWrapper $width={timescaleWidth} $backgroundColor={timescaleBackgroundColor}>
+                {timescale}
+              </TimescaleWrapper>
             )}
-          </TracksContainer>
-        </ScrollContainer>
-      </ScrollViewportProvider>
+            <TracksContainer $width={tracksWidth} $backgroundColor={backgroundColor}>
+              {children}
+              {(onTracksClick || onTracksMouseDown) && (
+                <ClickOverlay
+                  $isSelecting={isSelecting}
+                  onClick={onTracksClick}
+                  onMouseDown={onTracksMouseDown}
+                  onMouseMove={onTracksMouseMove}
+                  onMouseUp={onTracksMouseUp}
+                />
+              )}
+            </TracksContainer>
+          </ScrollContainerInner>
+        </ScrollViewportProvider>
+      </ScrollArea>
     </Wrapper>
   );
 };

@@ -31,9 +31,11 @@ test.describe('Mobile Multi-Clip Example', () => {
       const clips = page.locator('[data-clip-container]');
       await expect(clips.first()).toBeVisible();
 
-      const clipCount = await clips.count();
       // Mobile example has multiple clips across 3 tracks
-      expect(clipCount).toBeGreaterThanOrEqual(3);
+      await expect(async () => {
+        const clipCount = await clips.count();
+        expect(clipCount).toBeGreaterThanOrEqual(3);
+      }).toPass({ timeout: 5000 });
     });
 
     test('displays implementation code example', async ({ page }) => {
@@ -48,21 +50,23 @@ test.describe('Mobile Multi-Clip Example', () => {
       // Get a clip header (interactive one with data-clip-id)
       const header = page.locator('[data-clip-id]:not([data-boundary-edge])').first();
 
-      const touchAction = await header.evaluate((el) => {
-        return window.getComputedStyle(el).touchAction;
-      });
-
-      expect(touchAction).toBe('none');
+      await expect(async () => {
+        const touchAction = await header.evaluate((el) => {
+          return window.getComputedStyle(el).touchAction;
+        });
+        expect(touchAction).toBe('none');
+      }).toPass({ timeout: 5000 });
     });
 
     test('clip boundaries have touch-action: none', async ({ page }) => {
       const boundary = page.locator('[data-boundary-edge="left"]').first();
 
-      const touchAction = await boundary.evaluate((el) => {
-        return window.getComputedStyle(el).touchAction;
-      });
-
-      expect(touchAction).toBe('none');
+      await expect(async () => {
+        const touchAction = await boundary.evaluate((el) => {
+          return window.getComputedStyle(el).touchAction;
+        });
+        expect(touchAction).toBe('none');
+      }).toPass({ timeout: 5000 });
     });
   });
 
@@ -70,11 +74,13 @@ test.describe('Mobile Multi-Clip Example', () => {
     test('clip boundaries are wider for touch (24px)', async ({ page }) => {
       const boundary = page.locator('[data-boundary-edge="left"]').first();
       await expect(boundary).toBeVisible();
-      const box = await boundary.boundingBox();
 
-      expect(box).toBeTruthy();
-      // Touch-optimized boundaries should be 24px wide
-      expect(box!.width).toBe(24);
+      await expect(async () => {
+        const box = await boundary.boundingBox();
+        expect(box).toBeTruthy();
+        // Touch-optimized boundaries should be 24px wide
+        expect(box!.width).toBe(24);
+      }).toPass({ timeout: 5000 });
     });
 
     test('both left and right boundaries have larger touch targets', async ({ page }) => {
@@ -83,13 +89,14 @@ test.describe('Mobile Multi-Clip Example', () => {
       await expect(leftBoundary).toBeVisible();
       await expect(rightBoundary).toBeVisible();
 
-      const leftBox = await leftBoundary.boundingBox();
-      const rightBox = await rightBoundary.boundingBox();
-
-      expect(leftBox).toBeTruthy();
-      expect(rightBox).toBeTruthy();
-      expect(leftBox!.width).toBe(24);
-      expect(rightBox!.width).toBe(24);
+      await expect(async () => {
+        const leftBox = await leftBoundary.boundingBox();
+        const rightBox = await rightBoundary.boundingBox();
+        expect(leftBox).toBeTruthy();
+        expect(rightBox).toBeTruthy();
+        expect(leftBox!.width).toBe(24);
+        expect(rightBox!.width).toBe(24);
+      }).toPass({ timeout: 5000 });
     });
   });
 
@@ -130,8 +137,12 @@ test.describe('Mobile Multi-Clip Example', () => {
     test('clicking on waveform moves playhead', async ({ page }) => {
       const clipContainer = page.locator('[data-clip-container]').first();
       await expect(clipContainer).toBeVisible();
-      const box = await clipContainer.boundingBox();
-      expect(box).toBeTruthy();
+
+      let box: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        box = await clipContainer.boundingBox();
+        expect(box).toBeTruthy();
+      }).toPass({ timeout: 5000 });
 
       // Click in the middle of the clip
       const clickX = box!.x + box!.width / 2;
@@ -156,15 +167,16 @@ test.describe('Mobile Multi-Clip Example', () => {
       const header = page.locator('[data-clip-id]:not([data-boundary-edge])').first();
       const boundary = page.locator('[data-boundary-edge="left"]').first();
 
-      const headerTouchAction = await header.evaluate((el) => {
-        return window.getComputedStyle(el).touchAction;
-      });
-      const boundaryTouchAction = await boundary.evaluate((el) => {
-        return window.getComputedStyle(el).touchAction;
-      });
-
-      expect(headerTouchAction).toBe('none');
-      expect(boundaryTouchAction).toBe('none');
+      await expect(async () => {
+        const headerTouchAction = await header.evaluate((el) => {
+          return window.getComputedStyle(el).touchAction;
+        });
+        const boundaryTouchAction = await boundary.evaluate((el) => {
+          return window.getComputedStyle(el).touchAction;
+        });
+        expect(headerTouchAction).toBe('none');
+        expect(boundaryTouchAction).toBe('none');
+      }).toPass({ timeout: 5000 });
     });
 
     test('draggable elements have proper ARIA attributes for touch', async ({ page }) => {
@@ -194,8 +206,10 @@ test.describe('Mobile Multi-Clip Example', () => {
 
       // Clips should still be visible
       const clips = page.locator('[data-clip-container]');
-      const clipCount = await clips.count();
-      expect(clipCount).toBeGreaterThan(0);
+      await expect(async () => {
+        const clipCount = await clips.count();
+        expect(clipCount).toBeGreaterThan(0);
+      }).toPass({ timeout: 5000 });
     });
 
     test('touch instructions visible on mobile viewport', async ({ page }) => {
@@ -212,8 +226,12 @@ test.describe('Mobile Multi-Clip Example', () => {
       // Get the first clip header
       const header = page.locator('[data-clip-id]:not([data-boundary-edge])').first();
       await expect(header).toBeVisible();
-      const initialBox = await header.boundingBox();
-      expect(initialBox).toBeTruthy();
+
+      let initialBox: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        initialBox = await header.boundingBox();
+        expect(initialBox).toBeTruthy();
+      }).toPass({ timeout: 5000 });
 
       // Get the clip container to track position change
       const clipContainer = page.locator('[data-clip-container]').first();
@@ -241,14 +259,23 @@ test.describe('Mobile Multi-Clip Example', () => {
       // Get the second clip's right boundary (first clip at time 0 may have constraints)
       // Find a clip that has room to be trimmed
       const boundaries = page.locator('[data-boundary-edge="right"]');
-      const boundaryCount = await boundaries.count();
-      expect(boundaryCount).toBeGreaterThan(0);
+      await expect(boundaries.first()).toBeVisible();
+
+      let boundaryCount: number;
+      await expect(async () => {
+        boundaryCount = await boundaries.count();
+        expect(boundaryCount).toBeGreaterThan(0);
+      }).toPass({ timeout: 5000 });
 
       // Use the last boundary which should have more room to trim
-      const boundary = boundaries.nth(boundaryCount - 1);
+      const boundary = boundaries.nth(boundaryCount! - 1);
       await expect(boundary).toBeVisible();
-      const initialBox = await boundary.boundingBox();
-      expect(initialBox).toBeTruthy();
+
+      let initialBox: { x: number; y: number; width: number; height: number } | null = null;
+      await expect(async () => {
+        initialBox = await boundary.boundingBox();
+        expect(initialBox).toBeTruthy();
+      }).toPass({ timeout: 5000 });
 
       // Get the parent clip container
       const clipContainer = boundary.locator('xpath=ancestor::*[@data-clip-container]');

@@ -224,6 +224,14 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 
 **Test helper:** `WaveformData.create()` requires JSON with `{ version: 2, channels: 1, sample_rate, samples_per_pixel, bits, length, data }` — omitting `version`/`channels` causes a TypeScript error.
 
+## Controls Offset Removed
+
+**Decision:** All `controlsOffset` / `controlWidth` arithmetic removed from mouse handlers, playhead positioning, selection, auto-scroll, and zoom calculations.
+
+**Why:** Controls are now outside the scroll container (in `ControlsColumn`), so pixel positions in the scroll area map directly to timeline positions without offset adjustment.
+
+**Affected:** `PlaylistVisualization`, `MediaElementPlaylist`, `AnimatedPlayhead`, `AnimatedMediaElementPlayhead`, `WaveformPlaylistContext` (auto-scroll + zoom), `MediaElementPlaylistContext` (auto-scroll), `useAnnotationKeyboardControls`.
+
 ## Important Patterns (Browser-Specific)
 
 - **Context Value Memoization** - All context value objects in providers must be wrapped with `useMemo`. Extract inline callbacks into `useCallback` first to avoid dependency churn.

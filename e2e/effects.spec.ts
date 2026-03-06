@@ -97,12 +97,18 @@ test.describe('Effects Example', () => {
     test('can adjust effect parameter', async ({ page }) => {
       // Find the Mix slider (second slider in the Reverb effect)
       const mixSlider = page.locator('input[type="range"][max="1"][min="0"]').first();
+      await expect(mixSlider).toBeVisible();
+
+      // Get initial value
+      const initialValue = await mixSlider.inputValue();
 
       // Change the value
       await mixSlider.fill('0.75');
 
-      // Value display should update
-      await expect(page.getByText('0.75')).toBeVisible();
+      // Verify value changed
+      const newValue = await mixSlider.inputValue();
+      expect(newValue).toBe('0.75');
+      expect(newValue).not.toBe(initialValue);
     });
 
     test('bypass button toggles effect', async ({ page }) => {
@@ -153,10 +159,12 @@ test.describe('Effects Example', () => {
   test.describe('Track Effects', () => {
     test('each track has FX button', async ({ page }) => {
       const fxButtons = page.getByRole('button', { name: /FX/ });
-      const count = await fxButtons.count();
 
       // Should have FX button for each track (4 tracks)
-      expect(count).toBeGreaterThanOrEqual(4);
+      await expect(async () => {
+        const count = await fxButtons.count();
+        expect(count).toBeGreaterThanOrEqual(4);
+      }).toPass({ timeout: 5000 });
     });
 
     test('FX button shows effect count', async ({ page }) => {

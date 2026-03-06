@@ -449,20 +449,19 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     if (oldSamplesPerPixel === newSamplesPerPixel) return;
 
     // Calculate the current center time in the viewport
-    const controlWidth = controls.show ? controls.width : 0;
     const containerWidth = container.clientWidth;
     const currentScrollLeft = container.scrollLeft;
-    const centerPixel = currentScrollLeft + containerWidth / 2 - controlWidth;
+    const centerPixel = currentScrollLeft + containerWidth / 2;
     const sr = sampleRateRef.current;
     const centerTime = (centerPixel * oldSamplesPerPixel) / sr;
 
     // Calculate new scroll position to keep the same center time
     const newCenterPixel = (centerTime * sr) / newSamplesPerPixel;
-    const newScrollLeft = Math.max(0, newCenterPixel + controlWidth - containerWidth / 2);
+    const newScrollLeft = Math.max(0, newCenterPixel - containerWidth / 2);
 
     container.scrollLeft = newScrollLeft;
     samplesPerPixelRef.current = newSamplesPerPixel;
-  }, [samplesPerPixel, duration, controls]);
+  }, [samplesPerPixel, duration]);
 
   // Track pending playback resume after tracks change
   const pendingResumeRef = useRef<{ position: number } | null>(null);
@@ -866,12 +865,8 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         const pixelPosition = (time * sr) / samplesPerPixelRef.current;
         const containerWidth = container.clientWidth;
 
-        // Calculate visual position of playhead (includes controls offset)
-        const controlWidth = controls.show ? controls.width : 0;
-        const visualPosition = pixelPosition + controlWidth;
-
         // Continuously scroll to keep playhead centered
-        const targetScrollLeft = Math.max(0, visualPosition - containerWidth / 2);
+        const targetScrollLeft = Math.max(0, pixelPosition - containerWidth / 2);
         container.scrollLeft = targetScrollLeft;
       }
 
@@ -906,14 +901,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       startAnimationFrameLoop(updateTime);
     };
     startAnimationFrameLoop(updateTime);
-  }, [
-    duration,
-    controls.show,
-    controls.width,
-    setActiveAnnotationId,
-    startAnimationFrameLoop,
-    getPlaybackTime,
-  ]);
+  }, [duration, setActiveAnnotationId, startAnimationFrameLoop, getPlaybackTime]);
 
   const stopAnimationLoop = stopAnimationFrameLoop;
 

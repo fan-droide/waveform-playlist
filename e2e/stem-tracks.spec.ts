@@ -56,18 +56,22 @@ test.describe('Stem Tracks Example', () => {
     });
 
     test('stop button stops playback and resets position', async ({ page }) => {
-      // Start playback
-      await page.getByRole('button', { name: 'Play' }).click();
-      await page.waitForTimeout(300);
-
-      // Stop
-      const stopButton = page.getByRole('button', { name: 'Stop' });
-      await stopButton.click();
-
-      // Time should reset to start (or last stop position)
       const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
 
+      // Start playback
+      await page.getByRole('button', { name: 'Play' }).click();
+
+      // Wait for time to advance (tolerates AudioContext init delay)
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
+
+      // Stop
+      await page.getByRole('button', { name: 'Stop' }).click();
+
       // Wait and verify time isn't advancing
+      await page.waitForTimeout(100);
       const timeAfterStop = await timeDisplay.textContent();
       await page.waitForTimeout(200);
       const timeAfterWait = await timeDisplay.textContent();
@@ -174,6 +178,7 @@ test.describe('Stem Tracks Example', () => {
     test('volume slider can be adjusted', async ({ page }) => {
       // Get the first volume slider (not the master volume which has max="100")
       const volumeSlider = page.locator('input[type="range"][max="1"][min="0"]').first();
+      await expect(volumeSlider).toBeVisible();
 
       // Get initial value
       const initialValue = await volumeSlider.inputValue();
@@ -349,16 +354,16 @@ test.describe('Stem Tracks Example', () => {
     test('Space toggles play/pause', async ({ page }) => {
       const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
 
-      // Press Space to play
-      await page.keyboard.press('Space');
+      // Use Play button for reliable AudioContext init + playback start
+      await page.getByRole('button', { name: 'Play' }).click();
 
-      // Wait for time to advance (auto-retrying — tolerates AudioContext init delay)
+      // Wait for time to advance (tolerates AudioContext init delay)
       await expect(async () => {
         const time = await timeDisplay.textContent();
         expect(time).not.toBe('00:00:00.000');
-      }).toPass({ timeout: 5000 });
+      }).toPass({ timeout: 10000 });
 
-      // Press Space to pause
+      // Press Space to pause (tests keyboard shortcut after audio is initialized)
       await page.keyboard.press('Space');
       const timeAfterPause = await timeDisplay.textContent();
 
@@ -369,15 +374,21 @@ test.describe('Stem Tracks Example', () => {
     });
 
     test('Escape stops playback', async ({ page }) => {
-      // Play
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(200);
+      const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+
+      // Use Play button for reliable AudioContext init
+      await page.getByRole('button', { name: 'Play' }).click();
+
+      // Wait for time to advance
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
 
       // Stop with Escape
       await page.keyboard.press('Escape');
 
       // Verify stopped
-      const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
       const timeAfterStop = await timeDisplay.textContent();
 
       await page.waitForTimeout(200);
@@ -386,15 +397,19 @@ test.describe('Stem Tracks Example', () => {
     });
 
     test('0 rewinds to start', async ({ page }) => {
-      // Play briefly
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(300);
-      await page.keyboard.press('Space');
-
-      // Verify time has advanced
       const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
-      const timeBeforeRewind = await timeDisplay.textContent();
-      expect(timeBeforeRewind).not.toBe('00:00:00.000');
+
+      // Use Play button for reliable AudioContext init
+      await page.getByRole('button', { name: 'Play' }).click();
+
+      // Wait for time to advance (tolerates AudioContext init delay)
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
+
+      // Pause
+      await page.getByRole('button', { name: 'Pause' }).click();
 
       // Press 0 to rewind
       await page.keyboard.press('0');

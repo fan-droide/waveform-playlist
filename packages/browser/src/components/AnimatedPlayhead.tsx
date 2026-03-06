@@ -19,7 +19,6 @@ const PlayheadLine = styled.div.attrs<{ $color: string; $width: number }>((props
 
 interface AnimatedPlayheadProps {
   color?: string;
-  controlsOffset?: number;
 }
 
 /**
@@ -27,10 +26,7 @@ interface AnimatedPlayheadProps {
  * Reads playback time from the engine via getPlaybackTime() for Transport-synced positioning.
  * Uses requestAnimationFrame for smooth 60fps animation without React re-renders.
  */
-export const AnimatedPlayhead: React.FC<AnimatedPlayheadProps> = ({
-  color = '#ff0000',
-  controlsOffset = 0,
-}) => {
+export const AnimatedPlayhead: React.FC<AnimatedPlayheadProps> = ({ color = '#ff0000' }) => {
   const playheadRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
 
@@ -41,7 +37,7 @@ export const AnimatedPlayhead: React.FC<AnimatedPlayheadProps> = ({
     const updatePosition = () => {
       if (playheadRef.current) {
         const time = isPlaying ? getPlaybackTime() : (currentTimeRef.current ?? 0);
-        const position = (time * sampleRate) / samplesPerPixel + controlsOffset;
+        const position = (time * sampleRate) / samplesPerPixel;
         playheadRef.current.style.transform = `translate3d(${position}px, 0, 0)`;
       }
 
@@ -62,13 +58,13 @@ export const AnimatedPlayhead: React.FC<AnimatedPlayheadProps> = ({
         animationFrameRef.current = null;
       }
     };
-  }, [isPlaying, sampleRate, samplesPerPixel, controlsOffset, currentTimeRef, getPlaybackTime]);
+  }, [isPlaying, sampleRate, samplesPerPixel, currentTimeRef, getPlaybackTime]);
 
   // Also update position when not playing (for seeks, stops, etc.)
   useEffect(() => {
     if (!isPlaying && playheadRef.current) {
       const time = currentTimeRef.current ?? 0;
-      const position = (time * sampleRate) / samplesPerPixel + controlsOffset;
+      const position = (time * sampleRate) / samplesPerPixel;
       playheadRef.current.style.transform = `translate3d(${position}px, 0, 0)`;
     }
   });

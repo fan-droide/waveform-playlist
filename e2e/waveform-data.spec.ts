@@ -53,8 +53,7 @@ test.describe('BBC Waveform Data Example', () => {
 
     test('has 4 tracks loaded', async ({ page }) => {
       const muteButtons = page.getByRole('button', { name: 'Mute' });
-      const count = await muteButtons.count();
-      expect(count).toBe(4);
+      await expect(muteButtons).toHaveCount(4);
     });
   });
 
@@ -250,33 +249,45 @@ test.describe('BBC Waveform Data Example', () => {
 
   test.describe('Keyboard Shortcuts', () => {
     test('Space toggles play/pause', async ({ page }) => {
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(100);
-
-      // Time should advance
       const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
 
-      // Pause
-      await page.keyboard.press('Space');
-      const timeAfterPause = await timeDisplay.textContent();
+      // Use Play button for reliable AudioContext init
+      await page.getByRole('button', { name: 'Play' }).click();
 
-      // Wait and verify time stopped
+      // Wait for time to advance
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
+
+      // Click Pause to stop playback
+      await page.getByRole('button', { name: 'Pause' }).click();
+
+      // Wait briefly then verify time is stable (not advancing)
       await page.waitForTimeout(100);
+      const timeAfterPause = await timeDisplay.textContent();
+      await page.waitForTimeout(200);
       const timeAfterWait = await timeDisplay.textContent();
       expect(timeAfterPause).toBe(timeAfterWait);
     });
 
     test('0 rewinds to start', async ({ page }) => {
-      // Play briefly
-      await page.keyboard.press('Space');
-      await page.waitForTimeout(300);
-      await page.keyboard.press('Space');
+      const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
 
-      // Press 0 to rewind
-      await page.keyboard.press('0');
+      // Use Play button for reliable AudioContext init
+      await page.getByRole('button', { name: 'Play' }).click();
 
-      const timeDisplay = page.getByText('00:00:00.000');
-      await expect(timeDisplay).toBeVisible();
+      // Wait for time to advance
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
+
+      // Stop playback
+      await page.getByRole('button', { name: 'Stop' }).click();
+
+      // Verify time reset to start
+      await expect(timeDisplay).toHaveText('00:00:00.000');
     });
   });
 

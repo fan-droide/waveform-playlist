@@ -384,7 +384,6 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
     scrollContainerRef,
     samplesPerPixel,
     sampleRate,
-    controlsWidth: controls.show ? controls.width : 0,
     onPlay: play,
   });
 

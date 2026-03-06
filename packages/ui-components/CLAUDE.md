@@ -141,13 +141,17 @@
 
 **Location:** `src/components/PianoRollChannel.tsx`
 
-## Browser-Initiated Scroll Reset (ScrollViewportProvider)
+## Controls Outside Scroll Container
 
-**Problem:** When React renders wide content (~12000px) into a previously narrow scroll container, the browser's layout engine may set a non-zero `scrollLeft` during layout recalculation (no JS in the call stack). Only happens with React's multi-phase rendering — not reproducible in plain HTML.
+**Decision:** Track controls render in a fixed-width `ControlsColumn` outside the scroll area, not inside it.
 
-**Fix:** One-shot scroll event listener in `ScrollViewportProvider` resets `scrollLeft` to 0 on the first browser-initiated scroll before user interaction. Self-removes after first scroll event (zero ongoing cost). Interaction guards (`pointerdown`, `keydown`, `wheel`) prevent resetting user-initiated scrolling.
+**Layout:** `Wrapper (display: flex)` → `ControlsColumn (flex-shrink: 0)` + `ScrollArea (overflow-x: auto, flex: 1)`. Only the waveform/timescale area scrolls.
 
-**Debugging note:** Dynamic DevTools testing (removing elements, changing styles) does NOT re-trigger this behavior — only code changes + rebuild + hard reload reproduce it.
+**Why:** Sticky-positioned controls inside `overflow-x: auto` caused browsers to set non-zero `scrollLeft` during layout recalculation when React rendered wide content.
+
+**Props:** `Playlist` accepts `trackControlsSlots?: React.ReactNode[]` and `timescaleGapHeight?: number`. Track is channels-only (no controls rendering).
+
+**Implications:** No `controlsOffset` or `controlWidth` in click handlers, playhead positioning, selection, auto-scroll, or zoom calculations. `Playhead.controlsOffset` is deprecated (always 0).
 
 ## Important Patterns (UI-Specific)
 

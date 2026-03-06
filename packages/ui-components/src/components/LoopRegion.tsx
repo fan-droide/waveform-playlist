@@ -335,17 +335,10 @@ export const LoopRegionMarkers: React.FC<LoopRegionMarkersProps> = ({
 };
 
 // Click-to-create wrapper for timescale area
-interface TimescaleLoopCreatorProps {
-  readonly $leftOffset?: number;
-}
-
-const TimescaleLoopCreator = styled.div.attrs<TimescaleLoopCreatorProps>((props) => ({
-  style: {
-    left: `${props.$leftOffset || 0}px`,
-  },
-}))<TimescaleLoopCreatorProps>`
+const TimescaleLoopCreator = styled.div`
   position: absolute;
   top: 0;
+  left: 0;
   right: 0;
   height: 100%; /* Stay within timescale bounds, don't extend into tracks */
   cursor: crosshair;
@@ -365,8 +358,6 @@ export interface TimescaleLoopRegionProps {
   minPosition?: number;
   /** Maximum position in pixels */
   maxPosition?: number;
-  /** Offset for controls area (left margin) */
-  controlsOffset?: number;
 }
 
 /**
@@ -383,7 +374,6 @@ export const TimescaleLoopRegion: React.FC<TimescaleLoopRegionProps> = ({
   onLoopRegionChange,
   minPosition = 0,
   maxPosition = Infinity,
-  controlsOffset = 0,
 }) => {
   const [, setIsCreating] = useState(false);
   const createStartX = useRef<number>(0);
@@ -441,7 +431,6 @@ export const TimescaleLoopRegion: React.FC<TimescaleLoopRegionProps> = ({
   return (
     <TimescaleLoopCreator
       ref={containerRef}
-      $leftOffset={controlsOffset}
       onMouseDown={handleBackgroundMouseDown}
       data-timescale-loop-creator
     >

@@ -344,12 +344,8 @@ export const MediaElementPlaylistProvider: React.FC<MediaElementPlaylistProvider
         const pixelPosition = (time * sampleRate) / samplesPerPixelRef.current;
         const containerWidth = container.clientWidth;
 
-        // Calculate visual position of playhead (includes controls offset)
-        const controlWidth = controls.show ? controls.width : 0;
-        const visualPosition = pixelPosition + controlWidth;
-
         // Continuously scroll to keep playhead centered
-        const targetScrollLeft = Math.max(0, visualPosition - containerWidth / 2);
+        const targetScrollLeft = Math.max(0, pixelPosition - containerWidth / 2);
         container.scrollLeft = targetScrollLeft;
       }
 
@@ -357,7 +353,7 @@ export const MediaElementPlaylistProvider: React.FC<MediaElementPlaylistProvider
     };
 
     startAnimationFrameLoop(updateTime);
-  }, [setActiveAnnotationId, sampleRate, controls, startAnimationFrameLoop]);
+  }, [setActiveAnnotationId, sampleRate, startAnimationFrameLoop]);
 
   const stopAnimationLoop = stopAnimationFrameLoop;
 

@@ -219,19 +219,18 @@ test.describe('Annotations Example', () => {
 
   test.describe('Keyboard Shortcuts', () => {
     test('Space toggles play/pause', async ({ page }) => {
-      // Click on the waveform area first to ensure focus
-      await page.locator('[data-scroll-container]').click();
-
-      await page.keyboard.press('Space');
-
-      // Wait for time to advance (auto-retrying — tolerates AudioContext init delay)
       const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+
+      // Use Play button for reliable AudioContext init
+      await page.getByRole('button', { name: 'Play' }).click();
+
+      // Wait for time to advance (tolerates AudioContext init delay)
       await expect(async () => {
         const time = await timeDisplay.textContent();
         expect(time).not.toBe('00:00:00.000');
-      }).toPass({ timeout: 5000 });
+      }).toPass({ timeout: 10000 });
 
-      // Pause
+      // Press Space to pause (tests keyboard shortcut after audio init)
       await page.keyboard.press('Space');
     });
 

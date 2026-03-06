@@ -4,7 +4,6 @@ import { Playlist } from '../components/Playlist';
 import { Track } from '../components/Track';
 import { Channel } from '../components/Channel';
 import { PlaylistInfoContext } from '../contexts/PlaylistInfo';
-import { TrackControlsContext } from '../contexts/TrackControls';
 import type { WaveformPlaylistTheme } from '../wfpl-theme';
 import { fn } from 'storybook/test';
 
@@ -95,9 +94,7 @@ const meta: Meta<typeof Playlist> = {
   decorators: [
     (Story) => (
       <PlaylistInfoContext.Provider value={playlistInfo}>
-        <TrackControlsContext.Provider value={null}>
-          <Story />
-        </TrackControlsContext.Provider>
+        <Story />
       </PlaylistInfoContext.Provider>
     ),
   ],
@@ -191,16 +188,13 @@ export const WithClickHandler: Story = {
 export const Scrollable: Story = {
   args: {
     tracksWidth: 1200,
-    scrollContainerWidth: 1200,
   },
   decorators: [
     (Story) => (
       <PlaylistInfoContext.Provider value={playlistInfo}>
-        <TrackControlsContext.Provider value={null}>
-          <div style={{ width: '600px', overflow: 'hidden' }}>
-            <Story />
-          </div>
-        </TrackControlsContext.Provider>
+        <div style={{ width: '600px', overflow: 'hidden' }}>
+          <Story />
+        </div>
       </PlaylistInfoContext.Provider>
     ),
   ],
