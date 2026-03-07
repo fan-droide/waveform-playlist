@@ -142,7 +142,6 @@ export const Channel: FunctionComponent<ChannelProps> = (props) => {
   // (controls + empty canvas containers) before heavy canvas drawing starts.
   // This prevents browser-initiated scrollLeft shifts and main-thread blocking.
   useEffect(() => {
-
     const step = barWidth + barGap;
 
     for (const [canvasIdx, canvas] of canvasMapRef.current.entries()) {

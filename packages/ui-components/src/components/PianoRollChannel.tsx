@@ -98,7 +98,6 @@ export const PianoRollChannel: FunctionComponent<PianoRollChannelProps> = ({
   // useEffect (not useLayoutEffect) so the browser paints the track layout
   // (controls + empty canvas containers) before heavy canvas drawing starts.
   useEffect(() => {
-
     const noteRange = maxMidi - minMidi + 1;
     const noteHeight = Math.max(2, waveHeight / noteRange);
     const pixelsPerSecond = sampleRate / samplesPerPixel;
