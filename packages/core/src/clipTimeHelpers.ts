@@ -19,3 +19,20 @@ export function clipOffsetTime(clip: AudioClip): number {
 export function clipDurationTime(clip: AudioClip): number {
   return clip.durationSamples / clip.sampleRate;
 }
+
+/**
+ * Clip width in pixels at a given samplesPerPixel.
+ * Shared by Clip.tsx (container sizing) and ChannelWithProgress.tsx (progress overlay)
+ * to ensure pixel-perfect alignment. Floor-based endpoint subtraction guarantees
+ * adjacent clips have no pixel gaps.
+ */
+export function clipPixelWidth(
+  startSample: number,
+  durationSamples: number,
+  samplesPerPixel: number
+): number {
+  return (
+    Math.floor((startSample + durationSamples) / samplesPerPixel) -
+    Math.floor(startSample / samplesPerPixel)
+  );
+}
