@@ -337,6 +337,7 @@ const LazyExample = createLazyExample(() =>
 22. **Always Use getGlobalAudioContext()** — Never `new AudioContext()`. Firefox blocks contexts created before user gesture. Use `getGlobalAudioContext()` from playout package (shared with Tone.js, resumed on first play).
 23. **Gate Provider Behind Async Readiness** — When multiple async resources must load before rendering (e.g., MIDI tracks + SoundFont), gate the `WaveformPlaylistProvider` mount behind all resources being ready. This prevents double engine rebuilds. Check both the loading flag AND `tracks.length > 0` since hooks can briefly report `loading: false` with empty data.
 24. **Shared Clip Pixel Width** — Use `clipPixelWidth()` from `@waveform-playlist/core` for any pixel width derived from `startSample`/`durationSamples`/`samplesPerPixel`. Both `Clip.tsx` (container) and `ChannelWithProgress.tsx` (progress overlay) must use this shared function — never `peaksData.length`, which may be shorter than the clip when audio is shorter than configured duration.
+25. **Grep Comments When Renaming APIs** — When renaming an option or prop across files (e.g., `progressive` → `immediate`), also grep for the old name in comments. Mechanical find-replace on code misses adjacent comments that describe the old behavior.
 
 ---
 

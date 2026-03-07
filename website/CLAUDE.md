@@ -28,6 +28,13 @@ When a hero section uses `min-height: 100vh` + `align-items: center` and an elem
 - Example components: `website/src/components/examples/`
 - Lazy loading wrapper: `website/src/components/BrowserOnlyWrapper.tsx`
 
+## Social Preview Images
+
+Each example page should have OG/Twitter meta tags with a social image. Pattern:
+- Screenshot at 1200x630 viewport, save to `website/static/img/social/example-{name}.png`
+- Use `Head` from `@docusaurus/Head` for `og:title`, `og:description`, `og:image`, `twitter:card`, `twitter:title`, `twitter:description`, `twitter:image`
+- See `website/src/pages/examples/flexible-api.tsx` for reference
+
 ## Static Media Assets
 
 - A320U.sf2 SoundFont — served from `static/media/soundfont/`. CC-BY 3.0 license. Loaded by MIDI example at `/waveform-playlist/media/soundfont/A320U.sf2`.
