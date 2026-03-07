@@ -197,6 +197,21 @@ Array of zoom levels in samples per pixel.
 
 Auto-scroll to keep playhead visible.
 
+#### `deferEngineRebuild`
+
+**Type:** `boolean`
+**Default:** `false`
+
+When `true`, the provider skips rebuilding the audio engine when `tracks` change. Set this to the `loading` value from `useAudioTracks` when using `{ immediate: true }` mode — placeholder tracks render instantly while audio decodes, then the engine builds once when all tracks are ready.
+
+```tsx
+const { tracks, loading } = useAudioTracks(configs, { immediate: true });
+
+<WaveformPlaylistProvider tracks={tracks} deferEngineRebuild={loading}>
+  <Waveform />
+</WaveformPlaylistProvider>
+```
+
 ## Context Values
 
 The provider exposes state and controls through React Context. Access them using the provided hooks.

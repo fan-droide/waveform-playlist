@@ -334,6 +334,38 @@ The `WaveformPlaylistProvider` also accepts an `onReady` callback:
 </WaveformPlaylistProvider>
 ```
 
+## Immediate Mode (Progressive Loading)
+
+By default, `useAudioTracks` waits for all files to decode before returning tracks. With `immediate` mode, placeholder tracks render instantly based on config dimensions, and peaks fill in as each file decodes:
+
+```tsx
+const { tracks, loading } = useAudioTracks(
+  [
+    { src: '/audio/vocals.mp3', name: 'Vocals', duration: 30 },
+    { src: '/audio/drums.mp3', name: 'Drums', duration: 30 },
+  ],
+  { immediate: true }
+);
+
+return (
+  <WaveformPlaylistProvider tracks={tracks} deferEngineRebuild={loading}>
+    <Waveform />
+  </WaveformPlaylistProvider>
+);
+```
+
+**Key points:**
+
+- Each config needs `duration` (or `waveformData` with duration) so clip dimensions are known upfront
+- `deferEngineRebuild={loading}` prevents the engine from rebuilding on every track update — it builds once when all tracks are ready
+- Tracks appear immediately as empty clips, then waveform peaks fill in as audio decodes
+- Progress is available via `loadedCount` and `totalCount` from the hook
+
+```tsx
+const { tracks, loading, loadedCount, totalCount } = useAudioTracks(configs, { immediate: true });
+// loadedCount: 3, totalCount: 7 → "Loading 3/7..."
+```
+
 ## Performance Tips
 
 1. **Use pre-computed waveforms** for files over 5 minutes
