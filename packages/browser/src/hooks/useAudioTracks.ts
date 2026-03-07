@@ -68,6 +68,8 @@ export interface UseAudioTracksOptions {
    * Default: false
    */
   immediate?: boolean;
+  /** @deprecated Use `immediate` instead. */
+  progressive?: boolean;
 }
 
 const DEFAULT_SAMPLE_RATE = 48000;
@@ -191,7 +193,9 @@ function buildTrackFromConfig(
  * ```
  */
 export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTracksOptions = {}) {
-  const { immediate = false } = options;
+  const { immediate = false, progressive = false } = options;
+  // progressive is a deprecated alias for immediate
+  const isImmediate = immediate || progressive;
   const [tracks, setTracks] = useState<ClipTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -208,7 +212,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
   // For immediate mode: derive tracks from configs + loaded buffers.
   // Runs on mount (creates placeholders) and each time a buffer loads (attaches audioBuffer).
   const derivedTracks = useMemo(() => {
-    if (!immediate) return null;
+    if (!isImmediate) return null;
 
     const result: ClipTrack[] = [];
     for (let i = 0; i < configs.length; i++) {
@@ -216,7 +220,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
       if (track) result.push(track);
     }
     return result;
-  }, [immediate, configs, loadedBuffers]);
+  }, [isImmediate, configs, loadedBuffers]);
 
   // Sync derived tracks into state synchronously during render (not useEffect).
   // useEffect sync causes a 1-render lag — if deferEngineRebuild flips in a
@@ -244,7 +248,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
         setError(null);
         setLoadedCount(0);
 
-        if (immediate) {
+        if (isImmediate) {
           setLoadedBuffers(new Map());
         }
 
@@ -254,7 +258,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
         const loadPromises = configs.map(async (config, index) => {
           // Case 1: Already have audioBuffer - no loading needed
           if (config.audioBuffer) {
-            if (immediate && !cancelled) {
+            if (isImmediate && !cancelled) {
               setLoadedBuffers((prev) => {
                 const next = new Map(prev);
                 next.set(index, config.audioBuffer!);
@@ -269,7 +273,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
 
           // Case 2: Have waveformData but no src - peaks-only (no audio to load)
           if (!config.src && config.waveformData) {
-            if (immediate && !cancelled) {
+            if (isImmediate && !cancelled) {
               // No buffer to load — track is already created from waveformData
               setLoadedCount((prev) => prev + 1);
               return;
@@ -296,7 +300,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
             throw new Error(`Invalid audio buffer for ${config.src}`);
           }
 
-          if (immediate && !cancelled) {
+          if (isImmediate && !cancelled) {
             // Store buffer — useMemo will derive the updated track
             setLoadedBuffers((prev) => {
               const next = new Map(prev);
@@ -314,7 +318,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
 
         if (!cancelled) {
           // For non-immediate mode: set all tracks at once
-          if (!immediate) {
+          if (!isImmediate) {
             const validTracks = loadedTracks.filter((t): t is ClipTrack => t !== undefined);
             setTracks(validTracks);
             setLoadedCount(validTracks.length);
@@ -338,7 +342,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
       cancelled = true;
       abortController.abort();
     };
-  }, [configs, immediate]);
+  }, [configs, isImmediate]);
 
   return { tracks, loading, error, loadedCount, totalCount };
 }

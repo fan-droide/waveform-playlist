@@ -319,6 +319,8 @@ interface AudioTrackConfig {
 
 interface UseAudioTracksOptions {
   immediate?: boolean;    // Default: false — render placeholders instantly, audio fills in
+  /** @deprecated Use immediate */
+  progressive?: boolean;  // Alias for immediate
 }
 ```
 
