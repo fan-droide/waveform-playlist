@@ -41,6 +41,8 @@ interface WaveformPlaylistProviderProps {
   barWidth?: number;                      // Default: 1
   barGap?: number;                        // Default: 0
   progressBarWidth?: number;              // Default: barWidth + barGap
+  /** Defer engine build during progressive loading — tracks render but engine isn't built */
+  deferEngineRebuild?: boolean;           // Default: false
 }
 ```
 

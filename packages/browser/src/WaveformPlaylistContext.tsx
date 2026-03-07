@@ -233,6 +233,10 @@ export interface WaveformPlaylistProviderProps {
   /** SoundFont cache for sample-based MIDI playback. When provided, MIDI clips
    *  use SoundFont samples instead of PolySynth synthesis. */
   soundFontCache?: SoundFontCache;
+  /** When true, tracks render visually but the engine build is deferred.
+   *  Use this during progressive loading to avoid rebuilding the engine for
+   *  each track — flip to false when all tracks are ready for a single build. */
+  deferEngineRebuild?: boolean;
   children: ReactNode;
 }
 
@@ -256,6 +260,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   progressBarWidth: progressBarWidthProp,
   onTracksChange,
   soundFontCache,
+  deferEngineRebuild = false,
   children,
 }) => {
   // Default progressBarWidth to barWidth + barGap (fills gaps)
@@ -492,6 +497,22 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       return;
     }
 
+    // Defer engine rebuild during progressive loading — tracks render visually
+    // (controls, clip shapes, peaks via worker) but the engine isn't built yet.
+    // When deferEngineRebuild flips to false, this effect re-runs and builds once.
+    if (deferEngineRebuild) {
+      // Still update duration so the timeline renders at the correct width
+      let maxDuration = 0;
+      tracks.forEach((track) => {
+        track.clips.forEach((clip) => {
+          const clipEnd = (clip.startSample + clip.durationSamples) / clip.sampleRate;
+          maxDuration = Math.max(maxDuration, clipEnd);
+        });
+      });
+      setDuration(maxDuration);
+      return;
+    }
+
     // Reset ready state for full rebuild
     setIsReady(false);
 
@@ -708,6 +729,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     isLoopEnabledRef,
     stableZoomLevels,
     soundFontCache,
+    deferEngineRebuild,
   ]);
 
   // Regenerate peaks when zoom, mono, or waveformDataCache changes (without reloading audio)

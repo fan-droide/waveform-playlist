@@ -376,44 +376,38 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
   );
 };
 
-// Helper to get required file IDs for a track
-const getRequiredFileIds = (trackConfig: (typeof trackConfigs)[0]): string[] => {
-  return [...new Set(trackConfig.clips.map((clip) => clip.fileId))];
-};
+// Default sample rate for placeholder clips (before audio loads)
+const DEFAULT_SAMPLE_RATE = 48000;
 
-// Helper to create a track when all its required files are loaded
-const createTrackFromConfig = (
-  trackConfig: (typeof trackConfigs)[0],
-  fileBuffers: Map<string, AudioBuffer>
-): ClipTrack => {
-  const clips = trackConfig.clips.map((clipConfig) => {
-    const audioBuffer = fileBuffers.get(clipConfig.fileId);
-    if (!audioBuffer) {
-      throw new Error(`Audio file not found for ID: ${clipConfig.fileId}`);
-    }
+// Build tracks from config, optionally attaching audioBuffers from loaded files
+const buildTracks = (fileBuffers: Map<string, AudioBuffer>): ClipTrack[] =>
+  trackConfigs.map((trackConfig) => {
+    const clips = trackConfig.clips.map((clipConfig) => {
+      const audioBuffer = fileBuffers.get(clipConfig.fileId);
 
-    return createClipFromSeconds({
-      audioBuffer,
-      startTime: clipConfig.startTime,
-      duration: clipConfig.duration,
-      offset: clipConfig.offset,
-      name: `${trackConfig.name} ${clipConfig.offset}-${clipConfig.offset + clipConfig.duration}s`,
+      return createClipFromSeconds({
+        audioBuffer,
+        sampleRate: audioBuffer?.sampleRate ?? DEFAULT_SAMPLE_RATE,
+        sourceDuration: audioBuffer?.duration ?? clipConfig.duration + clipConfig.offset,
+        startTime: clipConfig.startTime,
+        duration: clipConfig.duration,
+        offset: clipConfig.offset,
+        name: `${trackConfig.name} ${clipConfig.offset}-${clipConfig.offset + clipConfig.duration}s`,
+      });
+    });
+
+    return createTrack({
+      name: trackConfig.name,
+      clips,
+      muted: false,
+      soloed: false,
+      volume: 1,
+      pan: 0,
     });
   });
 
-  return createTrack({
-    name: trackConfig.name,
-    clips,
-    muted: false,
-    soloed: false,
-    volume: 1,
-    pan: 0,
-  });
-};
-
 export function BeatsAndBarsExample() {
   const { theme } = useDocusaurusTheme();
-  const [tracks, setTracks] = useState<ClipTrack[]>([]);
   const [loadedFiles, setLoadedFiles] = useState<Map<string, AudioBuffer>>(new Map());
   const [error, setError] = useState<Error | null>(null);
   const [loadedCount, setLoadedCount] = useState(0);
@@ -424,12 +418,21 @@ export function BeatsAndBarsExample() {
   const [snapTo, setSnapTo] = useState<SnapTo>('beat');
   const [temporalSnap, setTemporalSnap] = useState(true);
 
-  // Load audio files PROGRESSIVELY - each file loads independently
+  // Build tracks from config — placeholder clips render immediately,
+  // audioBuffers are attached as they load (peaks fill in progressively).
+  const tracks = React.useMemo(() => buildTracks(loadedFiles), [loadedFiles]);
+  const [tracksState, setTracks] = useState<ClipTrack[]>(tracks);
+
+  // Sync derived tracks into state (state is needed for drag/trim mutations)
+  useEffect(() => {
+    setTracks(tracks);
+  }, [tracks]);
+
+  // Load audio files in parallel — each file updates loadedFiles independently
   useEffect(() => {
     let cancelled = false;
     const audioContext = getGlobalAudioContext();
 
-    // Load each file independently (not Promise.all)
     audioFiles.forEach(async (file) => {
       try {
         const response = await fetch(file.src);
@@ -441,7 +444,6 @@ export function BeatsAndBarsExample() {
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
         if (!cancelled) {
-          // Update loaded files map for THIS file immediately
           setLoadedFiles((prev) => {
             const newMap = new Map(prev);
             newMap.set(file.id, audioBuffer);
@@ -462,23 +464,6 @@ export function BeatsAndBarsExample() {
     };
   }, []);
 
-  // Build tracks progressively as files load
-  useEffect(() => {
-    // For each track config, check if all required files are loaded
-    const newTracks: ClipTrack[] = [];
-
-    for (const trackConfig of trackConfigs) {
-      const requiredFileIds = getRequiredFileIds(trackConfig);
-      const allFilesLoaded = requiredFileIds.every((id) => loadedFiles.has(id));
-
-      if (allFilesLoaded) {
-        newTracks.push(createTrackFromConfig(trackConfig, loadedFiles));
-      }
-    }
-
-    setTracks(newTracks);
-  }, [loadedFiles]);
-
   const loading = loadedCount < audioFiles.length;
 
   if (error) {
@@ -489,7 +474,7 @@ export function BeatsAndBarsExample() {
 
   return (
     <WaveformPlaylistProvider
-      tracks={tracks}
+      tracks={tracksState}
       onTracksChange={setTracks}
       samplesPerPixel={1024}
       mono
@@ -500,11 +485,12 @@ export function BeatsAndBarsExample() {
       timescale
       barWidth={4}
       barGap={0}
+      deferEngineRebuild={loading}
     >
       {scaleMode === 'beats' ? (
         <BeatsAndBarsProvider bpm={bpm} timeSignature={timeSignature} snapTo={snapTo}>
           <PlaylistWithDrag
-            tracks={tracks}
+            tracks={tracksState}
             onTracksChange={setTracks}
             scaleMode={scaleMode}
             setScaleMode={setScaleMode}
@@ -523,7 +509,7 @@ export function BeatsAndBarsExample() {
         </BeatsAndBarsProvider>
       ) : (
         <PlaylistWithDrag
-          tracks={tracks}
+          tracks={tracksState}
           onTracksChange={setTracks}
           scaleMode={scaleMode}
           setScaleMode={setScaleMode}
