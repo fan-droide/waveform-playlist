@@ -71,7 +71,6 @@ Both providers use React Context with 4 split contexts for performance.
 ## Key Hooks
 
 - `useAudioTracks(configs)` — Load audio files into ClipTrack[] for the provider (declarative, configs-driven)
-- `useAudioFiles(configs)` — Load/decode audio files, returns Map<id, AudioBuffer> (for custom multi-clip track building)
 - `useDynamicTracks()` — Imperative hook for runtime track additions (drag-and-drop, file picker). Creates placeholder tracks instantly while audio decodes in parallel
 - `useDynamicEffects()` — Master effects chain with runtime add/remove/parameter updates
 - `useTrackDynamicEffects()` — Per-track effects management

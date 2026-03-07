@@ -1,7 +1,8 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import { DragDropProvider } from '@dnd-kit/react';
 import { RestrictToHorizontalAxis } from '@dnd-kit/abstract/modifiers';
+import { getGlobalAudioContext } from '@waveform-playlist/playout';
 import {
   createTrack,
   createClipFromSeconds,
@@ -23,7 +24,6 @@ import {
   noDropAnimationPlugins,
   useClipSplitting,
   usePlaybackShortcuts,
-  useAudioFiles,
   Waveform,
   PlayButton,
   PauseButton,
@@ -415,12 +415,50 @@ export function BeatsAndBarsExample() {
   const [snapTo, setSnapTo] = useState<SnapTo>('beat');
   const [temporalSnap, setTemporalSnap] = useState(true);
 
-  // Load audio files via reusable hook — each file decoded in parallel
-  const { buffers, loading, error, loadedCount, totalCount } = useAudioFiles(audioFiles);
+  // Load audio files in parallel — each file updates loadedFiles independently
+  const [loadedFiles, setLoadedFiles] = useState<Map<string, AudioBuffer>>(new Map());
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadedCount, setLoadedCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const audioContext = getGlobalAudioContext();
+
+    audioFiles.forEach(async (file) => {
+      try {
+        const response = await fetch(file.src);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ${file.src}: ${response.statusText}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+        if (!cancelled) {
+          setLoadedFiles((prev) => {
+            const next = new Map(prev);
+            next.set(file.id, audioBuffer);
+            return next;
+          });
+          setLoadedCount((prev) => prev + 1);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error(`[waveform-playlist] Failed to load ${file.id}:`, err);
+          setLoadError(err instanceof Error ? err.message : `Failed to load ${file.id}`);
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loading = loadedCount < audioFiles.length;
 
   // Build tracks from config — placeholder clips render immediately,
   // audioBuffers are attached as they load (peaks fill in progressively).
-  const tracks = React.useMemo(() => buildTracks(buffers), [buffers]);
+  const tracks = React.useMemo(() => buildTracks(loadedFiles), [loadedFiles]);
   const [tracksState, setTracks] = useState<ClipTrack[]>(tracks);
 
   // Sync derived tracks into state synchronously during render.
@@ -432,8 +470,8 @@ export function BeatsAndBarsExample() {
     setTracks(tracks);
   }
 
-  if (error) {
-    return <div style={{ padding: '2rem', color: 'red' }}>Error loading audio: {error}</div>;
+  if (loadError) {
+    return <div style={{ padding: '2rem', color: 'red' }}>Error loading audio: {loadError}</div>;
   }
 
   return (
@@ -468,7 +506,7 @@ export function BeatsAndBarsExample() {
             setTemporalSnap={setTemporalSnap}
             loading={loading}
             loadedCount={loadedCount}
-            totalCount={totalCount}
+            totalCount={audioFiles.length}
           />
         </BeatsAndBarsProvider>
       ) : (

@@ -354,27 +354,6 @@ Imperative complement to `useAudioTracks`. Creates placeholder tracks (`clips: [
 
 ---
 
-## useAudioFiles
-
-```typescript
-function useAudioFiles(configs: AudioFileConfig[]): {
-  buffers: Map<string, AudioBuffer>;
-  loading: boolean;
-  error: string | null;
-  loadedCount: number;
-  totalCount: number;
-};
-
-interface AudioFileConfig {
-  id: string;   // Unique identifier for this audio file
-  src: string;  // URL to fetch and decode
-}
-```
-
-Lower-level hook for loading and decoding audio files. Returns a `Map<id, AudioBuffer>` that updates progressively as files decode. Use this when you need to build custom track structures (e.g., multi-clip tracks sharing audio files) rather than the one-track-per-config pattern of `useAudioTracks`.
-
----
-
 ## Effects Hooks
 
 ### useDynamicEffects
