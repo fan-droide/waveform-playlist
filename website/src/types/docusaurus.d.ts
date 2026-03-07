@@ -1,6 +1,15 @@
 // Type declarations for Docusaurus virtual modules
 // These modules are provided at build time by Docusaurus
 
+declare module '@docusaurus/Head' {
+  import type { ReactNode } from 'react';
+  import type { HelmetProps } from 'react-helmet-async';
+
+  export default function Head(
+    props: HelmetProps & { children?: ReactNode },
+  ): ReactNode;
+}
+
 declare module '@docusaurus/BrowserOnly' {
   import type { ReactNode } from 'react';
 
@@ -14,17 +23,20 @@ declare module '@docusaurus/BrowserOnly' {
 }
 
 declare module '@docusaurus/Link' {
-  import type { ComponentProps, ReactNode } from 'react';
+  import type { CSSProperties, ComponentProps, ReactNode } from 'react';
 
-  interface LinkProps extends ComponentProps<'a'> {
-    to: string;
-    activeClassName?: string;
-    children?: ReactNode;
-    className?: string;
-  }
+  export type Props = ComponentProps<'a'> & {
+    readonly to?: string;
+    readonly href?: string;
+    readonly activeClassName?: string;
+    readonly children?: ReactNode;
+    readonly className?: string;
+    readonly style?: CSSProperties;
+    readonly autoAddBaseUrl?: boolean;
+    readonly isNavLink?: boolean;
+  };
 
-  const Link: React.FC<LinkProps>;
-  export default Link;
+  export default function Link(props: Props): ReactNode;
 }
 
 declare module '@docusaurus/useDocusaurusContext' {

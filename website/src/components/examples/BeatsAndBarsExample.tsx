@@ -371,7 +371,7 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
         )}
       </Controls>
 
-      <Waveform timescale showClipHeaders interactiveClips />
+      <Waveform showClipHeaders interactiveClips />
     </DragDropProvider>
   );
 };

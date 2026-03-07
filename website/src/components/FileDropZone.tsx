@@ -76,7 +76,7 @@ export function FileDropZone({
     (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       setIsDragging(false);
-      let files = Array.from(e.dataTransfer.files);
+      let files: File[] = Array.from(e.dataTransfer.files);
       if (fileFilter) {
         files = files.filter(fileFilter);
       }
