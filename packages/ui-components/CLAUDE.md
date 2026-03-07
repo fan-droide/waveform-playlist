@@ -200,7 +200,7 @@ For programmatic `.click()` on file inputs, use `opacity: 0; width: 0; height: 0
 
 **Key exports:** `getScaleInfo(samplesPerPixel)` returns `{ marker, bigStep, smallStep }` — used by SmartScale (temporal tick computation) and by consumers to derive `gridSamples` for `SnapToGridModifier`.
 
-**BeatsAndBarsProvider:** Optional context (`useBeatsAndBars()` returns `null` when absent). Provides `bpm`, `timeSignature`, `snapTo`, derived `ticksPerBeat`, `ticksPerBar`. SmartScale reads this to decide which mode to render.
+**BeatsAndBarsProvider:** Optional context (`useBeatsAndBars()` returns `null` when absent). Provides `bpm`, `timeSignature`, `snapTo`, `scaleMode`, derived `ticksPerBeat`, `ticksPerBar`. `scaleMode` (`'beats' | 'temporal'`, default `'beats'`) controls which timescale SmartScale renders — mount the provider once and switch modes via prop instead of mount/unmount.
 
 **`formatTime` and `TimeStamp`:** Live in SmartScale (presentation concern), not TimeScale (pure renderer).
 

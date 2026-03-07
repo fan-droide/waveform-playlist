@@ -35,6 +35,13 @@ Each example page should have OG/Twitter meta tags with a social image. Pattern:
 - Use `Head` from `@docusaurus/Head` for `og:title`, `og:description`, `og:image`, `twitter:card`, `twitter:title`, `twitter:description`, `twitter:image`
 - See `website/src/pages/examples/flexible-api.tsx` for reference
 
+## Type Declarations
+
+- Custom Docusaurus module types live in `src/types/docusaurus.d.ts` (Head, Link, Layout, BrowserOnly, etc.)
+- Do NOT add `@docusaurus/module-type-aliases` to `tsconfig.json` `compilerOptions.types` — its `Layout` type only has `children` (no `title`/`description`), overriding our more complete local declarations
+- When adding new Docusaurus virtual module imports, add the type declaration to `docusaurus.d.ts`
+- 3 pre-existing `DefaultTheme` errors from browser package source (styled-components augmentation not picked up via webpack aliases) — these are expected
+
 ## Static Media Assets
 
 - A320U.sf2 SoundFont — served from `static/media/soundfont/`. CC-BY 3.0 license. Loaded by MIDI example at `/waveform-playlist/media/soundfont/A320U.sf2`.
