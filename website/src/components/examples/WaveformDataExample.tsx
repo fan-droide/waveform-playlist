@@ -192,7 +192,7 @@ export function WaveformDataExample() {
   // Tracks appear one-by-one as they load, with waveforms shown immediately from peaks
   const { tracks, loading: audioLoading, error: audioError, loadedCount, totalCount } = useAudioTracks(
     audioConfigs, // Configs added progressively as peaks load
-    { progressive: true } // Audio also loads progressively
+    { immediate: true } // Audio also loads progressively
   );
 
   if (audioError) {

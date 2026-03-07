@@ -59,18 +59,12 @@ export interface AudioTrackConfig {
  */
 export interface UseAudioTracksOptions {
   /**
-   * When true, tracks are added to the playlist progressively as they load,
-   * rather than waiting for all tracks to finish loading.
-   * Default: false (wait for all tracks)
-   */
-  progressive?: boolean;
-  /**
    * When true, all tracks render immediately as placeholders with clip geometry
    * from the config. Audio fills in progressively as files decode, and peaks
    * render as each buffer becomes available. Use with `deferEngineRebuild={loading}`
    * on the provider for a single engine build when all tracks are ready.
    *
-   * Requires `duration` in each config so clip dimensions are known upfront.
+   * Requires `duration` or `waveformData` in each config so clip dimensions are known upfront.
    * Default: false
    */
   immediate?: boolean;
@@ -95,7 +89,10 @@ function buildTrackFromConfig(
     (config.duration != null ? config.duration + (config.offset ?? 0) : undefined);
 
   if (sourceDuration === undefined) {
-    // Can't create a placeholder without knowing clip dimensions
+    console.warn(
+      `[waveform-playlist] Track ${index + 1} ("${config.name ?? 'unnamed'}"): ` +
+        `Cannot create track — provide duration, audioBuffer, or waveformData with duration.`
+    );
     return null;
   }
 
@@ -114,7 +111,10 @@ function buildTrackFromConfig(
 
   // Validate clip values
   if (isNaN(clip.startSample) || isNaN(clip.durationSamples) || isNaN(clip.offsetSamples)) {
-    console.error('Invalid clip values:', clip);
+    console.error(
+      `[waveform-playlist] Invalid clip values for track ${index + 1} ("${config.name ?? 'unnamed'}"): ` +
+        `startSample=${clip.startSample}, durationSamples=${clip.durationSamples}, offsetSamples=${clip.offsetSamples}`
+    );
     return null;
   }
 
@@ -179,12 +179,6 @@ function buildTrackFromConfig(
  *   </WaveformPlaylistProvider>
  * );
  *
- * // Progressive loading (tracks appear as they load)
- * const { tracks, loading, loadedCount, totalCount } = useAudioTracks(
- *   [{ src: 'audio/vocals.mp3' }, { src: 'audio/drums.mp3' }],
- *   { progressive: true }
- * );
- *
  * // Pre-loaded AudioBuffer (skip fetch/decode)
  * const { tracks } = useAudioTracks([
  *   { audioBuffer: myPreloadedBuffer, name: 'Pre-loaded' },
@@ -197,7 +191,7 @@ function buildTrackFromConfig(
  * ```
  */
 export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTracksOptions = {}) {
-  const { progressive = false, immediate = false } = options;
+  const { immediate = false } = options;
   const [tracks, setTracks] = useState<ClipTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -224,12 +218,14 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
     return result;
   }, [immediate, configs, loadedBuffers]);
 
-  // Sync derived tracks into state for immediate mode
-  useEffect(() => {
-    if (derivedTracks) {
-      setTracks(derivedTracks);
-    }
-  }, [derivedTracks]);
+  // Sync derived tracks into state synchronously during render (not useEffect).
+  // useEffect sync causes a 1-render lag — if deferEngineRebuild flips in a
+  // separate batch, the provider sees stale tracks and rebuilds the engine twice.
+  const prevDerivedRef = useRef(derivedTracks);
+  if (derivedTracks !== prevDerivedRef.current) {
+    prevDerivedRef.current = derivedTracks;
+    if (derivedTracks) setTracks(derivedTracks);
+  }
 
   useEffect(() => {
     if (configs.length === 0) {
@@ -241,8 +237,6 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
 
     let cancelled = false;
     const abortController = new AbortController();
-    // Track loaded tracks by their config index for progressive mode
-    const loadedTracksMap = new Map<number, ClipTrack>();
 
     const loadTracks = async () => {
       try {
@@ -250,9 +244,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
         setError(null);
         setLoadedCount(0);
 
-        // Reset stable IDs when configs change
         if (immediate) {
-          stableIdsRef.current = new Map();
           setLoadedBuffers(new Map());
         }
 
@@ -272,25 +264,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
               return;
             }
 
-            const track = buildTrackFromConfig(
-              config,
-              index,
-              config.audioBuffer,
-              stableIdsRef.current
-            );
-            if (!track) return;
-
-            if (progressive && !cancelled) {
-              loadedTracksMap.set(index, track);
-              setLoadedCount((prev) => prev + 1);
-              setTracks(
-                Array.from({ length: configs.length }, (_, i) => loadedTracksMap.get(i)).filter(
-                  (t): t is ClipTrack => t !== undefined
-                )
-              );
-            }
-
-            return track;
+            return buildTrackFromConfig(config, index, config.audioBuffer, stableIdsRef.current);
           }
 
           // Case 2: Have waveformData but no src - peaks-only (no audio to load)
@@ -301,20 +275,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
               return;
             }
 
-            const track = buildTrackFromConfig(config, index, undefined, stableIdsRef.current);
-            if (!track) return;
-
-            if (progressive && !cancelled) {
-              loadedTracksMap.set(index, track);
-              setLoadedCount((prev) => prev + 1);
-              setTracks(
-                Array.from({ length: configs.length }, (_, i) => loadedTracksMap.get(i)).filter(
-                  (t): t is ClipTrack => t !== undefined
-                )
-              );
-            }
-
-            return track;
+            return buildTrackFromConfig(config, index, undefined, stableIdsRef.current);
           }
 
           // Case 3: Need to fetch and decode audio from src
@@ -346,27 +307,14 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
             return;
           }
 
-          const track = buildTrackFromConfig(config, index, audioBuffer, stableIdsRef.current);
-          if (!track) return;
-
-          if (progressive && !cancelled) {
-            loadedTracksMap.set(index, track);
-            setLoadedCount((prev) => prev + 1);
-            setTracks(
-              Array.from({ length: configs.length }, (_, i) => loadedTracksMap.get(i)).filter(
-                (t): t is ClipTrack => t !== undefined
-              )
-            );
-          }
-
-          return track;
+          return buildTrackFromConfig(config, index, audioBuffer, stableIdsRef.current);
         });
 
         const loadedTracks = await Promise.all(loadPromises);
 
         if (!cancelled) {
-          // For non-progressive, non-immediate mode: set all tracks at once
-          if (!progressive && !immediate) {
+          // For non-immediate mode: set all tracks at once
+          if (!immediate) {
             const validTracks = loadedTracks.filter((t): t is ClipTrack => t !== undefined);
             setTracks(validTracks);
             setLoadedCount(validTracks.length);
@@ -378,7 +326,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
           const errorMessage = err instanceof Error ? err.message : 'Unknown error loading audio';
           setError(errorMessage);
           setLoading(false);
-          console.error('Error loading audio tracks:', err);
+          console.error(`[waveform-playlist] Error loading audio tracks: ${errorMessage}`);
         }
       }
     };
@@ -390,7 +338,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
       cancelled = true;
       abortController.abort();
     };
-  }, [configs, progressive, immediate]);
+  }, [configs, immediate]);
 
   return { tracks, loading, error, loadedCount, totalCount };
 }

@@ -422,11 +422,12 @@ export function BeatsAndBarsExample() {
 
   useEffect(() => {
     let cancelled = false;
+    const abortController = new AbortController();
     const audioContext = getGlobalAudioContext();
 
     audioFiles.forEach(async (file) => {
       try {
-        const response = await fetch(file.src);
+        const response = await fetch(file.src, { signal: abortController.signal });
         if (!response.ok) {
           throw new Error(`Failed to fetch ${file.src}: ${response.statusText}`);
         }
@@ -443,14 +444,19 @@ export function BeatsAndBarsExample() {
         }
       } catch (err) {
         if (!cancelled) {
-          console.error(`[waveform-playlist] Failed to load ${file.id}:`, err);
+          console.error(
+            `[waveform-playlist] Failed to load ${file.id}: ${err instanceof Error ? err.message : String(err)}`
+          );
           setLoadError(err instanceof Error ? err.message : `Failed to load ${file.id}`);
+          // Count failed loads so loading eventually completes
+          setLoadedCount((prev) => prev + 1);
         }
       }
     });
 
     return () => {
       cancelled = true;
+      abortController.abort();
     };
   }, []);
 

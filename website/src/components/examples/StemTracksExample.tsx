@@ -107,7 +107,7 @@ export function StemTracksExample() {
   const { theme } = useDocusaurusTheme();
 
   // Load audio tracks PROGRESSIVELY - tracks appear as they load!
-  const { tracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { progressive: true });
+  const { tracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { immediate: true });
 
   if (error) {
     return (

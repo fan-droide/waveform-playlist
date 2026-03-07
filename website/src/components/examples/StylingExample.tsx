@@ -125,7 +125,7 @@ function WaveformVariant({
     []
   );
 
-  const { tracks, loading, error } = useAudioTracks(audioConfigs, { progressive: true });
+  const { tracks, loading, error } = useAudioTracks(audioConfigs, { immediate: true });
 
   if (error) {
     return <div style={{ padding: '1rem', color: 'red' }}>Error: {error}</div>;

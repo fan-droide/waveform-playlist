@@ -198,7 +198,7 @@ For programmatic `.click()` on file inputs, use `opacity: 0; width: 0; height: 0
 
 **Why integer PPQN math:** Millisecond-based modular arithmetic (`counter % marker === 0`) breaks with non-integer beat durations (e.g., 119 BPM = 504.20ms/beat — modulo never hits 0). Integer tick space avoids this entirely.
 
-**Key exports:** `getScaleInfo(samplesPerPixel)` returns `{ marker, bigStep, smallStep }` — used by both SmartScale (temporal tick computation) and `SnapToGridModifier` (temporal grid size).
+**Key exports:** `getScaleInfo(samplesPerPixel)` returns `{ marker, bigStep, smallStep }` — used by SmartScale (temporal tick computation) and by consumers to derive `gridSamples` for `SnapToGridModifier`.
 
 **BeatsAndBarsProvider:** Optional context (`useBeatsAndBars()` returns `null` when absent). Provides `bpm`, `timeSignature`, `snapTo`, derived `ticksPerBeat`, `ticksPerBar`. SmartScale reads this to decide which mode to render.
 

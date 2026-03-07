@@ -318,7 +318,7 @@ interface AudioTrackConfig {
 }
 
 interface UseAudioTracksOptions {
-  progressive?: boolean;  // Default: false
+  immediate?: boolean;    // Default: false — render placeholders instantly, audio fills in
 }
 ```
 
@@ -431,6 +431,8 @@ interface UseClipDragHandlersOptions {
   engineRef: RefObject<PlaylistEngine | null>;
   /** Ref toggled during boundary trim drags. Obtain from usePlaylistData(). */
   isDraggingRef: MutableRefObject<boolean>;
+  /** Optional snap function for boundary trims — snaps a sample position to nearest grid line */
+  snapSamplePosition?: (samplePos: number) => number;
 }
 ```
 
@@ -460,6 +462,22 @@ class ClipCollisionModifier extends Modifier {
 ```
 
 Collision detection modifier for clip moves — constrains horizontal drag to prevent overlapping clips. Passed to DragDropProvider's `modifiers` array alongside `RestrictToHorizontalAxis`.
+
+### SnapToGridModifier
+
+```typescript
+type SnapTo = 'bar' | 'beat' | 'off';
+
+type SnapToGridOptions =
+  | { mode: 'beats'; snapTo: SnapTo; bpm: number; timeSignature: [number, number]; samplesPerPixel: number; sampleRate: number }
+  | { mode: 'temporal'; gridSamples: number; samplesPerPixel: number };
+
+class SnapToGridModifier extends Modifier {
+  static configure(options: SnapToGridOptions): PluginDescriptor;
+}
+```
+
+Snap-to-grid modifier for clip moves. `'beats'` mode quantizes in PPQN tick space; `'temporal'` mode quantizes by `gridSamples`. Snaps the clip's absolute timeline position to the grid (not the drag delta). Skips boundary trims (handled separately by `useClipDragHandlers`). Compose: snap first, then `ClipCollisionModifier` constrains the snapped position.
 
 ### noDropAnimationPlugins
 
@@ -719,6 +737,8 @@ function usePlaybackShortcuts(options?: UsePlaybackShortcutsOptions): UsePlaybac
 interface WaveformProps {
   renderTrackControls?: (trackIndex: number) => ReactNode;
   renderTick?: (label: string, pixelPosition: number) => ReactNode;
+  /** @deprecated Use renderTick */
+  renderTimestamp?: (timeMs: number, pixelPosition: number) => ReactNode;
   renderPlayhead?: RenderPlayheadFunction;
   renderAnnotationItem?: (props: RenderAnnotationItemProps) => ReactNode;
   getAnnotationBoxLabel?: GetAnnotationBoxLabelFn;
@@ -770,6 +790,40 @@ interface PlaylistErrorBoundaryProps {
 ```
 
 Catches render errors in child components. Uses plain CSS (works without ThemeProvider).
+
+---
+
+## Beats & Bars (@waveform-playlist/ui-components)
+
+```typescript
+type SnapTo = 'bar' | 'beat' | 'off';
+
+interface BeatsAndBarsProviderProps {
+  bpm: number;
+  timeSignature: [number, number];     // [numerator, denominator]
+  snapTo: SnapTo;
+  children: React.ReactNode;
+}
+
+interface BeatsAndBarsContextValue {
+  bpm: number;
+  timeSignature: [number, number];
+  snapTo: SnapTo;
+  ticksPerBeat: number;                // Derived from timeSignature + PPQN
+  ticksPerBar: number;                 // Derived from timeSignature + PPQN
+}
+```
+
+Optional context — `useBeatsAndBars()` returns `null` when no provider is present. When present, `SmartScale` renders beats & bars ticks instead of temporal ticks.
+
+```typescript
+// Zoom-dependent temporal scale thresholds
+function getScaleInfo(samplesPerPixel: number): {
+  marker: number;   // ms between major labeled ticks
+  bigStep: number;  // ms between medium ticks
+  smallStep: number; // ms between minor ticks
+};
+```
 
 ---
 

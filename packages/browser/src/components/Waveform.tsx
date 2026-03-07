@@ -12,7 +12,11 @@ import { PlaylistAnnotationList } from './PlaylistAnnotationList';
 
 export interface WaveformProps {
   renderTrackControls?: (trackIndex: number) => ReactNode;
+  /** Custom render function for timescale tick labels. `label` is a formatted string
+   * (bar/beat notation like "2.3" in beats mode, or "m:ss" in temporal mode). */
   renderTick?: (label: string, pixelPosition: number) => ReactNode;
+  /** @deprecated Use `renderTick` instead. */
+  renderTimestamp?: (timeMs: number, pixelPosition: number) => ReactNode;
   /** Custom playhead render function. Receives position (pixels) and color from theme. */
   renderPlayhead?: RenderPlayheadFunction;
   annotationControls?: AnnotationAction[];
@@ -64,6 +68,7 @@ export interface WaveformProps {
 export const Waveform: React.FC<WaveformProps> = ({
   renderTrackControls,
   renderTick,
+  renderTimestamp,
   renderPlayhead,
   annotationControls,
   annotationListConfig,
@@ -86,7 +91,12 @@ export const Waveform: React.FC<WaveformProps> = ({
     <>
       <PlaylistVisualization
         renderTrackControls={renderTrackControls}
-        renderTick={renderTick}
+        renderTick={
+          renderTick ??
+          (renderTimestamp
+            ? (label, pix) => renderTimestamp(parseFloat(label) || 0, pix)
+            : undefined)
+        }
         renderPlayhead={renderPlayhead}
         annotationControls={annotationControls}
         getAnnotationBoxLabel={getAnnotationBoxLabel}

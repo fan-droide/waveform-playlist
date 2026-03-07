@@ -52,7 +52,7 @@ export function StereoExample() {
   ], []);
 
   // Load audio tracks progressively - tracks appear as they load!
-  const { tracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { progressive: true });
+  const { tracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { immediate: true });
 
   if (error) {
     return (

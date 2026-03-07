@@ -22,7 +22,7 @@ waveform-playlist is a React component library for building browser-based audio 
 - `@waveform-playlist/core` — Data model: ClipTrack, AudioClip, sample-based math
 - `@waveform-playlist/engine` — Framework-agnostic timeline engine: PlaylistEngine class, pure clip/timeline operations, event emitter. Owns selection, loop, zoom, volume, selectedTrackId, and clip mutation state.
 - `@waveform-playlist/playout` — Audio playback: Tone.js adapter (implements PlayoutAdapter from engine), global AudioContext
-- `@waveform-playlist/ui-components` — Styled primitives, theming, virtual scrolling contexts, playhead components, PlaylistErrorBoundary
+- `@waveform-playlist/ui-components` — Styled primitives, theming, virtual scrolling contexts, playhead components, PlaylistErrorBoundary, BeatsAndBarsProvider
 - `@waveform-playlist/annotations` — Annotation parsing, rendering, keyboard controls
 - `@waveform-playlist/recording` — Microphone access, AudioWorklet recording, VU meter, integrated recording hook
 - `@waveform-playlist/webaudio-peaks` — Peak extraction from AudioBuffer
@@ -70,13 +70,14 @@ Both providers use React Context with 4 split contexts for performance.
 
 ## Key Hooks
 
-- `useAudioTracks(configs)` — Load audio files into ClipTrack[] for the provider (declarative, configs-driven)
+- `useAudioTracks(configs, options?)` — Load audio files into ClipTrack[] for the provider (declarative, configs-driven). Options: `{ immediate: true }` renders placeholder tracks instantly while audio decodes
 - `useDynamicTracks()` — Imperative hook for runtime track additions (drag-and-drop, file picker). Creates placeholder tracks instantly while audio decodes in parallel
 - `useDynamicEffects()` — Master effects chain with runtime add/remove/parameter updates
 - `useTrackDynamicEffects()` — Per-track effects management
 - `useClipDragHandlers(opts)` — Drag-to-move and boundary trimming, delegates to engine.moveClip()/trimClip()
 - `useDragSensors(opts?)` — Configures PointerSensor activation constraints for DragDropProvider (distance-based default, optional touch-optimized mode)
 - `ClipCollisionModifier` — Collision detection modifier for clip moves, prevents overlapping clips
+- `SnapToGridModifier` — Snap-to-grid modifier for clip moves. Two modes: `'beats'` (PPQN tick grid) and `'temporal'` (sample-based grid). Snaps absolute position, not delta.
 - `noDropAnimationPlugins` — Disables Feedback plugin drop animation for clip moves
 - `useClipSplitting(opts)` — Split clips at playhead, delegates to engine.splitClip()
 - `useExportWav()` — Offline WAV export with effects support
@@ -88,6 +89,11 @@ Both providers use React Context with 4 split contexts for performance.
 - `useMidiTracks(configs)` — Load .mid files into ClipTrack[] with midiNotes for piano roll rendering. One config can produce multiple tracks (one per MIDI channel). Supports pre-parsed notes via `midiNotes` prop.
 - `parseMidiFile(data, options?)` — Pure function: ArrayBuffer → ParsedMidi with tracks, notes, tempo, time signature. No React dependency.
 - `parseMidiUrl(url, options?, signal?)` — Fetch + parse convenience wrapper with AbortSignal support.
+
+### Beats & Bars (from `@waveform-playlist/ui-components`)
+
+- `BeatsAndBarsProvider` — Optional context providing BPM, time signature, and snap config. Wraps playlist content to enable beats & bars timescale mode in SmartScale. Props: `bpm`, `timeSignature: [number, number]`, `snapTo: 'bar' | 'beat' | 'off'`
+- `getScaleInfo(samplesPerPixel)` — Returns `{ marker, bigStep, smallStep }` (ms) for temporal timescale tick spacing at the given zoom level. Also useful for deriving `gridSamples` for `SnapToGridModifier` temporal mode.
 
 ### Virtual Scrolling Hooks (from `@waveform-playlist/ui-components`)
 

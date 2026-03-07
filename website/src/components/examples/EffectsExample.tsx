@@ -685,7 +685,7 @@ export function EffectsExample() {
   ], []);
 
   // Load initial audio tracks PROGRESSIVELY - tracks appear as they load!
-  const { tracks: loadedTracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { progressive: true });
+  const { tracks: loadedTracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { immediate: true });
 
   // Update local state as tracks load progressively
   useEffect(() => {

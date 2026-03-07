@@ -125,15 +125,15 @@ function WaveformDataExample() {
       })),
   [peaksMap]);
 
-  // 3. Load audio progressively - tracks appear as they load!
+  // 3. Load audio with immediate placeholders - peaks render instantly!
   const { tracks, loading, loadedCount, totalCount } = useAudioTracks(
-    audioConfigs,  // Configs added progressively as peaks arrive
-    { progressive: true }
+    audioConfigs,  // Configs added as peaks arrive, each with waveformData
+    { immediate: true }
   );
 
-  // Tracks render immediately as each one loads - no waiting!
+  // Tracks render immediately with pre-computed peaks, audio fills in
   return (
-    <WaveformPlaylistProvider tracks={tracks} samplesPerPixel={1024}>
+    <WaveformPlaylistProvider tracks={tracks} samplesPerPixel={1024} deferEngineRebuild={loading}>
       {loading && <div>Loading: {loadedCount} / {totalCount}</div>}
       <PlayButton /> <PauseButton /> <StopButton />
       <Waveform />

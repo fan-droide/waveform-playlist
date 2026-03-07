@@ -5,6 +5,7 @@ import { useBeatsAndBars } from '../contexts/BeatsAndBars';
 import { StyledTimeScale } from './TimeScale';
 import type { PrecomputedTickData } from './TimeScale';
 import {
+  PPQN,
   ticksToSamples,
   ticksToBarBeatLabel,
   samplesToPixels,
@@ -82,7 +83,7 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) =
 
       // Total duration in PPQN ticks
       const durationSeconds = duration / 1000;
-      const totalTicks = Math.ceil((durationSeconds * bpm * 192) / 60);
+      const totalTicks = Math.ceil((durationSeconds * bpm * PPQN) / 60);
 
       // Compute pixel spacing to determine tick density at this zoom level.
       // We pick the finest granularity that keeps ticks >= MIN_TICK_PX apart.
@@ -123,7 +124,7 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) =
         const isBarLine = tick % tpBar === 0;
         const isLabelTick = tick % labelStep === 0;
 
-        // Tick height: bar lines full, beat lines half, unlabeled ticks 1/5
+        // Tick height: bar lines full, labeled ticks half, unlabeled ticks 1/5
         const tickHeight = isBarLine
           ? timeScaleHeight
           : isLabelTick

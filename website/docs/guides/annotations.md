@@ -551,7 +551,7 @@ import {
 function AnnotationsExample() {
   const { tracks, loading, error } = useAudioTracks([
     { src: '/audio/podcast.mp3', name: 'Podcast Episode' },
-  ], { progressive: true });
+  ], { immediate: true });
 
   const [annotations, setAnnotations] = useState([
     { id: '1', start: 0, end: 10, lines: ['Introduction'] },

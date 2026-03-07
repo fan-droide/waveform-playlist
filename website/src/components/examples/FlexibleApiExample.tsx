@@ -556,7 +556,7 @@ export function FlexibleApiExample() {
   ], []);
 
   // Load audio tracks PROGRESSIVELY - tracks appear as they load!
-  const { tracks: loadedTracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { progressive: true });
+  const { tracks: loadedTracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { immediate: true });
   const [tracks, setTracks] = useState<ClipTrack[]>([]);
 
   // Update tracks state as they load progressively
