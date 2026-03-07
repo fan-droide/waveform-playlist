@@ -25,6 +25,7 @@ import {
   usePlaylistData,
   usePlaylistControls,
   useExportWav,
+  KeyboardShortcuts,
 } from '@waveform-playlist/browser';
 import {
   Controls,
@@ -775,6 +776,7 @@ export function EffectsExample() {
         barWidth={2}
         barGap={0}
       >
+        <KeyboardShortcuts playback />
         <EffectsControls
           analyserRef={analyserRef}
           trackEffectsManager={trackEffectsManager}
