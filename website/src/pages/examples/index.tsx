@@ -19,6 +19,7 @@ import {
   GaugeIcon,
   WaveformIcon,
   MusicNotesIcon,
+  MetronomeIcon,
 } from '@phosphor-icons/react';
 import styles from './examples.module.css';
 
@@ -86,6 +87,13 @@ const examples = [
     path: 'multi-clip',
     category: 'advanced',
     icon: <RowsIcon weight="light" aria-hidden="true" />,
+  },
+  {
+    title: 'Beats & Bars',
+    description: 'Tempo-locked. Snap to the grid.',
+    path: 'beats-and-bars',
+    category: 'advanced',
+    icon: <MetronomeIcon weight="light" aria-hidden="true" />,
   },
   {
     title: 'Annotations',
