@@ -26,23 +26,21 @@ export function BeatsAndBarsProvider({
   snapTo,
   children,
 }: BeatsAndBarsProviderProps) {
+  const [numerator, denominator] = timeSignature;
   const value = useMemo<BeatsAndBarsContextValue>(() => {
-    const tpBeat = ticksPerBeat(timeSignature);
-    const tpBar = ticksPerBar(timeSignature);
+    const ts: [number, number] = [numerator, denominator];
+    const tpBeat = ticksPerBeat(ts);
+    const tpBar = ticksPerBar(ts);
     return {
       bpm,
-      timeSignature,
+      timeSignature: ts,
       snapTo,
       ticksPerBeat: tpBeat,
       ticksPerBar: tpBar,
     };
-  }, [bpm, timeSignature[0], timeSignature[1], snapTo]);
+  }, [bpm, numerator, denominator, snapTo]);
 
-  return (
-    <BeatsAndBarsContext.Provider value={value}>
-      {children}
-    </BeatsAndBarsContext.Provider>
-  );
+  return <BeatsAndBarsContext.Provider value={value}>{children}</BeatsAndBarsContext.Provider>;
 }
 
 export function useBeatsAndBars(): BeatsAndBarsContextValue | null {

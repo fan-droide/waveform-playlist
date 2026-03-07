@@ -52,23 +52,25 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTimestamp
     const barMs = ticksToMs(tpBar, bpm);
     const beatMs = ticksToMs(tpBeat, bpm);
 
-    const beatsRenderTimestamp = renderTimestamp ?? ((timeMs: number, pixelPosition: number) => {
-      const ticks = Math.round((timeMs * bpm * PPQN) / 60000);
-      const label = ticksToBarBeatLabel(ticks, timeSignature);
-      return (
-        <div
-          key={`bb-${ticks}`}
-          style={{
-            position: 'absolute',
-            left: `${pixelPosition + 4}px`,
-            fontSize: '0.75rem',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {label}
-        </div>
-      );
-    });
+    const beatsRenderTimestamp =
+      renderTimestamp ??
+      ((timeMs: number, pixelPosition: number) => {
+        const ticks = Math.round((timeMs * bpm * PPQN) / 60000);
+        const label = ticksToBarBeatLabel(ticks, timeSignature);
+        return (
+          <div
+            key={`bb-${ticks}`}
+            style={{
+              position: 'absolute',
+              left: `${pixelPosition + 4}px`,
+              fontSize: '0.75rem',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label}
+          </div>
+        );
+      });
 
     return (
       <StyledTimeScale

@@ -10,19 +10,11 @@ export function ticksPerBar(timeSignature: [number, number]): number {
   return numerator * ticksPerBeat(timeSignature);
 }
 
-export function ticksToSamples(
-  ticks: number,
-  bpm: number,
-  sampleRate: number,
-): number {
+export function ticksToSamples(ticks: number, bpm: number, sampleRate: number): number {
   return Math.round((ticks * 60 * sampleRate) / (bpm * PPQN));
 }
 
-export function samplesToTicks(
-  samples: number,
-  bpm: number,
-  sampleRate: number,
-): number {
+export function samplesToTicks(samples: number, bpm: number, sampleRate: number): number {
   return Math.round((samples * PPQN * bpm) / (60 * sampleRate));
 }
 
@@ -30,10 +22,7 @@ export function snapToGrid(ticks: number, gridSizeTicks: number): number {
   return Math.round(ticks / gridSizeTicks) * gridSizeTicks;
 }
 
-export function ticksToBarBeatLabel(
-  ticks: number,
-  timeSignature: [number, number],
-): string {
+export function ticksToBarBeatLabel(ticks: number, timeSignature: [number, number]): string {
   const barTicks = ticksPerBar(timeSignature);
   const beatTicks = ticksPerBeat(timeSignature);
   const bar = Math.floor(ticks / barTicks) + 1;

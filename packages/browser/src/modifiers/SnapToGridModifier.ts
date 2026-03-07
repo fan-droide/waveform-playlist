@@ -42,15 +42,11 @@ export class SnapToGridModifier extends Modifier<
     const { boundary } = source.data as { boundary?: 'left' | 'right' };
     if (boundary) return transform;
 
-    const { snapTo, bpm, timeSignature, samplesPerPixel, sampleRate } =
-      this.options;
+    const { snapTo, bpm, timeSignature, samplesPerPixel, sampleRate } = this.options;
 
     if (snapTo === 'off') return transform;
 
-    const gridTicks =
-      snapTo === 'bar'
-        ? ticksPerBar(timeSignature)
-        : ticksPerBeat(timeSignature);
+    const gridTicks = snapTo === 'bar' ? ticksPerBar(timeSignature) : ticksPerBeat(timeSignature);
 
     // Convert pixel delta to ticks, quantize, convert back to pixels
     const deltaSamples = transform.x * samplesPerPixel;
