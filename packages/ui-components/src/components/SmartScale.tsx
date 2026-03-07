@@ -76,7 +76,7 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) =
   const tickData = useMemo<PrecomputedTickData>(() => {
     const widthX = secondsToPixels(duration / 1000, samplesPerPixel, sampleRate);
 
-    if (beatsAndBars) {
+    if (beatsAndBars && beatsAndBars.scaleMode === 'beats') {
       const { bpm, timeSignature, ticksPerBar: tpBar, ticksPerBeat: tpBeat } = beatsAndBars;
       const canvasInfo = new Map<number, number>();
       const timeMarkersWithPositions: Array<{ pix: number; element: React.ReactNode }> = [];

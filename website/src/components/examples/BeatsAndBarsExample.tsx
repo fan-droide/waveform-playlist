@@ -42,6 +42,7 @@ import {
   BaseInputSmall,
   InlineLabel,
   type SnapTo,
+  type ScaleMode,
 } from '@waveform-playlist/ui-components';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
 
@@ -127,8 +128,6 @@ const trackConfigs = [
     ],
   },
 ];
-
-type ScaleMode = 'beats' | 'temporal';
 
 interface PlaylistWithDragProps {
   tracks: ClipTrack[];
@@ -495,27 +494,7 @@ export function BeatsAndBarsExample() {
       barGap={0}
       deferEngineRebuild={loading}
     >
-      {scaleMode === 'beats' ? (
-        <BeatsAndBarsProvider bpm={bpm} timeSignature={timeSignature} snapTo={snapTo}>
-          <PlaylistWithDrag
-            tracks={tracksState}
-            onTracksChange={setTracks}
-            scaleMode={scaleMode}
-            setScaleMode={setScaleMode}
-            bpm={bpm}
-            setBpm={setBpm}
-            timeSignature={timeSignature}
-            setTimeSignature={setTimeSignature}
-            snapTo={snapTo}
-            setSnapTo={setSnapTo}
-            temporalSnap={temporalSnap}
-            setTemporalSnap={setTemporalSnap}
-            loading={loading}
-            loadedCount={loadedCount}
-            totalCount={audioFiles.length}
-          />
-        </BeatsAndBarsProvider>
-      ) : (
+      <BeatsAndBarsProvider bpm={bpm} timeSignature={timeSignature} snapTo={snapTo} scaleMode={scaleMode}>
         <PlaylistWithDrag
           tracks={tracksState}
           onTracksChange={setTracks}
@@ -533,7 +512,7 @@ export function BeatsAndBarsExample() {
           loadedCount={loadedCount}
           totalCount={audioFiles.length}
         />
-      )}
+      </BeatsAndBarsProvider>
     </WaveformPlaylistProvider>
   );
 }
