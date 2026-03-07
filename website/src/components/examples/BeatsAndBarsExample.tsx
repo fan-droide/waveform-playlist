@@ -123,8 +123,11 @@ interface PlaylistWithDragProps {
   tracks: ClipTrack[];
   onTracksChange: (tracks: ClipTrack[]) => void;
   bpm: number;
+  setBpm: (bpm: number) => void;
   timeSignature: [number, number];
+  setTimeSignature: (ts: [number, number]) => void;
   snapTo: SnapTo;
+  setSnapTo: (snap: SnapTo) => void;
   loading?: boolean;
   loadedCount?: number;
   totalCount?: number;
@@ -134,8 +137,11 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
   tracks,
   onTracksChange,
   bpm,
+  setBpm,
   timeSignature,
+  setTimeSignature,
   snapTo,
+  setSnapTo,
   loading,
   loadedCount,
   totalCount,
@@ -396,8 +402,11 @@ export function BeatsAndBarsExample() {
           tracks={tracks}
           onTracksChange={setTracks}
           bpm={bpm}
+          setBpm={setBpm}
           timeSignature={timeSignature}
+          setTimeSignature={setTimeSignature}
           snapTo={snapTo}
+          setSnapTo={setSnapTo}
           loading={loading}
           loadedCount={loadedCount}
           totalCount={audioFiles.length}
