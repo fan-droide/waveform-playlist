@@ -12,7 +12,12 @@ import {
 } from './ScrollViewport';
 import { ClipViewportOriginProvider, useClipViewportOrigin } from './ClipViewportOrigin';
 export type { ScrollViewport } from './ScrollViewport';
-export type { BeatsAndBarsContextValue, BeatsAndBarsProviderProps, SnapTo, ScaleMode } from './BeatsAndBars';
+export type {
+  BeatsAndBarsContextValue,
+  BeatsAndBarsProviderProps,
+  SnapTo,
+  ScaleMode,
+} from './BeatsAndBars';
 
 export {
   BeatsAndBarsProvider,
