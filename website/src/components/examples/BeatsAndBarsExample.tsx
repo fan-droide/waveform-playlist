@@ -4,10 +4,8 @@ import { getGlobalAudioContext } from '@waveform-playlist/playout';
 import { createTrack, createClipFromSeconds, type ClipTrack } from '@waveform-playlist/core';
 import {
   WaveformPlaylistProvider,
-  usePlaylistData,
   ClipInteractionProvider,
-  useClipSplitting,
-  usePlaybackShortcuts,
+  KeyboardShortcuts,
   Waveform,
   PlayButton,
   PauseButton,
@@ -111,30 +109,6 @@ const trackConfigs = [
     ],
   },
 ];
-
-/** Inner component for keyboard shortcuts that require playlist context */
-const KeyboardShortcuts: React.FC<{ tracks: ClipTrack[] }> = ({ tracks }) => {
-  const { samplesPerPixel, sampleRate, playoutRef } = usePlaylistData();
-  const { splitClipAtPlayhead } = useClipSplitting({
-    tracks,
-    sampleRate,
-    samplesPerPixel,
-    engineRef: playoutRef,
-  });
-
-  usePlaybackShortcuts({
-    additionalShortcuts: [
-      {
-        key: 's',
-        action: splitClipAtPlayhead,
-        description: 'Split clip at playhead',
-        preventDefault: true,
-      },
-    ],
-  });
-
-  return null;
-};
 
 // Default sample rate for placeholder clips (before audio loads)
 const DEFAULT_SAMPLE_RATE = 48000;
@@ -259,7 +233,7 @@ export function BeatsAndBarsExample() {
     >
       <BeatsAndBarsProvider bpm={bpm} timeSignature={timeSignature} snapTo={snapTo} scaleMode={scaleMode}>
         <ClipInteractionProvider snap={snap}>
-          <KeyboardShortcuts tracks={tracksState} />
+          <KeyboardShortcuts playback clipSplitting />
           <Controls>
             <ControlGroup>
               <PlayButton />

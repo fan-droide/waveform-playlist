@@ -14,7 +14,7 @@ import {
   AutomaticScrollCheckbox,
   ClearAllButton,
   useAudioTracks,
-  usePlaybackShortcuts,
+  KeyboardShortcuts,
 } from '@waveform-playlist/browser';
 import type { SpectrogramConfig, RenderMode, ClipTrack } from '@waveform-playlist/core';
 import { createTrack, createClipFromSeconds } from '@waveform-playlist/core';
@@ -85,11 +85,6 @@ const AUDIO_CONFIGS: AudioTrackConfig[] = TRACK_CONFIGS.map((tc) => ({
   renderMode: tc.defaultMode,
   spectrogramConfig: DEFAULT_SPECTROGRAM_CONFIG,
 }));
-
-function MirSpectrogramInner() {
-  usePlaybackShortcuts();
-  return null;
-}
 
 export function MirSpectrogramExample() {
   const { theme } = useDocusaurusTheme();
@@ -172,7 +167,7 @@ export function MirSpectrogramExample() {
           controls={{ show: true, width: 180 }}
         >
           <SpectrogramProvider colorMap="viridis">
-          <MirSpectrogramInner />
+          <KeyboardShortcuts playback />
           <ControlBar>
             <RewindButton />
             <PlayButton />

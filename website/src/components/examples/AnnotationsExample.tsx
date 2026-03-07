@@ -29,8 +29,8 @@ import {
   usePlaylistControls,
   usePlaybackAnimation,
   useAnnotationDragHandlers,
-  useAnnotationKeyboardControls,
   useDragSensors,
+  KeyboardShortcuts,
   ClearAllButton,
 } from '@waveform-playlist/browser';
 import { AnnotationProvider, parseAeneas } from '@waveform-playlist/annotations';
@@ -333,8 +333,8 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
   minAnnotationDuration = 0.5,
 }) => {
   const { samplesPerPixel, sampleRate, duration, controls } = usePlaylistData();
-  const { annotations, linkEndpoints, activeAnnotationId, continuousPlay } = usePlaylistState();
-  const { setAnnotations, setActiveAnnotationId, scrollContainerRef, play } = usePlaylistControls();
+  const { annotations, linkEndpoints, activeAnnotationId } = usePlaylistState();
+  const { setAnnotations, play } = usePlaylistControls();
   const { currentTime } = usePlaybackAnimation();
 
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
@@ -348,20 +348,6 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
     sampleRate,
     duration,
     linkEndpoints,
-  });
-
-  useAnnotationKeyboardControls({
-    annotations,
-    activeAnnotationId,
-    onAnnotationsChange: setAnnotations,
-    onActiveAnnotationChange: setActiveAnnotationId,
-    duration,
-    linkEndpoints,
-    continuousPlay,
-    scrollContainerRef,
-    samplesPerPixel,
-    sampleRate,
-    onPlay: play,
   });
 
   // Find the next available gap for an annotation starting from a given time
@@ -568,6 +554,7 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
       modifiers={[RestrictToHorizontalAxis]}
     >
       <Container>
+        <KeyboardShortcuts playback annotations />
         {/* Drop Zone for Audio */}
         <FileDropZone
           accept="audio/*"

@@ -16,7 +16,7 @@ import {
   StopButton,
   ClearAllButton,
   AudioPosition,
-  usePlaybackShortcuts,
+  KeyboardShortcuts,
   usePlaylistState,
   usePlaylistControls,
 } from '@waveform-playlist/browser';
@@ -163,11 +163,6 @@ const LoadingOverlay = styled.div`
 const StyledDropZone = styled(FileDropZone)`
   margin-top: 1rem;
 `;
-
-function PlaybackShortcuts() {
-  usePlaybackShortcuts();
-  return null;
-}
 
 function AutoScrollToggle() {
   const { isAutomaticScroll } = usePlaylistState();
@@ -421,7 +416,7 @@ export function MidiExample() {
           timescale
           automaticScroll
         >
-          <PlaybackShortcuts />
+          <KeyboardShortcuts playback />
           <Controls>
             <PlayButton />
             <PauseButton />

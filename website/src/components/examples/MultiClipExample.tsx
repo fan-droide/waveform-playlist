@@ -4,10 +4,8 @@ import { getGlobalAudioContext } from '@waveform-playlist/playout';
 import { createTrack, createClipFromSeconds, type ClipTrack } from '@waveform-playlist/core';
 import {
   WaveformPlaylistProvider,
-  usePlaylistData,
   ClipInteractionProvider,
-  useClipSplitting,
-  usePlaybackShortcuts,
+  KeyboardShortcuts,
   Waveform,
   PlayButton,
   PauseButton,
@@ -104,30 +102,6 @@ const trackConfigs = [
     ],
   },
 ];
-
-/** Inner component for keyboard shortcuts that require playlist context */
-const KeyboardShortcuts: React.FC<{ tracks: ClipTrack[] }> = ({ tracks }) => {
-  const { samplesPerPixel, sampleRate, playoutRef } = usePlaylistData();
-  const { splitClipAtPlayhead } = useClipSplitting({
-    tracks,
-    sampleRate,
-    samplesPerPixel,
-    engineRef: playoutRef,
-  });
-
-  usePlaybackShortcuts({
-    additionalShortcuts: [
-      {
-        key: 's',
-        action: splitClipAtPlayhead,
-        description: 'Split clip at playhead',
-        preventDefault: true,
-      },
-    ],
-  });
-
-  return null;
-};
 
 // Helper to get required file IDs for a track
 const getRequiredFileIds = (trackConfig: typeof trackConfigs[0]): string[] => {
@@ -251,7 +225,7 @@ export function MultiClipExample() {
       barGap={0}
     >
       <ClipInteractionProvider>
-        <KeyboardShortcuts tracks={tracks} />
+        <KeyboardShortcuts playback clipSplitting />
         <Controls>
           <ControlGroup>
             <PlayButton />

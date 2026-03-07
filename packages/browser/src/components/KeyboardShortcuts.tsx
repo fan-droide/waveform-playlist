@@ -1,0 +1,96 @@
+import React from 'react';
+import type { KeyboardShortcut } from '../hooks/useKeyboardShortcuts';
+import { usePlaybackShortcuts } from '../hooks/usePlaybackShortcuts';
+import { useClipSplitting } from '../hooks/useClipSplitting';
+import { useAnnotationKeyboardControls } from '../hooks/useAnnotationKeyboardControls';
+import { usePlaylistData, usePlaylistState, usePlaylistControls } from '../WaveformPlaylistContext';
+
+export interface KeyboardShortcutsProps {
+  /** Enable default playback shortcuts (Space, Escape, 0). Defaults to false. */
+  playback?: boolean;
+  /** Enable clip splitting shortcut ('s' key). Defaults to false. */
+  clipSplitting?: boolean;
+  /** Enable annotation keyboard controls (arrow nav, boundary editing). Defaults to false. */
+  annotations?: boolean;
+  /** Additional shortcuts appended to the defaults. */
+  additionalShortcuts?: KeyboardShortcut[];
+  /** Disable all shortcuts. Defaults to true. */
+  enabled?: boolean;
+}
+
+/**
+ * Self-closing component that sets up keyboard shortcuts for the playlist.
+ * Must be rendered inside a WaveformPlaylistProvider.
+ *
+ * @example
+ * ```tsx
+ * <WaveformPlaylistProvider tracks={tracks} {...}>
+ *   <KeyboardShortcuts playback clipSplitting />
+ *   <Waveform />
+ * </WaveformPlaylistProvider>
+ * ```
+ */
+export const KeyboardShortcuts: React.FC<KeyboardShortcutsProps> = ({
+  playback = false,
+  clipSplitting = false,
+  annotations = false,
+  additionalShortcuts = [],
+  enabled = true,
+}) => {
+  // Clip splitting setup
+  const { tracks, samplesPerPixel, sampleRate, playoutRef, duration } = usePlaylistData();
+  const {
+    annotations: annotationList,
+    linkEndpoints,
+    activeAnnotationId,
+    continuousPlay,
+  } = usePlaylistState();
+  const { setAnnotations, setActiveAnnotationId, scrollContainerRef, play } = usePlaylistControls();
+
+  const { splitClipAtPlayhead } = useClipSplitting({
+    tracks,
+    sampleRate,
+    samplesPerPixel,
+    engineRef: playoutRef,
+  });
+
+  // Build additional shortcuts from enabled features
+  const allAdditional: KeyboardShortcut[] = [];
+
+  if (clipSplitting) {
+    allAdditional.push({
+      key: 's',
+      action: splitClipAtPlayhead,
+      description: 'Split clip at playhead',
+      preventDefault: true,
+    });
+  }
+
+  if (additionalShortcuts.length > 0) {
+    allAdditional.push(...additionalShortcuts);
+  }
+
+  // Playback shortcuts (or just additional if playback is off)
+  usePlaybackShortcuts({
+    enabled: enabled && (playback || allAdditional.length > 0),
+    ...(playback ? { additionalShortcuts: allAdditional } : { shortcuts: allAdditional }),
+  });
+
+  // Annotation keyboard controls
+  useAnnotationKeyboardControls({
+    annotations: annotationList,
+    activeAnnotationId,
+    onAnnotationsChange: setAnnotations,
+    onActiveAnnotationChange: setActiveAnnotationId,
+    duration,
+    linkEndpoints,
+    continuousPlay,
+    scrollContainerRef,
+    samplesPerPixel,
+    sampleRate,
+    onPlay: play,
+    enabled: enabled && annotations && annotationList.length > 0,
+  });
+
+  return null;
+};

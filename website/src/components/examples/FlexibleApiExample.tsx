@@ -36,8 +36,7 @@ import {
   usePlaybackAnimation,
   usePlaylistData,
   usePlaylistState,
-  usePlaybackShortcuts,
-  useClipSplitting,
+  KeyboardShortcuts,
   ClipInteractionProvider,
   type TimeFormat,
   type ClipTrack,
@@ -291,30 +290,6 @@ interface FlexibleApiContentProps {
   tracks: ClipTrack[];
 }
 
-/** Inner component for keyboard shortcuts that require playlist context */
-const KeyboardShortcuts: React.FC<{ tracks: ClipTrack[] }> = ({ tracks }) => {
-  const { samplesPerPixel, sampleRate, playoutRef } = usePlaylistData();
-  const { splitClipAtPlayhead } = useClipSplitting({
-    tracks,
-    sampleRate,
-    samplesPerPixel,
-    engineRef: playoutRef,
-  });
-
-  usePlaybackShortcuts({
-    additionalShortcuts: [
-      {
-        key: 's',
-        action: splitClipAtPlayhead,
-        description: 'Split clip at playhead',
-        preventDefault: true,
-      },
-    ],
-  });
-
-  return null;
-};
-
 // Main Example Content Component - Using individual hooks with Radix UI
 const FlexibleApiContent: React.FC<FlexibleApiContentProps> = ({ tracks }) => {
   const { play, pause, stop, seekTo, setMasterVolume, setTimeFormat, setAutomaticScroll, setLoopEnabled, setLoopRegion, zoomIn, zoomOut } = usePlaylistControls();
@@ -440,7 +415,7 @@ const FlexibleApiContent: React.FC<FlexibleApiContentProps> = ({ tracks }) => {
       </Card>
 
       <ClipInteractionProvider>
-        <KeyboardShortcuts tracks={tracks} />
+        <KeyboardShortcuts playback clipSplitting />
         <Waveform
           renderTrackControls={(trackIndex) => (
             <CustomTrackControls trackIndex={trackIndex} />

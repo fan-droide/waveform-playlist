@@ -12,7 +12,7 @@ import {
   AutomaticScrollCheckbox,
   MasterVolumeControl,
   useAudioTracks,
-  usePlaybackShortcuts,
+  KeyboardShortcuts,
 } from '@waveform-playlist/browser';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
 
@@ -97,12 +97,6 @@ const ControlGroup = styled.div`
   }
 `;
 
-// Component to enable keyboard shortcuts (must be inside provider)
-function PlaybackShortcuts() {
-  usePlaybackShortcuts();
-  return null;
-}
-
 export function StemTracksExample() {
   const { theme } = useDocusaurusTheme();
 
@@ -133,7 +127,7 @@ export function StemTracksExample() {
         barWidth={4}
         barGap={0}
       >
-        <PlaybackShortcuts />
+        <KeyboardShortcuts playback />
         <Controls>
           <ControlGroup>
             <PlayButton />

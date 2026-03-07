@@ -108,7 +108,9 @@ export {
   MediaElementAnnotationList,
   PlaylistVisualization,
   PlaylistAnnotationList,
+  KeyboardShortcuts,
 } from './components';
+export type { KeyboardShortcutsProps } from './components/KeyboardShortcuts';
 export type { ClearAllButtonProps } from './components/PlaybackControls';
 export type { ExportWavButtonProps } from './components/ExportControls';
 export type { WaveformProps } from './components/Waveform';
