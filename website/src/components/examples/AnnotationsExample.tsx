@@ -31,6 +31,7 @@ import {
   useAnnotationDragHandlers,
   useAnnotationKeyboardControls,
   useDragSensors,
+  ClearAllButton,
 } from '@waveform-playlist/browser';
 import { AnnotationProvider, parseAeneas } from '@waveform-playlist/annotations';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
@@ -307,15 +308,6 @@ const ActionButton = styled.button`
   }
 `;
 
-const DangerButton = styled(ActionButton)`
-  color: var(--ifm-color-danger, #dc3545);
-  border-color: var(--ifm-color-danger, #dc3545);
-
-  &:hover {
-    background: var(--ifm-color-danger, #dc3545);
-    color: white;
-  }
-`;
 
 const SuccessButton = styled(ActionButton)`
   /* Same as ActionButton - no special styling */
@@ -615,9 +607,7 @@ const AnnotationsAppContent: React.FC<AnnotationsAppContentProps> = ({
             <ActionButton onClick={() => jsonInputRef.current?.click()}>
               Upload JSON
             </ActionButton>
-            <DangerButton onClick={onClearAll}>
-              Clear All
-            </DangerButton>
+            <ClearAllButton onClearAll={onClearAll} />
             <HiddenFileInput
               ref={jsonInputRef}
               type="file"

@@ -89,6 +89,7 @@ export {
   SkipForwardButton,
   LoopButton,
   SetLoopRegionButton,
+  ClearAllButton,
   ZoomInButton,
   ZoomOutButton,
   MasterVolumeControl,
@@ -108,6 +109,7 @@ export {
   PlaylistVisualization,
   PlaylistAnnotationList,
 } from './components';
+export type { ClearAllButtonProps } from './components/PlaybackControls';
 export type { ExportWavButtonProps } from './components/ExportControls';
 export type { WaveformProps } from './components/Waveform';
 export type { MediaElementWaveformProps } from './components/MediaElementWaveform';

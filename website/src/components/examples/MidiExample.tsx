@@ -14,6 +14,7 @@ import {
   PlayButton,
   PauseButton,
   StopButton,
+  ClearAllButton,
   AudioPosition,
   usePlaybackShortcuts,
   usePlaylistState,
@@ -158,21 +159,6 @@ const LoadingOverlay = styled.div`
   gap: 0.5rem;
 `;
 
-const ClearButton = styled.button`
-  padding: 0.25rem 0.75rem;
-  border: 1px solid var(--ifm-color-emphasis-400, #ced4da);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--ifm-font-color-base, #495057);
-  cursor: pointer;
-  font-size: 0.8rem;
-
-  &:hover {
-    background: #dc3545;
-    color: white;
-    border-color: #dc3545;
-  }
-`;
 
 const StyledDropZone = styled(FileDropZone)`
   margin-top: 1rem;
@@ -447,9 +433,7 @@ export function MidiExample() {
                 SoundFont
                 <ToggleSwitch $active={useSoundFont} onClick={() => setUseSoundFont((s) => !s)} />
               </ToggleLabel>
-              <ClearButton onClick={handleClearAll} title="Remove all tracks">
-                Clear All
-              </ClearButton>
+              <ClearAllButton onClearAll={handleClearAll} />
             </ToggleGroup>
           </Controls>
 

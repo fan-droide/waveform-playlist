@@ -12,6 +12,7 @@ import {
   ZoomInButton,
   ZoomOutButton,
   AutomaticScrollCheckbox,
+  ClearAllButton,
   useAudioTracks,
   usePlaybackShortcuts,
 } from '@waveform-playlist/browser';
@@ -38,22 +39,7 @@ const ControlBar = styled.div`
   margin-bottom: 1rem;
 `;
 
-const ClearButton = styled.button`
-  margin-left: auto;
-  padding: 0.25rem 0.75rem;
-  border: 1px solid var(--ifm-color-emphasis-400, #ced4da);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--ifm-font-color-base, #495057);
-  cursor: pointer;
-  font-size: 0.8rem;
 
-  &:hover {
-    background: #dc3545;
-    color: white;
-    border-color: #dc3545;
-  }
-`;
 
 const StyledDropZone = styled(FileDropZone)`
   margin-top: 1rem;
@@ -196,9 +182,7 @@ export function MirSpectrogramExample() {
             <ZoomInButton />
             <ZoomOutButton />
             <AutomaticScrollCheckbox />
-            <ClearButton onClick={handleClearAll} title="Remove all tracks">
-              Clear All
-            </ClearButton>
+            <ClearAllButton onClearAll={handleClearAll} />
           </ControlBar>
           <Waveform onRemoveTrack={handleRemoveTrack} showClipHeaders />
           </SpectrogramProvider>

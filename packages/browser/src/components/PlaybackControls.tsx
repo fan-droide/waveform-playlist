@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { BaseControlButton } from '@waveform-playlist/ui-components';
 import {
   usePlaybackAnimation,
@@ -198,6 +198,31 @@ export const SetLoopRegionButton: React.FC<{ className?: string }> = ({ classNam
       }
     >
       {hasLoopRegion ? 'Clear Loop' : 'Set Loop'}
+    </BaseControlButton>
+  );
+};
+
+export interface ClearAllButtonProps {
+  onClearAll: () => void;
+  label?: string;
+  className?: string;
+}
+
+export const ClearAllButton: React.FC<ClearAllButtonProps> = ({
+  onClearAll,
+  label = 'Clear All',
+  className,
+}) => {
+  const { stop } = usePlaylistControls();
+
+  const handleClick = useCallback(() => {
+    stop();
+    onClearAll();
+  }, [stop, onClearAll]);
+
+  return (
+    <BaseControlButton onClick={handleClick} className={className} title="Remove all tracks">
+      {label}
     </BaseControlButton>
   );
 };
