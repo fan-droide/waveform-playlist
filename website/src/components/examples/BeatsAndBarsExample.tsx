@@ -26,11 +26,7 @@ import {
   AutomaticScrollCheckbox,
   MasterVolumeControl,
 } from '@waveform-playlist/browser';
-import {
-  BeatsAndBarsProvider,
-  getScaleInfo,
-  type SnapTo,
-} from '@waveform-playlist/ui-components';
+import { BeatsAndBarsProvider, getScaleInfo, type SnapTo } from '@waveform-playlist/ui-components';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
 
 const Controls = styled.div`
@@ -67,7 +63,10 @@ const audioFiles = [
   { id: 'claps', src: '/waveform-playlist/media/audio/AlbertKader_Ubiquitous/04_Claps.opus' },
   { id: 'shakers', src: '/waveform-playlist/media/audio/AlbertKader_Ubiquitous/07_Shakers.opus' },
   { id: 'bass', src: '/waveform-playlist/media/audio/AlbertKader_Ubiquitous/08_Bass.opus' },
-  { id: 'synth1', src: '/waveform-playlist/media/audio/AlbertKader_Ubiquitous/09_Synth1_Unmodulated.opus' },
+  {
+    id: 'synth1',
+    src: '/waveform-playlist/media/audio/AlbertKader_Ubiquitous/09_Synth1_Unmodulated.opus',
+  },
   { id: 'synth2', src: '/waveform-playlist/media/audio/AlbertKader_Ubiquitous/11_Synth2.opus' },
 ];
 
@@ -82,9 +81,7 @@ const trackConfigs = [
   },
   {
     name: 'HiHat',
-    clips: [
-      { fileId: 'hihat', startTime: 4, duration: 12, offset: 4 },
-    ],
+    clips: [{ fileId: 'hihat', startTime: 4, duration: 12, offset: 4 }],
   },
   {
     name: 'Claps',
@@ -102,9 +99,7 @@ const trackConfigs = [
   },
   {
     name: 'Bass',
-    clips: [
-      { fileId: 'bass', startTime: 0, duration: 20, offset: 0 },
-    ],
+    clips: [{ fileId: 'bass', startTime: 0, duration: 20, offset: 0 }],
   },
   {
     name: 'Synth 1',
@@ -136,6 +131,8 @@ interface PlaylistWithDragProps {
   setTimeSignature: (ts: [number, number]) => void;
   snapTo: SnapTo;
   setSnapTo: (snap: SnapTo) => void;
+  temporalSnap: boolean;
+  setTemporalSnap: (snap: boolean) => void;
   loading?: boolean;
   loadedCount?: number;
   totalCount?: number;
@@ -152,6 +149,8 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
   setTimeSignature,
   snapTo,
   setSnapTo,
+  temporalSnap,
+  setTemporalSnap,
   loading,
   loadedCount,
   totalCount,
@@ -160,7 +159,11 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
   const { setSelectedTrackId } = usePlaylistControls();
 
   const sensors = useDragSensors();
-  const { onDragStart: handleDragStart, onDragMove, onDragEnd } = useClipDragHandlers({
+  const {
+    onDragStart: handleDragStart,
+    onDragMove,
+    onDragEnd,
+  } = useClipDragHandlers({
     tracks,
     onTracksChange,
     samplesPerPixel,
@@ -204,22 +207,30 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
       onDragEnd={onDragEnd}
       modifiers={[
         RestrictToHorizontalAxis,
-        scaleMode === 'beats'
-          ? SnapToGridModifier.configure({
-              mode: 'beats',
-              snapTo,
-              bpm,
-              timeSignature,
-              samplesPerPixel,
-              sampleRate,
-            })
-          : SnapToGridModifier.configure({
-              mode: 'temporal',
-              gridSamples: Math.round(
-                (getScaleInfo(samplesPerPixel).smallStep / 1000) * sampleRate,
-              ),
-              samplesPerPixel,
-            }),
+        ...(scaleMode === 'beats'
+          ? snapTo !== 'off'
+            ? [
+                SnapToGridModifier.configure({
+                  mode: 'beats',
+                  snapTo,
+                  bpm,
+                  timeSignature,
+                  samplesPerPixel,
+                  sampleRate,
+                }),
+              ]
+            : []
+          : temporalSnap
+            ? [
+                SnapToGridModifier.configure({
+                  mode: 'temporal',
+                  gridSamples: Math.round(
+                    (getScaleInfo(samplesPerPixel).smallStep / 1000) * sampleRate
+                  ),
+                  samplesPerPixel,
+                }),
+              ]
+            : []),
         ClipCollisionModifier.configure({ tracks, samplesPerPixel }),
       ]}
       plugins={noDropAnimationPlugins}
@@ -230,7 +241,11 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
           <PauseButton />
           <StopButton />
           <LoopButton />
-          {loading && <span style={{ fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-600)' }}>Loading: {loadedCount}/{totalCount}</span>}
+          {loading && (
+            <span style={{ fontSize: '0.875rem', color: 'var(--ifm-color-emphasis-600)' }}>
+              Loading: {loadedCount}/{totalCount}
+            </span>
+          )}
         </ControlGroup>
         <ControlGroup>
           <ZoomInButton />
@@ -250,16 +265,13 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
         <ControlGroup>
           <Label>
             Scale{' '}
-            <select
-              value={scaleMode}
-              onChange={(e) => setScaleMode(e.target.value as ScaleMode)}
-            >
+            <select value={scaleMode} onChange={(e) => setScaleMode(e.target.value as ScaleMode)}>
               <option value="beats">Beats & Bars</option>
               <option value="temporal">Temporal</option>
             </select>
           </Label>
         </ControlGroup>
-        {scaleMode === 'beats' && (
+        {scaleMode === 'beats' ? (
           <>
             <ControlGroup>
               <Label>
@@ -307,6 +319,19 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
               </Label>
             </ControlGroup>
           </>
+        ) : (
+          <ControlGroup>
+            <Label>
+              Snap{' '}
+              <select
+                value={temporalSnap ? 'on' : 'off'}
+                onChange={(e) => setTemporalSnap(e.target.value === 'on')}
+              >
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+            </Label>
+          </ControlGroup>
         )}
       </Controls>
 
@@ -316,13 +341,13 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
 };
 
 // Helper to get required file IDs for a track
-const getRequiredFileIds = (trackConfig: typeof trackConfigs[0]): string[] => {
-  return [...new Set(trackConfig.clips.map(clip => clip.fileId))];
+const getRequiredFileIds = (trackConfig: (typeof trackConfigs)[0]): string[] => {
+  return [...new Set(trackConfig.clips.map((clip) => clip.fileId))];
 };
 
 // Helper to create a track when all its required files are loaded
 const createTrackFromConfig = (
-  trackConfig: typeof trackConfigs[0],
+  trackConfig: (typeof trackConfigs)[0],
   fileBuffers: Map<string, AudioBuffer>
 ): ClipTrack => {
   const clips = trackConfig.clips.map((clipConfig) => {
@@ -361,6 +386,7 @@ export function BeatsAndBarsExample() {
   const [bpm, setBpm] = useState(120);
   const [timeSignature, setTimeSignature] = useState<[number, number]>([4, 4]);
   const [snapTo, setSnapTo] = useState<SnapTo>('beat');
+  const [temporalSnap, setTemporalSnap] = useState(true);
 
   // Load audio files PROGRESSIVELY - each file loads independently
   useEffect(() => {
@@ -380,12 +406,12 @@ export function BeatsAndBarsExample() {
 
         if (!cancelled) {
           // Update loaded files map for THIS file immediately
-          setLoadedFiles(prev => {
+          setLoadedFiles((prev) => {
             const newMap = new Map(prev);
             newMap.set(file.id, audioBuffer);
             return newMap;
           });
-          setLoadedCount(prev => prev + 1);
+          setLoadedCount((prev) => prev + 1);
         }
       } catch (err) {
         if (!cancelled) {
@@ -407,7 +433,7 @@ export function BeatsAndBarsExample() {
 
     for (const trackConfig of trackConfigs) {
       const requiredFileIds = getRequiredFileIds(trackConfig);
-      const allFilesLoaded = requiredFileIds.every(id => loadedFiles.has(id));
+      const allFilesLoaded = requiredFileIds.every((id) => loadedFiles.has(id));
 
       if (allFilesLoaded) {
         newTracks.push(createTrackFromConfig(trackConfig, loadedFiles));
@@ -421,9 +447,7 @@ export function BeatsAndBarsExample() {
 
   if (error) {
     return (
-      <div style={{ padding: '2rem', color: 'red' }}>
-        Error loading audio: {error.message}
-      </div>
+      <div style={{ padding: '2rem', color: 'red' }}>Error loading audio: {error.message}</div>
     );
   }
 
@@ -454,6 +478,8 @@ export function BeatsAndBarsExample() {
             setTimeSignature={setTimeSignature}
             snapTo={snapTo}
             setSnapTo={setSnapTo}
+            temporalSnap={temporalSnap}
+            setTemporalSnap={setTemporalSnap}
             loading={loading}
             loadedCount={loadedCount}
             totalCount={audioFiles.length}

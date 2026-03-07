@@ -24,4 +24,3 @@ export * from './TimeScale';
 export * from './Track';
 export * from './TrackControls';
 export * from './TrackMenu';
-export { StyledTimeScale } from './TimeScale';

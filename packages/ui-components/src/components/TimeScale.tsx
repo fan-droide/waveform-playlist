@@ -1,19 +1,10 @@
-import React, { FunctionComponent, useLayoutEffect, useContext, useMemo } from 'react';
+import React, { FunctionComponent, useLayoutEffect, useContext } from 'react';
 import styled, { withTheme, DefaultTheme } from 'styled-components';
 import { PlaylistInfoContext } from '../contexts/PlaylistInfo';
 import { useDevicePixelRatio } from '../contexts/DevicePixelRatio';
 import { useVisibleChunkIndices } from '../contexts/ScrollViewport';
 import { useChunkedCanvasRefs } from '../hooks/useChunkedCanvasRefs';
-import { secondsToPixels } from '../utils/conversions';
 import { MAX_CANVAS_WIDTH } from '@waveform-playlist/core';
-
-function formatTime(milliseconds: number) {
-  const seconds = Math.floor(milliseconds / 1000);
-  const s = seconds % 60;
-  const m = (seconds - s) / 60;
-
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
 
 interface PlaylistTimeScaleScrollProps {
   readonly $cssWidth: number;
@@ -47,20 +38,6 @@ const TimeTickChunk = styled.canvas.attrs<TimeTickChunkProps>((props) => ({
   bottom: 0;
 `;
 
-interface TimeStampProps {
-  readonly $left: number;
-}
-const TimeStamp = styled.div.attrs<TimeStampProps>((props) => ({
-  style: {
-    left: `${props.$left + 4}px`, // Offset 4px to the right of the tick
-  },
-}))<TimeStampProps>`
-  position: absolute;
-  font-size: 0.75rem; /* Smaller font to prevent overflow */
-  white-space: nowrap; /* Prevent text wrapping */
-  color: ${(props) => props.theme.timeColor}; /* Use theme color instead of inheriting */
-`;
-
 export interface PrecomputedTickData {
   widthX: number;
   canvasInfo: Map<number, number>;
@@ -69,12 +46,7 @@ export interface PrecomputedTickData {
 
 export interface TimeScaleProps {
   readonly theme?: DefaultTheme;
-  readonly duration: number;
-  readonly marker: number;
-  readonly bigStep: number;
-  readonly secondStep: number;
-  readonly renderTimestamp?: (timeMs: number, pixelPosition: number) => React.ReactNode;
-  readonly tickData?: PrecomputedTickData;
+  readonly tickData: PrecomputedTickData;
 }
 
 interface TimeScalePropsWithTheme extends TimeScaleProps {
@@ -84,74 +56,13 @@ interface TimeScalePropsWithTheme extends TimeScaleProps {
 export const TimeScale: FunctionComponent<TimeScalePropsWithTheme> = (props) => {
   const {
     theme: { timeColor },
-    duration,
-    marker,
-    bigStep,
-    secondStep,
-    renderTimestamp,
     tickData,
   } = props;
   const { canvasRef, canvasMapRef } = useChunkedCanvasRefs();
-  const { sampleRate, samplesPerPixel, timeScaleHeight } = useContext(PlaylistInfoContext);
+  const { timeScaleHeight } = useContext(PlaylistInfoContext);
   const devicePixelRatio = useDevicePixelRatio();
 
-  const computedTickData = useMemo(() => {
-    // When pre-computed tick data is provided (e.g., beats & bars mode),
-    // skip the millisecond-based iteration which breaks with non-integer step values.
-    if (tickData) return tickData;
-
-    const nextCanvasInfo = new Map<number, number>();
-    const nextMarkers: Array<{ pix: number; element: React.ReactNode }> = [];
-    const nextWidthX = secondsToPixels(duration / 1000, samplesPerPixel, sampleRate);
-    const pixPerSec = sampleRate / samplesPerPixel;
-    let counter = 0;
-
-    for (let i = 0; i < nextWidthX; i += (pixPerSec * secondStep) / 1000) {
-      const pix = Math.floor(i);
-
-      if (counter % marker === 0) {
-        const timeMs = counter;
-        const timestamp = formatTime(timeMs);
-
-        const element = renderTimestamp ? (
-          <React.Fragment key={`timestamp-${counter}`}>
-            {renderTimestamp(timeMs, pix)}
-          </React.Fragment>
-        ) : (
-          <TimeStamp key={timestamp} $left={pix}>
-            {timestamp}
-          </TimeStamp>
-        );
-
-        nextMarkers.push({ pix, element });
-        nextCanvasInfo.set(pix, timeScaleHeight);
-      } else if (counter % bigStep === 0) {
-        nextCanvasInfo.set(pix, Math.floor(timeScaleHeight / 2));
-      } else if (counter % secondStep === 0) {
-        nextCanvasInfo.set(pix, Math.floor(timeScaleHeight / 5));
-      }
-
-      counter += secondStep;
-    }
-
-    return {
-      widthX: nextWidthX,
-      canvasInfo: nextCanvasInfo,
-      timeMarkersWithPositions: nextMarkers,
-    };
-  }, [
-    tickData,
-    duration,
-    samplesPerPixel,
-    sampleRate,
-    marker,
-    bigStep,
-    secondStep,
-    renderTimestamp,
-    timeScaleHeight,
-  ]);
-
-  const { widthX, canvasInfo, timeMarkersWithPositions } = computedTickData;
+  const { widthX, canvasInfo, timeMarkersWithPositions } = tickData;
 
   const visibleChunkIndices = useVisibleChunkIndices(widthX, MAX_CANVAS_WIDTH);
 
@@ -215,15 +126,7 @@ export const TimeScale: FunctionComponent<TimeScalePropsWithTheme> = (props) => 
         ctx.fillRect(localX, scaleY, 1, scaleHeight);
       }
     }
-  }, [
-    canvasMapRef,
-    duration,
-    devicePixelRatio,
-    timeColor,
-    timeScaleHeight,
-    canvasInfo,
-    visibleChunkIndices,
-  ]);
+  }, [canvasMapRef, devicePixelRatio, timeColor, timeScaleHeight, canvasInfo, visibleChunkIndices]);
 
   return (
     <PlaylistTimeScaleScroll $cssWidth={widthX} $timeScaleHeight={timeScaleHeight}>
