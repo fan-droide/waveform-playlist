@@ -84,15 +84,23 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) =
       const durationSeconds = duration / 1000;
       const totalTicks = Math.ceil((durationSeconds * bpm * 192) / 60);
 
+      // Determine pixel spacing per beat to decide whether to show beat labels
+      const samplesPerBeat = ticksToSamples(tpBeat, bpm, sampleRate);
+      const pixelsPerBeat = samplesPerBeat / samplesPerPixel;
+      // Show beat labels when beats are at least 30px apart (enough for "1.2" text)
+      const showBeatLabels = pixelsPerBeat >= 30;
+
       for (let tick = 0; tick <= totalTicks; tick += tpBeat) {
         const samples = ticksToSamples(tick, bpm, sampleRate);
         const pix = samplesToPixels(samples, samplesPerPixel);
         if (pix >= widthX) break;
 
-        if (tick % tpBar === 0) {
-          // Bar line — full height tick + label
+        const isBarLine = tick % tpBar === 0;
+        const label = ticksToBarBeatLabel(tick, timeSignature);
+
+        if (isBarLine) {
+          // Bar line — full height tick + label (always shown)
           canvasInfo.set(pix, timeScaleHeight);
-          const label = ticksToBarBeatLabel(tick, timeSignature);
 
           const element = renderTick ? (
             <React.Fragment key={`bb-${tick}`}>{renderTick(label, pix)}</React.Fragment>
@@ -113,6 +121,25 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) =
         } else {
           // Beat line — medium height tick
           canvasInfo.set(pix, Math.floor(timeScaleHeight / 2));
+
+          if (showBeatLabels) {
+            const element = renderTick ? (
+              <React.Fragment key={`bb-${tick}`}>{renderTick(label, pix)}</React.Fragment>
+            ) : (
+              <div
+                key={`bb-${tick}`}
+                style={{
+                  position: 'absolute',
+                  left: `${pix + 4}px`,
+                  fontSize: '0.75rem',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {label}
+              </div>
+            );
+            timeMarkersWithPositions.push({ pix, element });
+          }
         }
       }
 
