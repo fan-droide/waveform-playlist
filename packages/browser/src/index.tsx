@@ -141,6 +141,7 @@ export type { SpectrogramIntegration } from './SpectrogramIntegrationContext';
 
 // Export modifiers and plugins for drag-and-drop
 export { ClipCollisionModifier } from './modifiers/ClipCollisionModifier';
+export { SnapToGridModifier } from './modifiers/SnapToGridModifier';
 export { noDropAnimationPlugins } from './plugins/noDropAnimationPlugins';
 
 // Export waveform-data.js utilities
