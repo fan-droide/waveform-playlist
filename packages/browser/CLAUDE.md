@@ -249,3 +249,15 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 - **Guard Before State Update in Callbacks** - In callbacks that update both React state and audio engine, validate inputs (e.g., trackId lookup) BEFORE calling `setState`. If the guard is after `setState`, invalid inputs cause UI/audio desync (UI updates but audio doesn't).
 - **RefObject Nullability** - `React.RefObject<T>` has `current: T | null` in React 18 types, even when initialized with a value. Call sites accessing hook-returned refs need `?? 0` (numbers) or `?? false` (booleans) fallbacks to satisfy TypeScript, even though the values are never actually null at runtime.
 - **Provider-Level Concerns Stay in Provider** - Callbacks with cross-cutting side-effects (e.g., `setSelection` updates currentTime and restarts playback, `setLoopRegionFromSelection` reads from selection hook and writes to loop hook) belong in the provider, not in individual state hooks. Hooks handle engine delegation + state mirroring only.
+
+## SnapToGridModifier (Beats & Bars)
+
+**Location:** `src/modifiers/SnapToGridModifier.ts`
+
+**Two modes via discriminated union:**
+- `mode: 'beats'` — Quantizes drag delta in PPQN tick space (bar or beat grid). Uses `samplesToTicks` → `snapToGrid` → `ticksToSamples` round-trip.
+- `mode: 'temporal'` — Quantizes by `gridSamples` (derived from `getScaleInfo(samplesPerPixel).smallStep`).
+
+**Skip boundary trims:** Only snaps clip moves, not left/right boundary trim handles.
+
+**Consumer pattern:** Example conditionally includes modifier in array (exclude entirely when snap is off) rather than relying solely on the modifier's internal `snapTo === 'off'` guard.

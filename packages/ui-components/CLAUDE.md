@@ -187,3 +187,19 @@ For programmatic `.click()` on file inputs, use `opacity: 0; width: 0; height: 0
 - **Canvas Cleanup on Chunk Changes** - `useChunkedCanvasRefs` runs cleanup on every render (no dependency array) because the virtualizer can unmount canvases between any render. SpectrogramChannel's worker registration effect uses `visibleChunkIndices` as a dependency so it re-runs when chunks mount/unmount, cleaning stale registrations and transferring new canvases in a single pass.
 - **Virtual Scrolling Chunk Offsets** - Canvas registries may contain non-consecutive chunks (e.g., chunks 50-55). Use `extractChunkNumber(canvasId)` to get the real chunk index — never compute offsets by summing widths from array index 0.
 - **Multi-Channel Rendering Fairness** - Render visible chunks for ALL channels before background batches. Sequential per-channel rendering causes channel starvation when generation aborts interrupt background work.
+
+## Beats & Bars Timescale
+
+**Architecture:** TimeScale is a pure tick renderer — accepts only `PrecomputedTickData` (`{ widthX, canvasInfo: Map<pixel, height>, timeMarkersWithPositions }`). SmartScale is the presentation layer that computes tick data for both modes.
+
+**Two modes in SmartScale:**
+- **Beats & bars:** PPQN 192 integer math (matching Tone.js). Iterates by beat ticks, converts to samples → pixels. Labels use `ticksToBarBeatLabel()`.
+- **Temporal:** Uses `timeinfo` map (zoom threshold → marker/bigStep/smallStep in ms). Iterates in pixel space, converts counter to labels via `formatTime()`.
+
+**Why integer PPQN math:** Millisecond-based modular arithmetic (`counter % marker === 0`) breaks with non-integer beat durations (e.g., 119 BPM = 504.20ms/beat — modulo never hits 0). Integer tick space avoids this entirely.
+
+**Key exports:** `getScaleInfo(samplesPerPixel)` returns `{ marker, bigStep, smallStep }` — used by both SmartScale (temporal tick computation) and `SnapToGridModifier` (temporal grid size).
+
+**BeatsAndBarsProvider:** Optional context (`useBeatsAndBars()` returns `null` when absent). Provides `bpm`, `timeSignature`, `snapTo`, derived `ticksPerBeat`, `ticksPerBar`. SmartScale reads this to decide which mode to render.
+
+**`formatTime` and `TimeStamp`:** Live in SmartScale (presentation concern), not TimeScale (pure renderer).
