@@ -814,7 +814,6 @@ interface KeyboardShortcutsProps {
   clipSplitting?: boolean;             // Default: false — 's' key splits clip at playhead
   annotations?: boolean;               // Default: false — arrow nav, boundary editing, Enter to play
   additionalShortcuts?: KeyboardShortcut[];  // Appended to enabled defaults
-  enabled?: boolean;                   // Default: true — disable all shortcuts
 }
 ```
 

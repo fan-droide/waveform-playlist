@@ -14,8 +14,6 @@ export interface KeyboardShortcutsProps {
   annotations?: boolean;
   /** Additional shortcuts appended to the defaults. */
   additionalShortcuts?: KeyboardShortcut[];
-  /** Disable all shortcuts. Defaults to true. */
-  enabled?: boolean;
 }
 
 /**
@@ -35,7 +33,6 @@ export const KeyboardShortcuts: React.FC<KeyboardShortcutsProps> = ({
   clipSplitting = false,
   annotations = false,
   additionalShortcuts = [],
-  enabled = true,
 }) => {
   // Clip splitting setup
   const { tracks, samplesPerPixel, sampleRate, playoutRef, duration } = usePlaylistData();
@@ -72,7 +69,7 @@ export const KeyboardShortcuts: React.FC<KeyboardShortcutsProps> = ({
 
   // Playback shortcuts (or just additional if playback is off)
   usePlaybackShortcuts({
-    enabled: enabled && (playback || allAdditional.length > 0),
+    enabled: playback || allAdditional.length > 0,
     ...(playback ? { additionalShortcuts: allAdditional } : { shortcuts: allAdditional }),
   });
 
@@ -89,7 +86,7 @@ export const KeyboardShortcuts: React.FC<KeyboardShortcutsProps> = ({
     samplesPerPixel,
     sampleRate,
     onPlay: play,
-    enabled: enabled && annotations && annotationList.length > 0,
+    enabled: annotations && annotationList.length > 0,
   });
 
   return null;
