@@ -1,6 +1,7 @@
 import React from 'react';
 import Layout from '@theme/Layout';
 import { createLazyExample } from '../../components/BrowserOnlyWrapper';
+import { AudioCredits } from '../../components/AudioCredits';
 
 const LazyExample = createLazyExample(
   () => import('../../components/examples/BeatsAndBarsExample').then(m => ({ default: m.BeatsAndBarsExample }))
@@ -19,6 +20,7 @@ export default function BeatsAndBarsPage(): React.ReactElement {
           Clips snap to the selected grid resolution when dragged.
         </p>
         <LazyExample />
+        <AudioCredits track="ubiquitous" />
       </main>
     </Layout>
   );

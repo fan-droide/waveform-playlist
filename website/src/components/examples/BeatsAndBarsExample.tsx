@@ -3,7 +3,16 @@ import styled from 'styled-components';
 import { DragDropProvider } from '@dnd-kit/react';
 import { RestrictToHorizontalAxis } from '@dnd-kit/abstract/modifiers';
 import { getGlobalAudioContext } from '@waveform-playlist/playout';
-import { createTrack, createClipFromSeconds, type ClipTrack } from '@waveform-playlist/core';
+import {
+  createTrack,
+  createClipFromSeconds,
+  ticksPerBeat,
+  ticksPerBar,
+  samplesToTicks,
+  ticksToSamples,
+  snapToGrid,
+  type ClipTrack,
+} from '@waveform-playlist/core';
 import {
   WaveformPlaylistProvider,
   usePlaylistData,
@@ -158,6 +167,25 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
   const { samplesPerPixel, sampleRate, playoutRef, isDraggingRef } = usePlaylistData();
   const { setSelectedTrackId } = usePlaylistControls();
 
+  // Snap function for boundary trims — snaps a sample position to the nearest grid line
+  const snapSamplePosition = React.useMemo(() => {
+    if (scaleMode === 'beats' && snapTo !== 'off') {
+      const gridTicks = snapTo === 'bar' ? ticksPerBar(timeSignature) : ticksPerBeat(timeSignature);
+      return (samplePos: number) => {
+        const ticks = samplesToTicks(samplePos, bpm, sampleRate);
+        const snapped = snapToGrid(ticks, gridTicks);
+        return ticksToSamples(snapped, bpm, sampleRate);
+      };
+    }
+    if (scaleMode === 'temporal' && temporalSnap) {
+      const gridSamples = Math.round(
+        (getScaleInfo(samplesPerPixel).smallStep / 1000) * sampleRate
+      );
+      return (samplePos: number) => Math.round(samplePos / gridSamples) * gridSamples;
+    }
+    return undefined;
+  }, [scaleMode, snapTo, temporalSnap, bpm, timeSignature, sampleRate, samplesPerPixel]);
+
   const sensors = useDragSensors();
   const {
     onDragStart: handleDragStart,
@@ -170,6 +198,7 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
     sampleRate,
     engineRef: playoutRef,
     isDraggingRef,
+    snapSamplePosition,
   });
 
   const onDragStart = (event: Parameters<typeof handleDragStart>[0]) => {
@@ -383,7 +412,7 @@ export function BeatsAndBarsExample() {
   const [loadedCount, setLoadedCount] = useState(0);
 
   const [scaleMode, setScaleMode] = useState<ScaleMode>('beats');
-  const [bpm, setBpm] = useState(120);
+  const [bpm, setBpm] = useState(126);
   const [timeSignature, setTimeSignature] = useState<[number, number]>([4, 4]);
   const [snapTo, setSnapTo] = useState<SnapTo>('beat');
   const [temporalSnap, setTemporalSnap] = useState(true);

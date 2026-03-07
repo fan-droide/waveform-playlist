@@ -50,14 +50,25 @@ export class SnapToGridModifier extends Modifier<
 
     if (!this.options || !source?.data) return transform;
 
-    // Don't snap boundary trims — only snap clip moves
-    const { boundary } = source.data as { boundary?: 'left' | 'right' };
+    // Don't snap boundary trims — snapping for trims is handled in the drag handler
+    const { boundary, startSample } = source.data as {
+      boundary?: 'left' | 'right';
+      startSample?: number;
+    };
     if (boundary) return transform;
 
     const { samplesPerPixel } = this.options;
 
+    // Snap the absolute position (not just the delta) so clips land exactly
+    // on grid lines even if they started off-grid.
     if (this.options.mode === 'temporal') {
       const { gridSamples } = this.options;
+      if (startSample !== undefined) {
+        const proposedPosition = startSample + transform.x * samplesPerPixel;
+        const snappedPosition = Math.round(proposedPosition / gridSamples) * gridSamples;
+        return { x: (snappedPosition - startSample) / samplesPerPixel, y: 0 };
+      }
+      // Fallback: snap delta (no startSample available)
       const deltaSamples = transform.x * samplesPerPixel;
       const snappedSamples = Math.round(deltaSamples / gridSamples) * gridSamples;
       return { x: snappedSamples / samplesPerPixel, y: 0 };
@@ -70,7 +81,16 @@ export class SnapToGridModifier extends Modifier<
 
     const gridTicks = snapTo === 'bar' ? ticksPerBar(timeSignature) : ticksPerBeat(timeSignature);
 
-    // Convert pixel delta to ticks, quantize, convert back to pixels
+    if (startSample !== undefined) {
+      // Snap absolute position in tick space
+      const proposedSamples = startSample + transform.x * samplesPerPixel;
+      const proposedTicks = samplesToTicks(proposedSamples, bpm, sampleRate);
+      const snappedTicks = snapToGrid(proposedTicks, gridTicks);
+      const snappedSamples = ticksToSamples(snappedTicks, bpm, sampleRate);
+      return { x: (snappedSamples - startSample) / samplesPerPixel, y: 0 };
+    }
+
+    // Fallback: snap delta (no startSample available)
     const deltaSamples = transform.x * samplesPerPixel;
     const deltaTicks = samplesToTicks(deltaSamples, bpm, sampleRate);
     const snappedTicks = snapToGrid(deltaTicks, gridTicks);

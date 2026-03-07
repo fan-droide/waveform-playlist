@@ -203,3 +203,7 @@ For programmatic `.click()` on file inputs, use `opacity: 0; width: 0; height: 0
 **BeatsAndBarsProvider:** Optional context (`useBeatsAndBars()` returns `null` when absent). Provides `bpm`, `timeSignature`, `snapTo`, derived `ticksPerBeat`, `ticksPerBar`. SmartScale reads this to decide which mode to render.
 
 **`formatTime` and `TimeStamp`:** Live in SmartScale (presentation concern), not TimeScale (pure renderer).
+
+## Clip Draggable Data Shape
+
+All three draggables in `Clip.tsx` include `startSample` and `durationSamples` in their `data` object (alongside `clipId`, `trackIndex`, `clipIndex`, and optional `boundary`). This allows modifiers like `SnapToGridModifier` to compute absolute timeline positions for grid snapping.

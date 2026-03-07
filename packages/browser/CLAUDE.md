@@ -255,9 +255,21 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 **Location:** `src/modifiers/SnapToGridModifier.ts`
 
 **Two modes via discriminated union:**
-- `mode: 'beats'` — Quantizes drag delta in PPQN tick space (bar or beat grid). Uses `samplesToTicks` → `snapToGrid` → `ticksToSamples` round-trip.
+- `mode: 'beats'` — Quantizes in PPQN tick space (bar or beat grid). Uses `samplesToTicks` → `snapToGrid` → `ticksToSamples` round-trip.
 - `mode: 'temporal'` — Quantizes by `gridSamples` (derived from `getScaleInfo(samplesPerPixel).smallStep`).
 
-**Skip boundary trims:** Only snaps clip moves, not left/right boundary trim handles.
+**Boundary trims:** Modifier skips trims (returns `transform` unchanged). Trim snapping is handled in `useClipDragHandlers` via optional `snapSamplePosition` callback.
 
 **Consumer pattern:** Example conditionally includes modifier in array (exclude entirely when snap is off) rather than relying solely on the modifier's internal `snapTo === 'off'` guard.
+
+## Snap-to-Grid: Absolute Position, Not Delta
+
+**Decision:** Snap the clip's absolute timeline position to the grid, not the drag delta.
+
+**Why:** Delta-snapping preserves off-grid offsets permanently — if a clip starts off-grid (from collision, initial placement, or trimming), snapping the delta to grid-sized increments keeps it at the same offset from every grid line.
+
+**Move snapping (SnapToGridModifier):** Reads `startSample` from `source.data`, computes `proposedPosition = startSample + delta`, snaps that to grid, derives delta as `(snappedPosition - startSample) / samplesPerPixel`.
+
+**Trim snapping (useClipDragHandlers):** Optional `snapSamplePosition` callback. After `calculateBoundaryTrim`, snaps the boundary's absolute position (left → snap `startSample`, right → snap end position). Stored in ref to avoid dependency churn. `lastBoundaryDeltaRef` uses the effective (snapped) delta so `engine.trimClip()` gets the correct value.
+
+**Draggable data:** `Clip.tsx` includes `startSample` and `durationSamples` in all draggable `data` objects (clip move + both boundary handles) so modifiers can compute absolute positions.
