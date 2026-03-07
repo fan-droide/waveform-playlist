@@ -51,6 +51,30 @@ export default function BeatsAndBarsPage(): React.ReactElement {
             beat), ensuring clips align perfectly with the musical grid regardless of
             tempo or time signature.
           </p>
+
+          <h3>How PPQN relates to BPM</h3>
+          <p>
+            PPQN defines <em>spatial</em> resolution (how many ticks per beat), while
+            BPM defines <em>temporal</em> resolution (how fast beats play). Together
+            they determine the real-time duration of a single tick:
+          </p>
+          <p style={{ textAlign: 'center' }}>
+            <code>tick duration = 60 / (BPM &times; PPQN)</code>
+          </p>
+          <p>
+            At <strong>120 BPM</strong> with 192 PPQN, each tick
+            is <code>60 / (120 &times; 192) &asymp; 0.0026s</code> (about 2.6 ms).
+            Double the tempo to <strong>240 BPM</strong> and each tick
+            halves to ~1.3 ms — but there are still exactly 192 ticks per
+            beat. This is why PPQN is tempo-independent: it measures
+            musical position, not clock time.
+          </p>
+          <p>
+            When you change the BPM slider above, the waveforms stretch or compress
+            because each bar occupies a different number of audio samples. But the
+            snap grid stays musically consistent — a clip snapped to beat 3 stays on
+            beat 3 at any tempo.
+          </p>
         </div>
 
         <AudioCredits track="ubiquitous" />
