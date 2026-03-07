@@ -1,6 +1,6 @@
 {
   "name": "@waveform-playlist/recording",
-  "version": "9.1.2",
+  "version": "9.2.0",
   "description": "Audio recording support for waveform-playlist using AudioWorklet",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
