@@ -242,6 +242,24 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 
 **Affected:** `PlaylistVisualization`, `MediaElementPlaylist`, `AnimatedPlayhead`, `AnimatedMediaElementPlayhead`, `WaveformPlaylistContext` (auto-scroll + zoom), `MediaElementPlaylistContext` (auto-scroll), `useAnnotationKeyboardControls`.
 
+## Derived State Sync: setState During Render, Not useEffect
+
+**Problem:** Syncing `useMemo` output to `useState` via `useEffect` causes a 1-render lag. If another prop (e.g., `deferEngineRebuild`) changes in a separate React batch, downstream consumers see stale state and re-run effects (double engine rebuild).
+
+**Fix:** Use synchronous setState-during-render (React's "getDerivedStateFromProps" pattern):
+
+```typescript
+const derived = useMemo(() => compute(input), [input]);
+const [state, setState] = useState(derived);
+const prevRef = useRef(derived);
+if (derived !== prevRef.current) {
+  prevRef.current = derived;
+  setState(derived);
+}
+```
+
+**When:** Any time derived state feeds into `WaveformPlaylistProvider` props alongside other props that may change in separate batches.
+
 ## Important Patterns (Browser-Specific)
 
 - **Context Value Memoization** - All context value objects in providers must be wrapped with `useMemo`. Extract inline callbacks into `useCallback` first to avoid dependency churn.

@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import styled from 'styled-components';
 import { DragDropProvider } from '@dnd-kit/react';
 import { RestrictToHorizontalAxis } from '@dnd-kit/abstract/modifiers';
-import { getGlobalAudioContext } from '@waveform-playlist/playout';
 import {
   createTrack,
   createClipFromSeconds,
@@ -24,6 +23,7 @@ import {
   noDropAnimationPlugins,
   useClipSplitting,
   usePlaybackShortcuts,
+  useAudioFiles,
   Waveform,
   PlayButton,
   PauseButton,
@@ -408,9 +408,6 @@ const buildTracks = (fileBuffers: Map<string, AudioBuffer>): ClipTrack[] =>
 
 export function BeatsAndBarsExample() {
   const { theme } = useDocusaurusTheme();
-  const [loadedFiles, setLoadedFiles] = useState<Map<string, AudioBuffer>>(new Map());
-  const [error, setError] = useState<Error | null>(null);
-  const [loadedCount, setLoadedCount] = useState(0);
 
   const [scaleMode, setScaleMode] = useState<ScaleMode>('beats');
   const [bpm, setBpm] = useState(126);
@@ -418,58 +415,25 @@ export function BeatsAndBarsExample() {
   const [snapTo, setSnapTo] = useState<SnapTo>('beat');
   const [temporalSnap, setTemporalSnap] = useState(true);
 
+  // Load audio files via reusable hook — each file decoded in parallel
+  const { buffers, loading, error, loadedCount, totalCount } = useAudioFiles(audioFiles);
+
   // Build tracks from config — placeholder clips render immediately,
   // audioBuffers are attached as they load (peaks fill in progressively).
-  const tracks = React.useMemo(() => buildTracks(loadedFiles), [loadedFiles]);
+  const tracks = React.useMemo(() => buildTracks(buffers), [buffers]);
   const [tracksState, setTracks] = useState<ClipTrack[]>(tracks);
 
-  // Sync derived tracks into state (state is needed for drag/trim mutations)
-  useEffect(() => {
+  // Sync derived tracks into state synchronously during render.
+  // useEffect sync causes a 1-render lag — if loading flips to false in a
+  // separate batch, the provider sees stale tracksState and rebuilds twice.
+  const prevTracksRef = useRef(tracks);
+  if (tracks !== prevTracksRef.current) {
+    prevTracksRef.current = tracks;
     setTracks(tracks);
-  }, [tracks]);
-
-  // Load audio files in parallel — each file updates loadedFiles independently
-  useEffect(() => {
-    let cancelled = false;
-    const audioContext = getGlobalAudioContext();
-
-    audioFiles.forEach(async (file) => {
-      try {
-        const response = await fetch(file.src);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch ${file.src}: ${response.statusText}`);
-        }
-
-        const arrayBuffer = await response.arrayBuffer();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-        if (!cancelled) {
-          setLoadedFiles((prev) => {
-            const newMap = new Map(prev);
-            newMap.set(file.id, audioBuffer);
-            return newMap;
-          });
-          setLoadedCount((prev) => prev + 1);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error(`Failed to load ${file.id}:`, err);
-          setError(err as Error);
-        }
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const loading = loadedCount < audioFiles.length;
+  }
 
   if (error) {
-    return (
-      <div style={{ padding: '2rem', color: 'red' }}>Error loading audio: {error.message}</div>
-    );
+    return <div style={{ padding: '2rem', color: 'red' }}>Error loading audio: {error}</div>;
   }
 
   return (
@@ -504,7 +468,7 @@ export function BeatsAndBarsExample() {
             setTemporalSnap={setTemporalSnap}
             loading={loading}
             loadedCount={loadedCount}
-            totalCount={audioFiles.length}
+            totalCount={totalCount}
           />
         </BeatsAndBarsProvider>
       ) : (
@@ -523,7 +487,7 @@ export function BeatsAndBarsExample() {
           setTemporalSnap={setTemporalSnap}
           loading={loading}
           loadedCount={loadedCount}
-          totalCount={audioFiles.length}
+          totalCount={totalCount}
         />
       )}
     </WaveformPlaylistProvider>

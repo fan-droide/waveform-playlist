@@ -40,6 +40,7 @@ export {
   getShortcutLabel,
   usePlaybackShortcuts,
   useAudioTracks,
+  useAudioFiles,
   useZoomControls,
   useTimeFormat,
   useMasterVolume,
@@ -51,6 +52,7 @@ export {
 } from './hooks';
 export type {
   AudioTrackConfig,
+  AudioFileConfig,
   UsePlaybackShortcutsOptions,
   UsePlaybackShortcutsReturn,
   ZoomControls,

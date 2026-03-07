@@ -21,6 +21,9 @@ export { useMasterAnalyser } from './useAudioEffects';
 export { useAudioTracks } from './useAudioTracks';
 export type { AudioTrackConfig, UseAudioTracksOptions } from './useAudioTracks';
 
+export { useAudioFiles } from './useAudioFiles';
+export type { AudioFileConfig } from './useAudioFiles';
+
 export { useClipDragHandlers } from './useClipDragHandlers';
 
 export { useAnnotationDragHandlers } from './useAnnotationDragHandlers';
