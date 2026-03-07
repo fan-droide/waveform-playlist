@@ -777,7 +777,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         // Use correct channel count from audioBuffer to prevent track height shift
         // when peaks arrive (mono mode collapses to 1 channel).
         if (!peaks) {
-          if (!clip.audioBuffer && !clip.waveformData && !clip.midiNotes) {
+          if (!deferEngineRebuild && !clip.audioBuffer && !clip.waveformData && !clip.midiNotes) {
             console.warn(
               `[waveform-playlist] Clip "${clip.id}" has no audio data or waveform data`
             );
@@ -813,7 +813,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     });
 
     setPeaksDataArray(allTrackPeaks);
-  }, [tracks, samplesPerPixel, mono, waveformDataCache]);
+  }, [tracks, samplesPerPixel, mono, waveformDataCache, deferEngineRebuild]);
 
   // Returns current playback time from engine (auto-wraps at loop boundaries).
   // Falls back to manual calculation when engine is unavailable.
