@@ -35,7 +35,14 @@ import {
   AutomaticScrollCheckbox,
   MasterVolumeControl,
 } from '@waveform-playlist/browser';
-import { BeatsAndBarsProvider, getScaleInfo, type SnapTo } from '@waveform-playlist/ui-components';
+import {
+  BeatsAndBarsProvider,
+  getScaleInfo,
+  BaseSelectSmall,
+  BaseInputSmall,
+  InlineLabel,
+  type SnapTo,
+} from '@waveform-playlist/ui-components';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
 
 const Controls = styled.div`
@@ -56,12 +63,6 @@ const ControlGroup = styled.div`
   &:last-child {
     border-right: none;
   }
-`;
-
-const Label = styled.label`
-  font-size: 0.8rem;
-  color: var(--ifm-color-emphasis-600);
-  white-space: nowrap;
 `;
 
 // Audio files - each file is loaded and decoded once
@@ -292,20 +293,23 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
       </Controls>
       <Controls>
         <ControlGroup>
-          <Label>
+          <InlineLabel>
             Scale{' '}
-            <select value={scaleMode} onChange={(e) => setScaleMode(e.target.value as ScaleMode)}>
-              <option value="beats">Beats & Bars</option>
+            <BaseSelectSmall
+              value={scaleMode}
+              onChange={(e) => setScaleMode(e.target.value as ScaleMode)}
+            >
+              <option value="beats">Beats &amp; Bars</option>
               <option value="temporal">Temporal</option>
-            </select>
-          </Label>
+            </BaseSelectSmall>
+          </InlineLabel>
         </ControlGroup>
         {scaleMode === 'beats' ? (
           <>
             <ControlGroup>
-              <Label>
+              <InlineLabel>
                 BPM{' '}
-                <input
+                <BaseInputSmall
                   type="number"
                   min={20}
                   max={300}
@@ -316,12 +320,12 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
                   }}
                   style={{ width: 60 }}
                 />
-              </Label>
+              </InlineLabel>
             </ControlGroup>
             <ControlGroup>
-              <Label>
+              <InlineLabel>
                 Time Sig{' '}
-                <select
+                <BaseSelectSmall
                   value={`${timeSignature[0]}/${timeSignature[1]}`}
                   onChange={(e) => {
                     const [num, den] = e.target.value.split('/').map(Number);
@@ -334,32 +338,35 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
                   <option value="2/2">2/2</option>
                   <option value="5/4">5/4</option>
                   <option value="7/8">7/8</option>
-                </select>
-              </Label>
+                </BaseSelectSmall>
+              </InlineLabel>
             </ControlGroup>
             <ControlGroup>
-              <Label>
+              <InlineLabel>
                 Snap{' '}
-                <select value={snapTo} onChange={(e) => setSnapTo(e.target.value as SnapTo)}>
+                <BaseSelectSmall
+                  value={snapTo}
+                  onChange={(e) => setSnapTo(e.target.value as SnapTo)}
+                >
                   <option value="bar">Bar</option>
                   <option value="beat">Beat</option>
                   <option value="off">Off</option>
-                </select>
-              </Label>
+                </BaseSelectSmall>
+              </InlineLabel>
             </ControlGroup>
           </>
         ) : (
           <ControlGroup>
-            <Label>
+            <InlineLabel>
               Snap{' '}
-              <select
+              <BaseSelectSmall
                 value={temporalSnap ? 'on' : 'off'}
                 onChange={(e) => setTemporalSnap(e.target.value === 'on')}
               >
                 <option value="on">On</option>
                 <option value="off">Off</option>
-              </select>
-            </Label>
+              </BaseSelectSmall>
+            </InlineLabel>
           </ControlGroup>
         )}
       </Controls>
@@ -526,6 +533,8 @@ export function BeatsAndBarsExample() {
           setTimeSignature={setTimeSignature}
           snapTo={snapTo}
           setSnapTo={setSnapTo}
+          temporalSnap={temporalSnap}
+          setTemporalSnap={setTemporalSnap}
           loading={loading}
           loadedCount={loadedCount}
           totalCount={audioFiles.length}
