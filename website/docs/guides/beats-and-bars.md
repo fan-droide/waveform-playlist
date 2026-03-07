@@ -34,55 +34,37 @@ When `BeatsAndBarsProvider` is present, the timescale automatically switches fro
 
 ## Snap-to-Grid
 
-To enable snap-to-grid when dragging clips, use the `SnapToGridModifier` with `DragDropProvider`:
+Wrap your `Waveform` with `ClipInteractionProvider` to enable drag/move/trim with snap-to-grid. Set `snap` to enable snapping — it auto-detects beats mode from `BeatsAndBarsProvider` context:
 
 ```tsx
-import { DragDropProvider } from '@dnd-kit/react';
-import {
-  useClipDragHandlers,
-  useDragSensors,
-  ClipCollisionModifier,
-  SnapToGridModifier,
-  noDropAnimationPlugins,
-} from '@waveform-playlist/browser';
-import { useBeatsAndBars } from '@waveform-playlist/ui-components';
+import { WaveformPlaylistProvider, Waveform, ClipInteractionProvider } from '@waveform-playlist/browser';
+import { BeatsAndBarsProvider } from '@waveform-playlist/ui-components';
 
-function PlaylistWithSnap() {
-  const beatsAndBars = useBeatsAndBars();
-  const sensors = useDragSensors();
-  const { onDragStart, onDragMove, onDragEnd } = useClipDragHandlers({
-    snapSamplePosition: beatsAndBars?.snapTo !== 'off'
-      ? beatsAndBars.snapSamplePosition
-      : undefined,
-  });
-
-  const modifiers = [ClipCollisionModifier];
-  if (beatsAndBars?.snapTo !== 'off') {
-    modifiers.push(
-      SnapToGridModifier.configure({
-        mode: 'beats',
-        bpm: beatsAndBars.bpm,
-        timeSignature: beatsAndBars.timeSignature,
-        snapTo: beatsAndBars.snapTo,
-        sampleRate: 48000,
-      })
-    );
-  }
-
-  return (
-    <DragDropProvider
-      sensors={sensors}
-      modifiers={modifiers}
-      plugins={noDropAnimationPlugins}
-      onDragStart={onDragStart}
-      onDragMove={onDragMove}
-      onDragEnd={onDragEnd}
-    >
-      <Waveform showClipHeaders interactiveClips />
-    </DragDropProvider>
-  );
-}
+<WaveformPlaylistProvider tracks={tracks} timescale>
+  <BeatsAndBarsProvider bpm={120} timeSignature={[4, 4]} snapTo="beat">
+    <ClipInteractionProvider snap>
+      <Waveform showClipHeaders />
+    </ClipInteractionProvider>
+  </BeatsAndBarsProvider>
+</WaveformPlaylistProvider>
 ```
+
+`ClipInteractionProvider` handles all the drag sensors, collision detection, snap modifiers, and drag handlers internally. The `interactiveClips` prop on `Waveform` is auto-enabled when inside a `ClipInteractionProvider`.
+
+When `snap` is enabled, the provider reads from `BeatsAndBarsProvider` context:
+- If `scaleMode="beats"` and `snapTo` is `"beat"` or `"bar"` → clips snap to the beat/bar grid
+- Otherwise → clips snap to the timescale grid (derived from zoom level)
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `snap` | `boolean` | `false` | Enable snap-to-grid (auto-detects beats vs timescale from context) |
+| `touchOptimized` | `boolean` | `false` | 250ms delay activation for touch input |
+
+:::info Advanced: Manual DragDropProvider Setup
+
+For full control over drag sensors, modifiers, and handlers, you can bypass `ClipInteractionProvider` and configure `DragDropProvider` directly with `useClipDragHandlers`, `useDragSensors`, `ClipCollisionModifier`, and `SnapToGridModifier`. See the [LLM API Reference](/docs/api/llm-reference) for the complete hook and modifier signatures.
+
+:::
 
 ### Snap Modes
 

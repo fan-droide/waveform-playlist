@@ -6,6 +6,7 @@ import type {
   RenderAnnotationItemProps,
 } from '@waveform-playlist/core';
 import { usePlaylistState } from '../WaveformPlaylistContext';
+import { useClipInteractionEnabled } from '../contexts/ClipInteractionContext';
 import type { GetAnnotationBoxLabelFn } from '../types/annotations';
 import { PlaylistVisualization } from './PlaylistVisualization';
 import { PlaylistAnnotationList } from './PlaylistAnnotationList';
@@ -39,7 +40,7 @@ export interface WaveformProps {
   scrollActiveContainer?: 'nearest' | 'all';
   className?: string;
   showClipHeaders?: boolean; // Show headers on clips for visual organization
-  interactiveClips?: boolean; // Enable dragging/trimming interactions on clips (requires @dnd-kit setup)
+  interactiveClips?: boolean; // Enable dragging/trimming interactions on clips (auto-enabled by ClipInteractionProvider)
   showFades?: boolean; // Show fade in/out overlays on clips
   /**
    * Enable mobile-optimized touch interactions.
@@ -86,6 +87,8 @@ export const Waveform: React.FC<WaveformProps> = ({
   recordingState,
 }) => {
   const { annotations } = usePlaylistState();
+  const clipInteractionEnabled = useClipInteractionEnabled();
+  const effectiveInteractiveClips = interactiveClips || clipInteractionEnabled;
 
   return (
     <>
@@ -102,7 +105,7 @@ export const Waveform: React.FC<WaveformProps> = ({
         getAnnotationBoxLabel={getAnnotationBoxLabel}
         className={className}
         showClipHeaders={showClipHeaders}
-        interactiveClips={interactiveClips}
+        interactiveClips={effectiveInteractiveClips}
         showFades={showFades}
         touchOptimized={touchOptimized}
         onRemoveTrack={onRemoveTrack}

@@ -472,14 +472,14 @@ type SnapTo = 'bar' | 'beat' | 'off';
 
 type SnapToGridOptions =
   | { mode: 'beats'; snapTo: SnapTo; bpm: number; timeSignature: [number, number]; samplesPerPixel: number; sampleRate: number }
-  | { mode: 'temporal'; gridSamples: number; samplesPerPixel: number };
+  | { mode: 'timescale'; gridSamples: number; samplesPerPixel: number };
 
 class SnapToGridModifier extends Modifier {
   static configure(options: SnapToGridOptions): PluginDescriptor;
 }
 ```
 
-Snap-to-grid modifier for clip moves. `'beats'` mode quantizes in PPQN tick space; `'temporal'` mode quantizes by `gridSamples`. Snaps the clip's absolute timeline position to the grid (not the drag delta). Skips boundary trims (handled separately by `useClipDragHandlers`). Compose: snap first, then `ClipCollisionModifier` constrains the snapped position.
+Snap-to-grid modifier for clip moves. `'beats'` mode quantizes in PPQN tick space; `'timescale'` mode quantizes by `gridSamples`. Snaps the clip's absolute timeline position to the grid (not the drag delta). Skips boundary trims (handled separately by `useClipDragHandlers`). Compose: snap first, then `ClipCollisionModifier` constrains the snapped position.
 
 ### noDropAnimationPlugins
 
@@ -779,6 +779,30 @@ Error Handling: PlaylistErrorBoundary (from @waveform-playlist/ui-components)
 ```
 
 All button/control components connect to context automatically. No props required for basic usage. All accept `className` and `style`.
+
+### ClipInteractionProvider
+
+```typescript
+import { ClipInteractionProvider } from '@waveform-playlist/browser';
+
+interface ClipInteractionProviderProps {
+  snap?: boolean;                      // Default: false — enable snap-to-grid (auto-detects beats vs timescale from context)
+  touchOptimized?: boolean;            // Default: false — 250ms delay activation for touch input
+  children: React.ReactNode;
+}
+```
+
+Declarative wrapper that encapsulates all clip drag/move/trim/snap/collision setup. Replaces manual `DragDropProvider` + `useClipDragHandlers` + `useDragSensors` + modifier configuration. When present, `interactiveClips` is auto-enabled on descendant `Waveform` components via `ClipInteractionContext`. When `snap` is enabled, reads `BeatsAndBarsProvider` context: if `scaleMode="beats"` and `snapTo!="off"`, clips snap to beats/bars; otherwise falls back to timescale-based snapping.
+
+#### `useClipInteractionEnabled()`
+
+```typescript
+import { useClipInteractionEnabled } from '@waveform-playlist/browser';
+
+function useClipInteractionEnabled(): boolean;
+```
+
+Returns `true` when the component is inside a `ClipInteractionProvider`. Used internally by `Waveform` to auto-enable `interactiveClips`.
 
 ### PlaylistErrorBoundary
 
