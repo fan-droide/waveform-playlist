@@ -1,8 +1,14 @@
-import React, { FunctionComponent, useContext, type ReactNode } from 'react';
+import React, { FunctionComponent, useContext, useMemo, type ReactNode } from 'react';
 import { PlaylistInfoContext } from '../contexts/PlaylistInfo';
 import { useBeatsAndBars } from '../contexts/BeatsAndBars';
 import { StyledTimeScale } from './TimeScale';
-import { PPQN, ticksToBarBeatLabel } from '@waveform-playlist/core';
+import type { PrecomputedTickData } from './TimeScale';
+import {
+  ticksToSamples,
+  ticksToBarBeatLabel,
+  samplesToPixels,
+  secondsToPixels,
+} from '@waveform-playlist/core';
 
 export interface SmartScaleProps {
   readonly renderTimestamp?: (timeMs: number, pixelPosition: number) => ReactNode;
@@ -35,34 +41,46 @@ export function getScaleInfo(samplesPerPixel: number) {
   return config;
 }
 
-/**
- * Convert PPQN ticks to milliseconds at a given BPM.
- */
-function ticksToMs(ticks: number, bpm: number): number {
-  return (ticks * 60000) / (bpm * PPQN);
-}
-
 export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTimestamp }) => {
-  const { samplesPerPixel, duration } = useContext(PlaylistInfoContext);
+  const { samplesPerPixel, sampleRate, duration, timeScaleHeight } =
+    useContext(PlaylistInfoContext);
   const beatsAndBars = useBeatsAndBars();
 
-  if (beatsAndBars) {
+  // Pre-compute tick data for beats & bars mode using integer PPQN math.
+  // This avoids TimeScale's millisecond-based modular arithmetic which breaks
+  // with non-integer beat durations (e.g., 119 BPM → 504.20ms per beat).
+  const beatsTickData = useMemo<PrecomputedTickData | null>(() => {
+    if (!beatsAndBars) return null;
+
     const { bpm, timeSignature, ticksPerBar: tpBar, ticksPerBeat: tpBeat } = beatsAndBars;
+    const widthX = secondsToPixels(duration / 1000, samplesPerPixel, sampleRate);
+    const canvasInfo = new Map<number, number>();
+    const timeMarkersWithPositions: Array<{ pix: number; element: React.ReactNode }> = [];
 
-    const barMs = ticksToMs(tpBar, bpm);
-    const beatMs = ticksToMs(tpBeat, bpm);
+    // Total duration in PPQN ticks
+    const durationSeconds = duration / 1000;
+    const totalTicks = Math.ceil((durationSeconds * bpm * 192) / 60);
 
-    const beatsRenderTimestamp =
-      renderTimestamp ??
-      ((timeMs: number, pixelPosition: number) => {
-        const ticks = Math.round((timeMs * bpm * PPQN) / 60000);
-        const label = ticksToBarBeatLabel(ticks, timeSignature);
-        return (
+    for (let tick = 0; tick <= totalTicks; tick += tpBeat) {
+      const samples = ticksToSamples(tick, bpm, sampleRate);
+      const pix = samplesToPixels(samples, samplesPerPixel);
+      if (pix >= widthX) break;
+
+      if (tick % tpBar === 0) {
+        // Bar line — full height tick + label
+        canvasInfo.set(pix, timeScaleHeight);
+        const label = ticksToBarBeatLabel(tick, timeSignature);
+
+        const element = renderTimestamp ? (
+          <React.Fragment key={`bb-${tick}`}>
+            {renderTimestamp((tick * 60000) / (bpm * 192), pix)}
+          </React.Fragment>
+        ) : (
           <div
-            key={`bb-${ticks}`}
+            key={`bb-${tick}`}
             style={{
               position: 'absolute',
-              left: `${pixelPosition + 4}px`,
+              left: `${pix + 4}px`,
               fontSize: '0.75rem',
               whiteSpace: 'nowrap',
             }}
@@ -70,15 +88,25 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTimestamp
             {label}
           </div>
         );
-      });
+        timeMarkersWithPositions.push({ pix, element });
+      } else {
+        // Beat line — medium height tick
+        canvasInfo.set(pix, Math.floor(timeScaleHeight / 2));
+      }
+    }
 
+    return { widthX, canvasInfo, timeMarkersWithPositions };
+  }, [beatsAndBars, duration, samplesPerPixel, sampleRate, timeScaleHeight, renderTimestamp]);
+
+  if (beatsTickData) {
+    // Pass pre-computed tick data; marker/bigStep/secondStep are unused but required by the interface
     return (
       <StyledTimeScale
-        marker={barMs}
-        bigStep={beatMs}
-        secondStep={beatMs}
+        marker={1}
+        bigStep={1}
+        secondStep={1}
         duration={duration}
-        renderTimestamp={beatsRenderTimestamp}
+        tickData={beatsTickData}
       />
     );
   }

@@ -61,6 +61,12 @@ const TimeStamp = styled.div.attrs<TimeStampProps>((props) => ({
   color: ${(props) => props.theme.timeColor}; /* Use theme color instead of inheriting */
 `;
 
+export interface PrecomputedTickData {
+  widthX: number;
+  canvasInfo: Map<number, number>;
+  timeMarkersWithPositions: Array<{ pix: number; element: React.ReactNode }>;
+}
+
 export interface TimeScaleProps {
   readonly theme?: DefaultTheme;
   readonly duration: number;
@@ -68,6 +74,7 @@ export interface TimeScaleProps {
   readonly bigStep: number;
   readonly secondStep: number;
   readonly renderTimestamp?: (timeMs: number, pixelPosition: number) => React.ReactNode;
+  readonly tickData?: PrecomputedTickData;
 }
 
 interface TimeScalePropsWithTheme extends TimeScaleProps {
@@ -82,12 +89,17 @@ export const TimeScale: FunctionComponent<TimeScalePropsWithTheme> = (props) => 
     bigStep,
     secondStep,
     renderTimestamp,
+    tickData,
   } = props;
   const { canvasRef, canvasMapRef } = useChunkedCanvasRefs();
   const { sampleRate, samplesPerPixel, timeScaleHeight } = useContext(PlaylistInfoContext);
   const devicePixelRatio = useDevicePixelRatio();
 
-  const { widthX, canvasInfo, timeMarkersWithPositions } = useMemo(() => {
+  const computedTickData = useMemo(() => {
+    // When pre-computed tick data is provided (e.g., beats & bars mode),
+    // skip the millisecond-based iteration which breaks with non-integer step values.
+    if (tickData) return tickData;
+
     const nextCanvasInfo = new Map<number, number>();
     const nextMarkers: Array<{ pix: number; element: React.ReactNode }> = [];
     const nextWidthX = secondsToPixels(duration / 1000, samplesPerPixel, sampleRate);
@@ -128,6 +140,7 @@ export const TimeScale: FunctionComponent<TimeScalePropsWithTheme> = (props) => 
       timeMarkersWithPositions: nextMarkers,
     };
   }, [
+    tickData,
     duration,
     samplesPerPixel,
     sampleRate,
@@ -137,6 +150,8 @@ export const TimeScale: FunctionComponent<TimeScalePropsWithTheme> = (props) => 
     renderTimestamp,
     timeScaleHeight,
   ]);
+
+  const { widthX, canvasInfo, timeMarkersWithPositions } = computedTickData;
 
   const visibleChunkIndices = useVisibleChunkIndices(widthX, MAX_CANVAS_WIDTH);
 
