@@ -804,6 +804,22 @@ function useClipInteractionEnabled(): boolean;
 
 Returns `true` when the component is inside a `ClipInteractionProvider`. Used internally by `Waveform` to auto-enable `interactiveClips`.
 
+### KeyboardShortcuts
+
+```typescript
+import { KeyboardShortcuts } from '@waveform-playlist/browser';
+
+interface KeyboardShortcutsProps {
+  playback?: boolean;                  // Default: false — Space (play/pause), Escape (stop), 0 (rewind)
+  clipSplitting?: boolean;             // Default: false — 's' key splits clip at playhead
+  annotations?: boolean;               // Default: false — arrow nav, boundary editing, Enter to play
+  additionalShortcuts?: KeyboardShortcut[];  // Appended to enabled defaults
+  enabled?: boolean;                   // Default: true — disable all shortcuts
+}
+```
+
+Self-closing component that sets up keyboard shortcuts declaratively. Must be inside `WaveformPlaylistProvider`. Reads all required data (tracks, sampleRate, samplesPerPixel, annotations, etc.) from context internally. Replaces manual `usePlaybackShortcuts` + `useClipSplitting` + `useAnnotationKeyboardControls` wiring.
+
 ### PlaylistErrorBoundary
 
 ```typescript

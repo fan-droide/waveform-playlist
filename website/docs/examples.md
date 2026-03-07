@@ -213,31 +213,21 @@ function FileUploader() {
 ### Keyboard Shortcuts
 
 ```tsx
-function KeyboardShortcuts() {
-  const { play, pause, stop, isPlaying, seekTo } = usePlaylistControls();
+import { KeyboardShortcuts } from '@waveform-playlist/browser';
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      switch (e.code) {
-        case 'Space':
-          e.preventDefault();
-          isPlaying ? pause() : play();
-          break;
-        case 'Home':
-          seekTo(0);
-          break;
-        case 'Escape':
-          stop();
-          break;
-      }
-    };
+// Declarative — just enable the features you want
+<WaveformPlaylistProvider tracks={tracks} {...}>
+  <KeyboardShortcuts playback clipSplitting />
+  <Waveform />
+</WaveformPlaylistProvider>
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [play, pause, stop, seek, isPlaying]);
-
-  return null;
-}
+// With custom shortcuts
+<KeyboardShortcuts
+  playback
+  additionalShortcuts={[
+    { key: 'r', action: startRecording, description: 'Record' },
+  ]}
+/>
 ```
 
 ### Save/Load State
