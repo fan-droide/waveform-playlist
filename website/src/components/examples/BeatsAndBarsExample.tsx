@@ -525,7 +525,7 @@ export function BeatsAndBarsExample() {
           setTemporalSnap={setTemporalSnap}
           loading={loading}
           loadedCount={loadedCount}
-          totalCount={totalCount}
+          totalCount={audioFiles.length}
         />
       )}
     </WaveformPlaylistProvider>
