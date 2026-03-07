@@ -66,7 +66,7 @@ const ControlSlot = styled.div.attrs<ControlSlotProps>((props) => ({
 
 export interface PlaylistVisualizationProps {
   renderTrackControls?: (trackIndex: number) => ReactNode;
-  renderTimestamp?: (timeMs: number, pixelPosition: number) => ReactNode;
+  renderTick?: (label: string, pixelPosition: number) => ReactNode;
   /** Custom playhead render function. Receives position (pixels) and color from theme. */
   renderPlayhead?: RenderPlayheadFunction;
   annotationControls?: AnnotationAction[];
@@ -110,7 +110,7 @@ export interface PlaylistVisualizationProps {
  */
 export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
   renderTrackControls,
-  renderTimestamp,
+  renderTick,
   renderPlayhead,
   annotationControls: _annotationControls,
   getAnnotationBoxLabel,
@@ -540,7 +540,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
           timescale={
             timeScaleHeight > 0 ? (
               <>
-                <SmartScale renderTimestamp={renderTimestamp} />
+                <SmartScale renderTick={renderTick} />
                 {isLoopEnabled && (
                   <TimescaleLoopRegion
                     startPosition={(Math.min(loopStart, loopEnd) * sampleRate) / samplesPerPixel}

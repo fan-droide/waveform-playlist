@@ -116,7 +116,7 @@ export const Clip: FunctionComponent<ClipProps> = ({
     isDragSource,
   } = useDraggable({
     id: draggableId,
-    data: { clipId, trackIndex, clipIndex },
+    data: { clipId, trackIndex, clipIndex, startSample, durationSamples },
     disabled: !enableDrag,
   });
 
@@ -126,7 +126,7 @@ export const Clip: FunctionComponent<ClipProps> = ({
   const leftBoundaryId = `clip-boundary-left-${trackIndex}-${clipIndex}`;
   const { ref: leftBoundaryRef, isDragSource: isLeftBoundaryDragging } = useDraggable({
     id: leftBoundaryId,
-    data: { clipId, trackIndex, clipIndex, boundary: 'left' },
+    data: { clipId, trackIndex, clipIndex, boundary: 'left', startSample, durationSamples },
     disabled: !enableDrag,
     feedback: 'none',
   });
@@ -135,7 +135,7 @@ export const Clip: FunctionComponent<ClipProps> = ({
   const rightBoundaryId = `clip-boundary-right-${trackIndex}-${clipIndex}`;
   const { ref: rightBoundaryRef, isDragSource: isRightBoundaryDragging } = useDraggable({
     id: rightBoundaryId,
-    data: { clipId, trackIndex, clipIndex, boundary: 'right' },
+    data: { clipId, trackIndex, clipIndex, boundary: 'right', startSample, durationSamples },
     disabled: !enableDrag,
     feedback: 'none',
   });

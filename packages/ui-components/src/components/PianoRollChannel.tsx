@@ -98,7 +98,6 @@ export const PianoRollChannel: FunctionComponent<PianoRollChannelProps> = ({
   // useEffect (not useLayoutEffect) so the browser paints the track layout
   // (controls + empty canvas containers) before heavy canvas drawing starts.
   useEffect(() => {
-    const tDraw = performance.now();
     const noteRange = maxMidi - minMidi + 1;
     const noteHeight = Math.max(2, waveHeight / noteRange);
     const pixelsPerSecond = sampleRate / samplesPerPixel;
@@ -146,9 +145,6 @@ export const PianoRollChannel: FunctionComponent<PianoRollChannelProps> = ({
 
       ctx.globalAlpha = 1;
     }
-    console.log(
-      `[piano-roll] draw ch${index}: ${canvasMapRef.current.size} chunks, ${midiNotes.length} notes, ${(performance.now() - tDraw).toFixed(1)}ms`
-    );
   }, [
     canvasMapRef,
     midiNotes,

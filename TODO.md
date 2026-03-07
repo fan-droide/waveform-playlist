@@ -54,6 +54,13 @@ Multi-track audio editor roadmap for waveform-playlist.
 - Accessibility (ARIA, focus management)
 - Context menus
 
+### Beats & Bars — Future Extensions
+
+- Tempo automation / tempo maps (multiple BPMs)
+- Time signature changes mid-timeline
+- Sub-beat snap granularities (1/8, 1/16, triplets)
+- Metronome / click track
+
 ### Future Considerations
 
 - Clip grouping

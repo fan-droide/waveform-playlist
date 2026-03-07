@@ -101,8 +101,8 @@ export function MinimalExample() {
     },
   ], []);
 
-  // Load audio tracks progressively
-  const { tracks, loading, error } = useAudioTracks(audioConfigs, { progressive: true });
+  // Load audio tracks with immediate placeholders
+  const { tracks, loading, error } = useAudioTracks(audioConfigs, { immediate: true });
 
   if (error) {
     return (

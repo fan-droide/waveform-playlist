@@ -464,12 +464,8 @@ const FlexibleApiContent: React.FC<FlexibleApiContentProps> = ({ tracks, onTrack
             <CustomTrackControls trackIndex={trackIndex} />
           )}
           renderPlayhead={(props) => <PlayheadWithMarker {...props} />}
-          renderTimestamp={(timeMs, pixelPosition) => {
-            const seconds = Math.floor(timeMs / 1000);
-            const minutes = Math.floor(seconds / 60);
-            const secs = seconds % 60;
-            const timestamp = `${minutes}:${String(secs).padStart(2, '0')}`;
-            return <GrungyTimestamp $left={pixelPosition}>{timestamp}</GrungyTimestamp>;
+          renderTick={(label, pixelPosition) => {
+            return <GrungyTimestamp $left={pixelPosition}>{label}</GrungyTimestamp>;
           }}
           showClipHeaders
           interactiveClips
@@ -559,11 +555,11 @@ export function FlexibleApiExample() {
     { src: '/waveform-playlist/media/audio/AlbertKader_Ubiquitous/11_Synth2.opus', name: 'Synth 2' },
   ], []);
 
-  // Load audio tracks PROGRESSIVELY - tracks appear as they load!
-  const { tracks: loadedTracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { progressive: true });
+  // Load audio tracks with immediate placeholders - peaks fill in as files decode
+  const { tracks: loadedTracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { immediate: true });
   const [tracks, setTracks] = useState<ClipTrack[]>([]);
 
-  // Update tracks state as they load progressively
+  // Update tracks state as they finish loading
   useEffect(() => {
     if (loadedTracks.length > 0) {
       setTracks(loadedTracks);

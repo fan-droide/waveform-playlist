@@ -18,6 +18,9 @@ interface UseClipDragHandlersOptions {
    *  skips engine rebuilds so engine keeps original clip positions. On drag end,
    *  engine.trimClip() commits the final delta. Obtain from usePlaylistData(). */
   isDraggingRef: React.MutableRefObject<boolean>;
+  /** Optional function that snaps a sample position to the nearest grid position.
+   *  Used for boundary trim snapping (move snapping is handled by the SnapToGridModifier). */
+  snapSamplePosition?: (samplePosition: number) => number;
 }
 
 /**
@@ -65,7 +68,11 @@ export function useClipDragHandlers({
   sampleRate,
   engineRef,
   isDraggingRef,
+  snapSamplePosition,
 }: UseClipDragHandlersOptions) {
+  // Store snap function in ref so onDragMove doesn't need it as a dependency
+  const snapSamplePositionRef = React.useRef(snapSamplePosition);
+  snapSamplePositionRef.current = snapSamplePosition;
   // Store original clip state when drag starts (for cumulative delta application)
   const originalClipStateRef = React.useRef<{
     offsetSamples: number;
@@ -141,6 +148,10 @@ export function useClipDragHandlers({
 
       // Get original clip state (stored on drag start)
       const originalClip = originalClipStateRef.current;
+      const snapFn = snapSamplePositionRef.current;
+
+      // Track the effective delta after snapping (for engine.trimClip on drag end)
+      let effectiveDelta = sampleDelta;
 
       // Update tracks in real-time during drag
       const newTracks = tracks.map((track, tIdx) => {
@@ -152,7 +163,7 @@ export function useClipDragHandlers({
         const newClips = track.clips.map((clip, cIdx) => {
           if (cIdx !== clipIndex) return clip;
 
-          const trimResult = calculateBoundaryTrim({
+          let trimResult = calculateBoundaryTrim({
             originalClip,
             clip,
             pixelDelta: rawDeltaX,
@@ -162,6 +173,30 @@ export function useClipDragHandlers({
             sortedClips,
             sortedIndex,
           });
+
+          // Snap the boundary position to the grid if a snap function is provided
+          if (snapFn) {
+            if (boundary === 'left') {
+              const snappedStart = snapFn(trimResult.startSample);
+              const delta = snappedStart - trimResult.startSample;
+              trimResult = {
+                startSample: snappedStart,
+                durationSamples: trimResult.durationSamples - delta,
+                offsetSamples: trimResult.offsetSamples + delta,
+              };
+              // Effective delta = how far the start moved from original
+              effectiveDelta = snappedStart - originalClip.startSample;
+            } else {
+              const endSample = trimResult.startSample + trimResult.durationSamples;
+              const snappedEnd = snapFn(endSample);
+              trimResult = {
+                ...trimResult,
+                durationSamples: snappedEnd - trimResult.startSample,
+              };
+              // Effective delta = how much the duration changed from original
+              effectiveDelta = trimResult.durationSamples - originalClip.durationSamples;
+            }
+          }
 
           return {
             ...clip,
@@ -174,7 +209,7 @@ export function useClipDragHandlers({
         return { ...track, clips: newClips };
       });
 
-      lastBoundaryDeltaRef.current = sampleDelta;
+      lastBoundaryDeltaRef.current = effectiveDelta;
       onTracksChange(newTracks);
     },
     [tracks, onTracksChange, samplesPerPixel, sampleRate]

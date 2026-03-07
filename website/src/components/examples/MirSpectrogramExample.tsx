@@ -110,7 +110,7 @@ export function MirSpectrogramExample() {
   const [userTracks, setUserTracks] = useState<ClipTrack[]>([]);
   const [removedBaseIds, setRemovedBaseIds] = useState<Set<string>>(new Set());
 
-  const { tracks: baseTracks, loading, error } = useAudioTracks(AUDIO_CONFIGS, { progressive: true });
+  const { tracks: baseTracks, loading, error } = useAudioTracks(AUDIO_CONFIGS, { immediate: true });
 
   const filteredBaseTracks = baseTracks.filter(t => !removedBaseIds.has(t.id));
   const allTracks = [...filteredBaseTracks, ...userTracks];

@@ -1,3 +1,4 @@
+import { BeatsAndBarsProvider, useBeatsAndBars } from './BeatsAndBars';
 import { useDevicePixelRatio, DevicePixelRatioProvider } from './DevicePixelRatio';
 import { usePlaylistInfo, PlaylistInfoContext } from './PlaylistInfo';
 import { useTheme } from './Theme';
@@ -11,8 +12,11 @@ import {
 } from './ScrollViewport';
 import { ClipViewportOriginProvider, useClipViewportOrigin } from './ClipViewportOrigin';
 export type { ScrollViewport } from './ScrollViewport';
+export type { BeatsAndBarsContextValue, BeatsAndBarsProviderProps, SnapTo } from './BeatsAndBars';
 
 export {
+  BeatsAndBarsProvider,
+  useBeatsAndBars,
   useDevicePixelRatio,
   DevicePixelRatioProvider,
   usePlaylistInfo,

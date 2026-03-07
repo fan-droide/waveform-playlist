@@ -242,6 +242,24 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 
 **Affected:** `PlaylistVisualization`, `MediaElementPlaylist`, `AnimatedPlayhead`, `AnimatedMediaElementPlayhead`, `WaveformPlaylistContext` (auto-scroll + zoom), `MediaElementPlaylistContext` (auto-scroll), `useAnnotationKeyboardControls`.
 
+## Derived State Sync: setState During Render, Not useEffect
+
+**Problem:** Syncing `useMemo` output to `useState` via `useEffect` causes a 1-render lag. If another prop (e.g., `deferEngineRebuild`) changes in a separate React batch, downstream consumers see stale state and re-run effects (double engine rebuild).
+
+**Fix:** Use synchronous setState-during-render (React's "getDerivedStateFromProps" pattern):
+
+```typescript
+const derived = useMemo(() => compute(input), [input]);
+const [state, setState] = useState(derived);
+const prevRef = useRef(derived);
+if (derived !== prevRef.current) {
+  prevRef.current = derived;
+  setState(derived);
+}
+```
+
+**When:** Any time derived state feeds into `WaveformPlaylistProvider` props alongside other props that may change in separate batches.
+
 ## Important Patterns (Browser-Specific)
 
 - **Context Value Memoization** - All context value objects in providers must be wrapped with `useMemo`. Extract inline callbacks into `useCallback` first to avoid dependency churn.
@@ -249,3 +267,27 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 - **Guard Before State Update in Callbacks** - In callbacks that update both React state and audio engine, validate inputs (e.g., trackId lookup) BEFORE calling `setState`. If the guard is after `setState`, invalid inputs cause UI/audio desync (UI updates but audio doesn't).
 - **RefObject Nullability** - `React.RefObject<T>` has `current: T | null` in React 18 types, even when initialized with a value. Call sites accessing hook-returned refs need `?? 0` (numbers) or `?? false` (booleans) fallbacks to satisfy TypeScript, even though the values are never actually null at runtime.
 - **Provider-Level Concerns Stay in Provider** - Callbacks with cross-cutting side-effects (e.g., `setSelection` updates currentTime and restarts playback, `setLoopRegionFromSelection` reads from selection hook and writes to loop hook) belong in the provider, not in individual state hooks. Hooks handle engine delegation + state mirroring only.
+
+## SnapToGridModifier (Beats & Bars)
+
+**Location:** `src/modifiers/SnapToGridModifier.ts`
+
+**Two modes via discriminated union:**
+- `mode: 'beats'` — Quantizes in PPQN tick space (bar or beat grid). Uses `samplesToTicks` → `snapToGrid` → `ticksToSamples` round-trip.
+- `mode: 'temporal'` — Quantizes by `gridSamples` (consumer typically derives this from `getScaleInfo(samplesPerPixel).smallStep * sampleRate / 1000`).
+
+**Boundary trims:** Modifier skips trims (returns `transform` unchanged). Trim snapping is handled in `useClipDragHandlers` via optional `snapSamplePosition` callback.
+
+**Consumer pattern:** Example conditionally includes modifier in array (exclude entirely when snap is off) rather than relying solely on the modifier's internal `snapTo === 'off'` guard.
+
+## Snap-to-Grid: Absolute Position, Not Delta
+
+**Decision:** Snap the clip's absolute timeline position to the grid, not the drag delta.
+
+**Why:** Delta-snapping preserves off-grid offsets permanently — if a clip starts off-grid (from collision, initial placement, or trimming), snapping the delta to grid-sized increments keeps it at the same offset from every grid line.
+
+**Move snapping (SnapToGridModifier):** Reads `startSample` from `source.data`, computes `proposedPosition = startSample + delta`, snaps that to grid, derives delta as `(snappedPosition - startSample) / samplesPerPixel`.
+
+**Trim snapping (useClipDragHandlers):** Optional `snapSamplePosition` callback. After `calculateBoundaryTrim`, snaps the boundary's absolute position (left → snap `startSample`, right → snap end position). Stored in ref to avoid dependency churn. `lastBoundaryDeltaRef` uses the effective (snapped) delta so `engine.trimClip()` gets the correct value.
+
+**Draggable data:** `Clip.tsx` includes `startSample` and `durationSamples` in all draggable `data` objects (clip move + both boundary handles) so modifiers can compute absolute positions.

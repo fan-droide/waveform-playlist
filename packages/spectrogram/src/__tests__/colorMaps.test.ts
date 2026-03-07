@@ -79,7 +79,7 @@ describe('getColorMap', () => {
 
   describe('LUT interpolation (custom color map)', () => {
     it('produces 256 entries from custom stops', () => {
-      const stops = [
+      const stops: [number, number, number][] = [
         [0, 0, 0],
         [255, 255, 255],
       ];
@@ -89,7 +89,7 @@ describe('getColorMap', () => {
     });
 
     it('interpolates linearly between two stops', () => {
-      const stops = [
+      const stops: [number, number, number][] = [
         [0, 0, 0],
         [255, 255, 255],
       ];
@@ -113,7 +113,7 @@ describe('getColorMap', () => {
     });
 
     it('handles three stops', () => {
-      const stops = [
+      const stops: [number, number, number][] = [
         [255, 0, 0], // Red
         [0, 255, 0], // Green
         [0, 0, 255], // Blue
@@ -132,7 +132,7 @@ describe('getColorMap', () => {
     });
 
     it('single stop repeats the same color for all entries', () => {
-      const stops = [[128, 64, 32]];
+      const stops: [number, number, number][] = [[128, 64, 32]];
       const lut = getColorMap(stops);
       for (let i = 0; i < 256; i++) {
         expect(lut[i * 3]).toBe(128);
