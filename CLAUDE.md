@@ -341,6 +341,7 @@ const LazyExample = createLazyExample(() =>
 24. **Shared Clip Pixel Width** — Use `clipPixelWidth()` from `@waveform-playlist/core` for any pixel width derived from `startSample`/`durationSamples`/`samplesPerPixel`. Both `Clip.tsx` (container) and `ChannelWithProgress.tsx` (progress overlay) must use this shared function — never `peaksData.length`, which may be shorter than the clip when audio is shorter than configured duration.
 25. **Grep Comments When Renaming APIs** — When renaming an option or prop across files (e.g., `progressive` → `immediate`), also grep for the old name in comments. Mechanical find-replace on code misses adjacent comments that describe the old behavior.
 26. **Prefer Props Over Mount/Unmount for Optional Providers** — If a provider controls both data (e.g., snap config) and rendering (e.g., timescale mode), add a mode prop instead of conditionally mounting/unmounting. Unmounting tears down the subtree and loses state; a prop switch is cheaper and keeps context consumers stable.
+27. **Stop Before Clear** — Always call `stop()` before clearing tracks. Clearing React state without stopping Tone.js Transport leaves orphaned audio playing. Use `ClearAllButton` (from `@waveform-playlist/browser`) which handles this automatically via `usePlaylistControls().stop()`.
 
 ---
 
