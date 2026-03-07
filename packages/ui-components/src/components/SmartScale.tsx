@@ -84,24 +84,50 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) =
       const durationSeconds = duration / 1000;
       const totalTicks = Math.ceil((durationSeconds * bpm * 192) / 60);
 
-      // Determine pixel spacing per beat to decide whether to show beat labels
-      const samplesPerBeat = ticksToSamples(tpBeat, bpm, sampleRate);
-      const pixelsPerBeat = samplesPerBeat / samplesPerPixel;
-      // Show beat labels when beats are at least 30px apart (enough for "1.2" text)
-      const showBeatLabels = pixelsPerBeat >= 30;
+      // Compute pixel spacing to determine tick density at this zoom level.
+      // We pick the finest granularity that keeps ticks >= MIN_TICK_PX apart.
+      const pixelsPerBeat = ticksToSamples(tpBeat, bpm, sampleRate) / samplesPerPixel;
+      const pixelsPerBar = ticksToSamples(tpBar, bpm, sampleRate) / samplesPerPixel;
 
-      for (let tick = 0; tick <= totalTicks; tick += tpBeat) {
+      const MIN_TICK_PX = 10; // Minimum pixels between tick marks
+      const MIN_LABEL_PX = 30; // Minimum pixels between labels
+
+      // Find the tick step: beat, bar, or N bars
+      let tickStep: number;
+      if (pixelsPerBeat >= MIN_TICK_PX) {
+        tickStep = tpBeat;
+      } else if (pixelsPerBar >= MIN_TICK_PX) {
+        tickStep = tpBar;
+      } else {
+        // Skip bars: find smallest multiplier that gives >= MIN_TICK_PX
+        const barsPerTick = Math.ceil(MIN_TICK_PX / pixelsPerBar);
+        tickStep = tpBar * barsPerTick;
+      }
+
+      // Find the label step: beat, bar, or N bars
+      let labelStep: number;
+      if (pixelsPerBeat >= MIN_LABEL_PX) {
+        labelStep = tpBeat;
+      } else if (pixelsPerBar >= MIN_LABEL_PX) {
+        labelStep = tpBar;
+      } else {
+        const barsPerLabel = Math.ceil(MIN_LABEL_PX / pixelsPerBar);
+        labelStep = tpBar * barsPerLabel;
+      }
+
+      for (let tick = 0; tick <= totalTicks; tick += tickStep) {
         const samples = ticksToSamples(tick, bpm, sampleRate);
         const pix = samplesToPixels(samples, samplesPerPixel);
         if (pix >= widthX) break;
 
         const isBarLine = tick % tpBar === 0;
-        const label = ticksToBarBeatLabel(tick, timeSignature);
+        const isLabelTick = tick % labelStep === 0;
 
-        if (isBarLine) {
-          // Bar line — full height tick + label (always shown)
-          canvasInfo.set(pix, timeScaleHeight);
+        // Tick height: bar lines are full height, beats are half
+        canvasInfo.set(pix, isBarLine ? timeScaleHeight : Math.floor(timeScaleHeight / 2));
 
+        if (isLabelTick) {
+          const label = ticksToBarBeatLabel(tick, timeSignature);
           const element = renderTick ? (
             <React.Fragment key={`bb-${tick}`}>{renderTick(label, pix)}</React.Fragment>
           ) : (
@@ -118,28 +144,6 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) =
             </div>
           );
           timeMarkersWithPositions.push({ pix, element });
-        } else {
-          // Beat line — medium height tick
-          canvasInfo.set(pix, Math.floor(timeScaleHeight / 2));
-
-          if (showBeatLabels) {
-            const element = renderTick ? (
-              <React.Fragment key={`bb-${tick}`}>{renderTick(label, pix)}</React.Fragment>
-            ) : (
-              <div
-                key={`bb-${tick}`}
-                style={{
-                  position: 'absolute',
-                  left: `${pix + 4}px`,
-                  fontSize: '0.75rem',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {label}
-              </div>
-            );
-            timeMarkersWithPositions.push({ pix, element });
-          }
         }
       }
 
