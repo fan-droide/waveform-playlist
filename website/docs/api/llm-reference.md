@@ -716,7 +716,7 @@ function usePlaybackShortcuts(options?: UsePlaybackShortcutsOptions): UsePlaybac
 ```typescript
 interface WaveformProps {
   renderTrackControls?: (trackIndex: number) => ReactNode;
-  renderTimestamp?: (timeMs: number, pixelPosition: number) => ReactNode;
+  renderTick?: (label: string, pixelPosition: number) => ReactNode;
   renderPlayhead?: RenderPlayheadFunction;
   renderAnnotationItem?: (props: RenderAnnotationItemProps) => ReactNode;
   getAnnotationBoxLabel?: GetAnnotationBoxLabelFn;

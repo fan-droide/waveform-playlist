@@ -103,7 +103,7 @@ export const TemporalVeryZoomedOut: Story = {
 
 export const TemporalCustomLabels: Story = {
   args: {
-    renderTimestamp: (timeMs: number, pixelPosition: number) => (
+    renderTick: (label: string, pixelPosition: number) => (
       <div
         style={{
           position: 'absolute',
@@ -113,7 +113,7 @@ export const TemporalCustomLabels: Story = {
           fontWeight: 'bold',
         }}
       >
-        {Math.floor(timeMs / 1000)}s
+        {label}
       </div>
     ),
   },
@@ -232,7 +232,7 @@ export const BeatsAndBarsZoomedOut: Story = {
 
 export const BeatsAndBarsCustomLabels: Story = {
   args: {
-    renderTimestamp: (timeMs: number, pixelPosition: number) => (
+    renderTick: (label: string, pixelPosition: number) => (
       <div
         style={{
           position: 'absolute',
@@ -243,7 +243,7 @@ export const BeatsAndBarsCustomLabels: Story = {
           fontFamily: 'monospace',
         }}
       >
-        {Math.floor(timeMs / 1000)}s
+        {label}
       </div>
     ),
   },

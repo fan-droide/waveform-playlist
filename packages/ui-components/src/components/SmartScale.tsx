@@ -12,7 +12,7 @@ import {
 } from '@waveform-playlist/core';
 
 export interface SmartScaleProps {
-  readonly renderTimestamp?: (timeMs: number, pixelPosition: number) => ReactNode;
+  readonly renderTick?: (label: string, pixelPosition: number) => ReactNode;
 }
 
 const timeinfo = new Map([
@@ -64,7 +64,7 @@ const TimeStamp = styled.div.attrs<TimeStampProps>((props) => ({
   color: ${(props) => props.theme.timeColor}; /* Use theme color instead of inheriting */
 `;
 
-export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTimestamp }) => {
+export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) => {
   const { samplesPerPixel, sampleRate, duration, timeScaleHeight } =
     useContext(PlaylistInfoContext);
   const beatsAndBars = useBeatsAndBars();
@@ -94,10 +94,8 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTimestamp
           canvasInfo.set(pix, timeScaleHeight);
           const label = ticksToBarBeatLabel(tick, timeSignature);
 
-          const element = renderTimestamp ? (
-            <React.Fragment key={`bb-${tick}`}>
-              {renderTimestamp((tick * 60000) / (bpm * 192), pix)}
-            </React.Fragment>
+          const element = renderTick ? (
+            <React.Fragment key={`bb-${tick}`}>{renderTick(label, pix)}</React.Fragment>
           ) : (
             <div
               key={`bb-${tick}`}
@@ -134,13 +132,10 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTimestamp
       const pix = Math.floor(i);
 
       if (counter % marker === 0) {
-        const timeMs = counter;
-        const timestamp = formatTime(timeMs);
+        const timestamp = formatTime(counter);
 
-        const element = renderTimestamp ? (
-          <React.Fragment key={`timestamp-${counter}`}>
-            {renderTimestamp(timeMs, pix)}
-          </React.Fragment>
+        const element = renderTick ? (
+          <React.Fragment key={`timestamp-${counter}`}>{renderTick(timestamp, pix)}</React.Fragment>
         ) : (
           <TimeStamp key={timestamp} $left={pix}>
             {timestamp}
@@ -159,7 +154,7 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTimestamp
     }
 
     return { widthX, canvasInfo, timeMarkersWithPositions };
-  }, [beatsAndBars, duration, samplesPerPixel, sampleRate, timeScaleHeight, renderTimestamp]);
+  }, [beatsAndBars, duration, samplesPerPixel, sampleRate, timeScaleHeight, renderTick]);
 
   return <StyledTimeScale tickData={tickData} />;
 };

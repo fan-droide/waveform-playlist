@@ -464,12 +464,8 @@ const FlexibleApiContent: React.FC<FlexibleApiContentProps> = ({ tracks, onTrack
             <CustomTrackControls trackIndex={trackIndex} />
           )}
           renderPlayhead={(props) => <PlayheadWithMarker {...props} />}
-          renderTimestamp={(timeMs, pixelPosition) => {
-            const seconds = Math.floor(timeMs / 1000);
-            const minutes = Math.floor(seconds / 60);
-            const secs = seconds % 60;
-            const timestamp = `${minutes}:${String(secs).padStart(2, '0')}`;
-            return <GrungyTimestamp $left={pixelPosition}>{timestamp}</GrungyTimestamp>;
+          renderTick={(label, pixelPosition) => {
+            return <GrungyTimestamp $left={pixelPosition}>{label}</GrungyTimestamp>;
           }}
           showClipHeaders
           interactiveClips

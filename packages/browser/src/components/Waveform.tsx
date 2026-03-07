@@ -12,7 +12,7 @@ import { PlaylistAnnotationList } from './PlaylistAnnotationList';
 
 export interface WaveformProps {
   renderTrackControls?: (trackIndex: number) => ReactNode;
-  renderTimestamp?: (timeMs: number, pixelPosition: number) => ReactNode;
+  renderTick?: (label: string, pixelPosition: number) => ReactNode;
   /** Custom playhead render function. Receives position (pixels) and color from theme. */
   renderPlayhead?: RenderPlayheadFunction;
   annotationControls?: AnnotationAction[];
@@ -63,7 +63,7 @@ export interface WaveformProps {
  */
 export const Waveform: React.FC<WaveformProps> = ({
   renderTrackControls,
-  renderTimestamp,
+  renderTick,
   renderPlayhead,
   annotationControls,
   annotationListConfig,
@@ -86,7 +86,7 @@ export const Waveform: React.FC<WaveformProps> = ({
     <>
       <PlaylistVisualization
         renderTrackControls={renderTrackControls}
-        renderTimestamp={renderTimestamp}
+        renderTick={renderTick}
         renderPlayhead={renderPlayhead}
         annotationControls={annotationControls}
         getAnnotationBoxLabel={getAnnotationBoxLabel}
