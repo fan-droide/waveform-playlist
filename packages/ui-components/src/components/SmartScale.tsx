@@ -18,7 +18,7 @@ const timeinfo = new Map([
   [Infinity, { marker: 30000, bigStep: 10000, smallStep: 5000 }],
 ]);
 
-function getScaleInfo(samplesPerPixel: number) {
+export function getScaleInfo(samplesPerPixel: number) {
   const keys = timeinfo.keys();
   let config;
 

@@ -13,7 +13,8 @@ import {
 } from '@waveform-playlist/core';
 import type { SnapTo } from '@waveform-playlist/ui-components';
 
-interface SnapToGridOptions {
+interface SnapToGridBeatsOptions {
+  mode: 'beats';
   snapTo: SnapTo;
   bpm: number;
   timeSignature: [number, number];
@@ -21,11 +22,22 @@ interface SnapToGridOptions {
   sampleRate: number;
 }
 
+interface SnapToGridTemporalOptions {
+  mode: 'temporal';
+  gridSamples: number;
+  samplesPerPixel: number;
+}
+
+type SnapToGridOptions = SnapToGridBeatsOptions | SnapToGridTemporalOptions;
+
 /**
- * dnd-kit modifier that quantizes clip drag movement to the nearest beat or bar.
+ * dnd-kit modifier that quantizes clip drag movement to a grid.
  *
- * Operates in PPQN tick space for exact musical timing, then converts back
- * to pixel deltas. Designed to compose with ClipCollisionModifier — snap first,
+ * Two modes:
+ * - "beats": Snaps to beat/bar grid using PPQN tick space for exact musical timing.
+ * - "temporal": Snaps to a sample-based grid derived from timescale markers.
+ *
+ * Designed to compose with ClipCollisionModifier — snap first,
  * then collision constrains the snapped position.
  */
 export class SnapToGridModifier extends Modifier<
@@ -42,7 +54,17 @@ export class SnapToGridModifier extends Modifier<
     const { boundary } = source.data as { boundary?: 'left' | 'right' };
     if (boundary) return transform;
 
-    const { snapTo, bpm, timeSignature, samplesPerPixel, sampleRate } = this.options;
+    const { samplesPerPixel } = this.options;
+
+    if (this.options.mode === 'temporal') {
+      const { gridSamples } = this.options;
+      const deltaSamples = transform.x * samplesPerPixel;
+      const snappedSamples = Math.round(deltaSamples / gridSamples) * gridSamples;
+      return { x: snappedSamples / samplesPerPixel, y: 0 };
+    }
+
+    // Beats mode
+    const { snapTo, bpm, timeSignature, sampleRate } = this.options;
 
     if (snapTo === 'off') return transform;
 

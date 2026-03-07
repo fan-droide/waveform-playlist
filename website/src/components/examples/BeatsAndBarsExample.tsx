@@ -26,7 +26,11 @@ import {
   AutomaticScrollCheckbox,
   MasterVolumeControl,
 } from '@waveform-playlist/browser';
-import { BeatsAndBarsProvider, type SnapTo } from '@waveform-playlist/ui-components';
+import {
+  BeatsAndBarsProvider,
+  getScaleInfo,
+  type SnapTo,
+} from '@waveform-playlist/ui-components';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
 
 const Controls = styled.div`
@@ -119,9 +123,13 @@ const trackConfigs = [
   },
 ];
 
+type ScaleMode = 'beats' | 'temporal';
+
 interface PlaylistWithDragProps {
   tracks: ClipTrack[];
   onTracksChange: (tracks: ClipTrack[]) => void;
+  scaleMode: ScaleMode;
+  setScaleMode: (mode: ScaleMode) => void;
   bpm: number;
   setBpm: (bpm: number) => void;
   timeSignature: [number, number];
@@ -136,6 +144,8 @@ interface PlaylistWithDragProps {
 const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
   tracks,
   onTracksChange,
+  scaleMode,
+  setScaleMode,
   bpm,
   setBpm,
   timeSignature,
@@ -194,7 +204,22 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
       onDragEnd={onDragEnd}
       modifiers={[
         RestrictToHorizontalAxis,
-        SnapToGridModifier.configure({ snapTo, bpm, timeSignature, samplesPerPixel, sampleRate }),
+        scaleMode === 'beats'
+          ? SnapToGridModifier.configure({
+              mode: 'beats',
+              snapTo,
+              bpm,
+              timeSignature,
+              samplesPerPixel,
+              sampleRate,
+            })
+          : SnapToGridModifier.configure({
+              mode: 'temporal',
+              gridSamples: Math.round(
+                (getScaleInfo(samplesPerPixel).smallStep / 1000) * sampleRate,
+              ),
+              samplesPerPixel,
+            }),
         ClipCollisionModifier.configure({ tracks, samplesPerPixel }),
       ]}
       plugins={noDropAnimationPlugins}
@@ -220,51 +245,69 @@ const PlaylistWithDrag: React.FC<PlaylistWithDragProps> = ({
         <ControlGroup>
           <MasterVolumeControl />
         </ControlGroup>
+      </Controls>
+      <Controls>
         <ControlGroup>
           <Label>
-            BPM{' '}
-            <input
-              type="number"
-              min={20}
-              max={300}
-              value={bpm}
-              onChange={(e) => {
-                const val = Number(e.target.value);
-                if (val >= 20 && val <= 300) setBpm(val);
-              }}
-              style={{ width: 60 }}
-            />
-          </Label>
-        </ControlGroup>
-        <ControlGroup>
-          <Label>
-            Time Sig{' '}
+            Scale{' '}
             <select
-              value={`${timeSignature[0]}/${timeSignature[1]}`}
-              onChange={(e) => {
-                const [num, den] = e.target.value.split('/').map(Number);
-                setTimeSignature([num, den]);
-              }}
+              value={scaleMode}
+              onChange={(e) => setScaleMode(e.target.value as ScaleMode)}
             >
-              <option value="4/4">4/4</option>
-              <option value="3/4">3/4</option>
-              <option value="6/8">6/8</option>
-              <option value="2/2">2/2</option>
-              <option value="5/4">5/4</option>
-              <option value="7/8">7/8</option>
+              <option value="beats">Beats & Bars</option>
+              <option value="temporal">Temporal</option>
             </select>
           </Label>
         </ControlGroup>
-        <ControlGroup>
-          <Label>
-            Snap{' '}
-            <select value={snapTo} onChange={(e) => setSnapTo(e.target.value as SnapTo)}>
-              <option value="bar">Bar</option>
-              <option value="beat">Beat</option>
-              <option value="off">Off</option>
-            </select>
-          </Label>
-        </ControlGroup>
+        {scaleMode === 'beats' && (
+          <>
+            <ControlGroup>
+              <Label>
+                BPM{' '}
+                <input
+                  type="number"
+                  min={20}
+                  max={300}
+                  value={bpm}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    if (val >= 20 && val <= 300) setBpm(val);
+                  }}
+                  style={{ width: 60 }}
+                />
+              </Label>
+            </ControlGroup>
+            <ControlGroup>
+              <Label>
+                Time Sig{' '}
+                <select
+                  value={`${timeSignature[0]}/${timeSignature[1]}`}
+                  onChange={(e) => {
+                    const [num, den] = e.target.value.split('/').map(Number);
+                    setTimeSignature([num, den]);
+                  }}
+                >
+                  <option value="4/4">4/4</option>
+                  <option value="3/4">3/4</option>
+                  <option value="6/8">6/8</option>
+                  <option value="2/2">2/2</option>
+                  <option value="5/4">5/4</option>
+                  <option value="7/8">7/8</option>
+                </select>
+              </Label>
+            </ControlGroup>
+            <ControlGroup>
+              <Label>
+                Snap{' '}
+                <select value={snapTo} onChange={(e) => setSnapTo(e.target.value as SnapTo)}>
+                  <option value="bar">Bar</option>
+                  <option value="beat">Beat</option>
+                  <option value="off">Off</option>
+                </select>
+              </Label>
+            </ControlGroup>
+          </>
+        )}
       </Controls>
 
       <Waveform timescale showClipHeaders interactiveClips />
@@ -314,6 +357,7 @@ export function BeatsAndBarsExample() {
   const [error, setError] = useState<Error | null>(null);
   const [loadedCount, setLoadedCount] = useState(0);
 
+  const [scaleMode, setScaleMode] = useState<ScaleMode>('beats');
   const [bpm, setBpm] = useState(120);
   const [timeSignature, setTimeSignature] = useState<[number, number]>([4, 4]);
   const [snapTo, setSnapTo] = useState<SnapTo>('beat');
@@ -397,10 +441,30 @@ export function BeatsAndBarsExample() {
       barWidth={4}
       barGap={0}
     >
-      <BeatsAndBarsProvider bpm={bpm} timeSignature={timeSignature} snapTo={snapTo}>
+      {scaleMode === 'beats' ? (
+        <BeatsAndBarsProvider bpm={bpm} timeSignature={timeSignature} snapTo={snapTo}>
+          <PlaylistWithDrag
+            tracks={tracks}
+            onTracksChange={setTracks}
+            scaleMode={scaleMode}
+            setScaleMode={setScaleMode}
+            bpm={bpm}
+            setBpm={setBpm}
+            timeSignature={timeSignature}
+            setTimeSignature={setTimeSignature}
+            snapTo={snapTo}
+            setSnapTo={setSnapTo}
+            loading={loading}
+            loadedCount={loadedCount}
+            totalCount={audioFiles.length}
+          />
+        </BeatsAndBarsProvider>
+      ) : (
         <PlaylistWithDrag
           tracks={tracks}
           onTracksChange={setTracks}
+          scaleMode={scaleMode}
+          setScaleMode={setScaleMode}
           bpm={bpm}
           setBpm={setBpm}
           timeSignature={timeSignature}
@@ -411,7 +475,7 @@ export function BeatsAndBarsExample() {
           loadedCount={loadedCount}
           totalCount={audioFiles.length}
         />
-      </BeatsAndBarsProvider>
+      )}
     </WaveformPlaylistProvider>
   );
 }
