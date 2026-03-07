@@ -106,7 +106,7 @@ function PlaybackShortcuts() {
 export function StemTracksExample() {
   const { theme } = useDocusaurusTheme();
 
-  // Load audio tracks PROGRESSIVELY - tracks appear as they load!
+  // Load audio tracks with immediate placeholders - peaks fill in as files decode
   const { tracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { immediate: true });
 
   if (error) {

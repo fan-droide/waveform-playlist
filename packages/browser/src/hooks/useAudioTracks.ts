@@ -196,7 +196,6 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
   const { immediate = false, progressive = false } = options;
   // progressive is a deprecated alias for immediate
   const isImmediate = immediate || progressive;
-  const [tracks, setTracks] = useState<ClipTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadedCount, setLoadedCount] = useState(0);
@@ -221,6 +220,10 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
     }
     return result;
   }, [isImmediate, configs, loadedBuffers]);
+
+  // Initialize tracks with derivedTracks so immediate-mode placeholders
+  // appear on the very first render (no flash of empty content).
+  const [tracks, setTracks] = useState<ClipTrack[]>(derivedTracks ?? []);
 
   // Sync derived tracks into state synchronously during render (not useEffect).
   // useEffect sync causes a 1-render lag — if deferEngineRebuild flips in a
@@ -319,7 +322,7 @@ export function useAudioTracks(configs: AudioTrackConfig[], options: UseAudioTra
         if (!cancelled) {
           // For non-immediate mode: set all tracks at once
           if (!isImmediate) {
-            const validTracks = loadedTracks.filter((t): t is ClipTrack => t !== undefined);
+            const validTracks = loadedTracks.filter((t): t is ClipTrack => t != null);
             setTracks(validTracks);
             setLoadedCount(validTracks.length);
           }

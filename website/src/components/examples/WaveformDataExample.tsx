@@ -145,7 +145,7 @@ export function WaveformDataExample() {
   const { theme } = useDocusaurusTheme();
   const [bbcPeaks, setBbcPeaks] = useState<Map<string, BBCPeaksData>>(new Map());
 
-  // Load BBC peaks PROGRESSIVELY - each track appears as its peaks load!
+  // Load BBC peaks independently - each track appears as its peaks load
   useEffect(() => {
     // Load each track's peaks independently (not Promise.all)
     trackConfigs.forEach(async (config) => {
@@ -191,8 +191,8 @@ export function WaveformDataExample() {
   // Load audio tracks with PROGRESSIVE LOADING enabled!
   // Tracks appear one-by-one as they load, with waveforms shown immediately from peaks
   const { tracks, loading: audioLoading, error: audioError, loadedCount, totalCount } = useAudioTracks(
-    audioConfigs, // Configs added progressively as peaks load
-    { immediate: true } // Audio also loads progressively
+    audioConfigs, // Configs added as peaks load
+    { immediate: true } // Immediate placeholders, audio decodes in background
   );
 
   if (audioError) {

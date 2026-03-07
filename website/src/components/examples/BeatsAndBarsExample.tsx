@@ -487,7 +487,7 @@ export function BeatsAndBarsExample() {
       samplesPerPixel={1024}
       mono
       waveHeight={100}
-      automaticScroll={true}
+      automaticScroll
       controls={{ show: true, width: 200 }}
       theme={theme}
       timescale

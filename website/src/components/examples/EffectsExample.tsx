@@ -684,10 +684,10 @@ export function EffectsExample() {
     },
   ], []);
 
-  // Load initial audio tracks PROGRESSIVELY - tracks appear as they load!
+  // Load audio tracks with immediate placeholders - peaks fill in as files decode
   const { tracks: loadedTracks, loading, error, loadedCount, totalCount } = useAudioTracks(audioConfigs, { immediate: true });
 
-  // Update local state as tracks load progressively
+  // Update local state as tracks finish loading
   useEffect(() => {
     if (loadedTracks.length > 0) {
       setTracks(loadedTracks);
