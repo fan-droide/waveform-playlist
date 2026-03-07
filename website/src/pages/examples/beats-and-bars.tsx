@@ -72,10 +72,9 @@ export default function BeatsAndBarsPage(): React.ReactElement {
             musical position, not clock time.
           </p>
           <p style={{ marginTop: '1rem' }}>
-            Try it: change the BPM above and watch the timescale markers shift as
-            each bar occupies a different number of audio samples. The snap grid
-            stays musically consistent — a clip snapped to beat 3 stays on beat 3
-            at any tempo.
+            Try it: change the BPM above and watch the timescale markers shift
+            as each bar occupies a different number of audio samples. Drag a
+            clip with snap enabled — it locks to the nearest beat or bar line.
           </p>
         </div>
 
