@@ -544,7 +544,6 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
 
     const loadAudio = async () => {
       try {
-        const tEngine = performance.now();
         // Extract all audio buffers from clips (only those that have audioBuffer)
         // For now, collect the first clip's buffer from each track
         const buffers: AudioBuffer[] = [];
@@ -670,9 +669,6 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         engineRef.current = engine;
 
         setIsReady(true);
-        console.log(
-          `[engine] rebuild: ${tracks.length} tracks, ${(performance.now() - tEngine).toFixed(1)}ms`
-        );
 
         // Dispatch custom event for external listeners
         const event = new CustomEvent('waveform-playlist:ready', {
