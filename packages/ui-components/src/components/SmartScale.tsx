@@ -123,8 +123,13 @@ export const SmartScale: FunctionComponent<SmartScaleProps> = ({ renderTick }) =
         const isBarLine = tick % tpBar === 0;
         const isLabelTick = tick % labelStep === 0;
 
-        // Tick height: bar lines are full height, beats are half
-        canvasInfo.set(pix, isBarLine ? timeScaleHeight : Math.floor(timeScaleHeight / 2));
+        // Tick height: labeled ticks full, unlabeled bars half, unlabeled beats 1/5
+        const tickHeight = isLabelTick
+          ? timeScaleHeight
+          : isBarLine
+            ? Math.floor(timeScaleHeight / 2)
+            : Math.floor(timeScaleHeight / 5);
+        canvasInfo.set(pix, tickHeight);
 
         if (isLabelTick) {
           const label = ticksToBarBeatLabel(tick, timeSignature);
