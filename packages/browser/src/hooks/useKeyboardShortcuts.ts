@@ -28,18 +28,14 @@ export function handleKeyboardEvent(
   if (!enabled) return;
 
   // Ignore key repeat events — holding a key fires keydown repeatedly.
-  // Without this guard, holding Space rapidly toggles play/pause, and
-  // during the async engine.init() on first play, repeat events see
-  // isPlaying=false and fire multiple concurrent play() calls.
+  // Without this guard, holding Space rapidly toggles play/pause.
   if (event.repeat) return;
 
-  // Check if we're in an input/textarea element
   const target = event.target as HTMLElement;
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
     return;
   }
 
-  // Find matching shortcut
   const matchingShortcut = shortcuts.find((shortcut) => {
     const keyMatch =
       event.key.toLowerCase() === shortcut.key.toLowerCase() || event.key === shortcut.key;
@@ -67,21 +63,18 @@ export function handleKeyboardEvent(
  *
  * @example
  * ```tsx
- * const { splitClipAtPlayhead } = useClipSplitting({ ... });
- *
  * useKeyboardShortcuts({
  *   shortcuts: [
+ *     {
+ *       key: ' ',
+ *       action: togglePlayPause,
+ *       description: 'Play/Pause',
+ *       preventDefault: true,
+ *     },
  *     {
  *       key: 's',
  *       action: splitClipAtPlayhead,
  *       description: 'Split clip at playhead',
- *       preventDefault: true,
- *     },
- *     {
- *       key: 'S',
- *       shiftKey: true,
- *       action: () => splitAtSelection(),
- *       description: 'Split at selection boundaries',
  *       preventDefault: true,
  *     },
  *   ],

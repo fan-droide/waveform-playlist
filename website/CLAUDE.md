@@ -48,7 +48,7 @@ Each example page should have OG/Twitter meta tags with a social image. Pattern:
 
 ## Example Component Guidelines
 
-- **Multi-track examples must use `deferEngineRebuild={loading}`** — Without it, the engine rebuilds on every track decode (up to N times for N tracks), creating race conditions with `pendingResumeRef` that cause duplicate audio on play/pause/play cycles.
+- **Multi-track examples must use `deferEngineRebuild={loading}`** — Without it, the engine rebuilds on every track decode (up to N times for N tracks), creating race conditions that cause duplicate audio on play/pause/play cycles.
 
 ## Guide Documentation Drift
 
