@@ -46,6 +46,10 @@ Each example page should have OG/Twitter meta tags with a social image. Pattern:
 
 - A320U.sf2 SoundFont — served from `static/media/soundfont/`. CC-BY 3.0 license. Loaded by MIDI example at `/waveform-playlist/media/soundfont/A320U.sf2`.
 
+## Example Component Guidelines
+
+- **Multi-track examples must use `deferEngineRebuild={loading}`** — Without it, the engine rebuilds on every track decode (up to N times for N tracks), creating race conditions with `pendingResumeRef` that cause duplicate audio on play/pause/play cycles.
+
 ## Guide Documentation Drift
 
 Context hooks tables in guide docs (e.g., `media-element-playout.md`) easily drift from source interfaces. Always cross-check guide "Returns" columns against the actual `*ContextValue` interfaces in the provider source file. Use "Key returns" column header (not "Returns") if listing a subset.

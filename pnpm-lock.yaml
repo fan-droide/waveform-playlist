@@ -77,7 +77,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@types/node@20.19.25)(jsdom@28.1.0)
+        version: 3.2.4(@types/node@20.19.25)(jsdom@25.0.1)
 
   packages/browser:
     dependencies:
@@ -145,6 +145,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^5.1.1
         version: 5.1.1(vite@7.2.4)
+      jsdom:
+        specifier: ^28.1.0
+        version: 28.1.0
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
@@ -168,7 +171,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@types/node@20.19.25)(jsdom@28.1.0)
+        version: 3.2.4(@types/node@20.19.25)(jsdom@25.0.1)
 
   packages/engine:
     devDependencies:
@@ -183,7 +186,7 @@ importers:
         version: 5.6.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@types/node@20.19.25)(jsdom@28.1.0)
+        version: 3.2.4(@types/node@20.19.25)(jsdom@25.0.1)
 
   packages/loaders:
     dependencies:
@@ -202,7 +205,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@types/node@20.19.25)(jsdom@28.1.0)
+        version: 3.2.4(@types/node@20.19.25)(jsdom@25.0.1)
 
   packages/media-element-playout:
     dependencies:
@@ -274,7 +277,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@types/node@20.19.25)(jsdom@28.1.0)
+        version: 3.2.4(@types/node@20.19.25)(jsdom@25.0.1)
 
   packages/recording:
     dependencies:
@@ -311,7 +314,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@types/node@20.19.25)(jsdom@28.1.0)
+        version: 3.2.4(@types/node@20.19.25)(jsdom@25.0.1)
 
   packages/spectrogram:
     dependencies:
@@ -345,7 +348,7 @@ importers:
         version: 5.6.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@types/node@20.19.25)(jsdom@28.1.0)
+        version: 3.2.4(@types/node@20.19.25)(jsdom@25.0.1)
 
   packages/ui-components:
     dependencies:
@@ -443,7 +446,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
-        version: 3.2.4(@types/node@20.19.25)(jsdom@28.1.0)
+        version: 3.2.4(@types/node@20.19.25)(jsdom@25.0.1)
 
   website:
     dependencies:
