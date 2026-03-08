@@ -31,11 +31,11 @@ export default function RecordingExamplePage(): React.ReactElement {
           tracks by recording or importing audio files, then export the mix as WAV.
         </p>
 
-        <div style={{ marginTop: '2rem' }}>
+        <div style={{ marginTop: '1.5rem' }}>
           <LazyRecordingExample />
         </div>
 
-        <div style={{ marginTop: '2rem' }}>
+        <div style={{ marginTop: '1.5rem' }}>
           <h2>About This Example</h2>
           <p>
             This example uses the <code>useIntegratedRecording</code> hook from <code>@waveform-playlist/recording</code> to
@@ -44,7 +44,7 @@ export default function RecordingExamplePage(): React.ReactElement {
             generated in real time for a live waveform preview as you record.
           </p>
 
-          <h3>Features</h3>
+          <h3 style={{ marginTop: '1.5rem' }}>Features</h3>
           <ul>
             <li><strong>Live waveform preview</strong> — see your audio rendered in real time as you record, powered by AudioWorklet peak generation</li>
             <li><strong>Multi-track layering</strong> — record multiple takes on separate tracks and play them back together</li>
