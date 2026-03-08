@@ -58,8 +58,12 @@ export function createSpectrogramWorkerPool(
         return workers[0].computeFFT(params, generation);
       }
 
-      // Multi-channel: fan out with channelFilter, each worker computes its channel
-      const promises = workers.map((w, i) =>
+      // Multi-channel: fan out with channelFilter, one worker per channel.
+      // Pool may have more workers than channels (e.g., 3 workers for stereo) —
+      // only use workers up to the channel count.
+      const channelCount = params.channelDataArrays.length;
+      const activeWorkers = workers.slice(0, channelCount);
+      const promises = activeWorkers.map((w, i) =>
         w.computeFFT({ ...params, channelFilter: i }, generation)
       );
       // Wait for all workers, return any cacheKey (all are identical)
