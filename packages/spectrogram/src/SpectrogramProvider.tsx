@@ -30,12 +30,15 @@ function extractChunkNumber(canvasId: string): number {
 export interface SpectrogramProviderProps {
   config?: SpectrogramConfig;
   colorMap?: ColorMapValue;
+  /** Number of Web Workers for parallel FFT computation. Defaults to min(cores - 1, 4). */
+  workerPoolSize?: number;
   children: ReactNode;
 }
 
 export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
   config: spectrogramConfig,
   colorMap: spectrogramColorMap,
+  workerPoolSize,
   children,
 }) => {
   const { tracks, waveHeight, samplesPerPixel, isReady, mono } = usePlaylistData();
@@ -83,7 +86,8 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             new Worker(
               new URL('@waveform-playlist/spectrogram/worker/spectrogram.worker', import.meta.url),
               { type: 'module' }
-            )
+            ),
+          workerPoolSize
         );
         spectrogramWorkerRef.current = workerApi;
         setSpectrogramWorkerReady(true);
@@ -200,7 +204,8 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             new Worker(
               new URL('@waveform-playlist/spectrogram/worker/spectrogram.worker', import.meta.url),
               { type: 'module' }
-            )
+            ),
+          workerPoolSize
         );
         spectrogramWorkerRef.current = workerApi;
         setSpectrogramWorkerReady(true);
