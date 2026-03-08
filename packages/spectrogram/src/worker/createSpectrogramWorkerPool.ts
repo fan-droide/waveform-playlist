@@ -26,16 +26,13 @@ function parseChannelFromCanvasId(canvasId: string): number {
  * fans out with channelFilter so each worker computes only its channel.
  */
 /**
- * Default pool size: min of 2 and available logical cores (minus 1 for the main thread).
- * Falls back to 2 if navigator.hardwareConcurrency is unavailable.
+ * Default pool size: 2 workers (one per channel for stereo).
+ * Most web audio is mono or stereo, so 2 is sufficient.
+ * Configurable via `<SpectrogramProvider workerPoolSize={N}>` for
+ * multi-channel audio (e.g., 5.1 surround).
  */
 function defaultPoolSize(): number {
-  const cores =
-    typeof navigator !== 'undefined' && navigator.hardwareConcurrency
-      ? navigator.hardwareConcurrency
-      : 4;
-  // Reserve 1 core for main thread, cap at a reasonable maximum
-  return Math.max(1, Math.min(cores - 1, 4));
+  return 2;
 }
 
 export function createSpectrogramWorkerPool(
