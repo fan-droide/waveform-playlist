@@ -495,7 +495,10 @@ audiowaveform -i audio.mp3 -o peaks-stereo.dat -z 256 --split-channels
   ├── SpectrogramProvider.tsx  # Provider (fills SpectrogramIntegrationContext)
   ├── components/              # UI components (menu items, settings modal)
   ├── computation/             # FFT computation logic
-  ├── worker/                  # Web Worker for off-thread rendering
+  ├── worker/
+  │   ├── createSpectrogramWorker.ts      # Single worker wrapper + SpectrogramAbortError
+  │   ├── createSpectrogramWorkerPool.ts  # Pool of N workers for parallel per-channel FFT
+  │   └── spectrogram.worker.ts           # Worker: FFT, LRU cache, canvas rendering
   ├── styled.d.ts
   └── index.ts
   ```
