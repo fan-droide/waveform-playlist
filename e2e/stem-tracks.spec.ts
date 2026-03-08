@@ -350,6 +350,42 @@ test.describe('Stem Tracks Example', () => {
     });
   });
 
+  test.describe('Custom Playhead (PlayheadWithMarker)', () => {
+    // The Stem Tracks example uses renderPlayhead={PlayheadWithMarker},
+    // which calls useEffect internally. This test verifies the hook isolation
+    // pattern works — no "Rendered more hooks" errors during playback.
+    test('playback with custom playhead produces no console errors', async ({ page }) => {
+      const consoleErrors: string[] = [];
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          consoleErrors.push(msg.text());
+        }
+      });
+
+      // Start playback — this activates the custom playhead's rAF loop
+      await page.getByRole('button', { name: 'Play' }).click();
+
+      // Wait for playback to advance
+      const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+      await expect(async () => {
+        const time = await timeDisplay.textContent();
+        expect(time).not.toBe('00:00:00.000');
+      }).toPass({ timeout: 10000 });
+
+      // Let it play briefly to exercise the animation loop
+      await page.waitForTimeout(500);
+
+      // Stop playback
+      await page.getByRole('button', { name: 'Stop' }).click();
+
+      // Filter out unrelated errors (e.g., network, favicon)
+      const hookErrors = consoleErrors.filter(
+        (e) => e.includes('Rendered more hooks') || e.includes('Rendered fewer hooks')
+      );
+      expect(hookErrors).toHaveLength(0);
+    });
+  });
+
   test.describe('Keyboard Shortcuts', () => {
     test('Space toggles play/pause', async ({ page }) => {
       const timeDisplay = page.getByText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
