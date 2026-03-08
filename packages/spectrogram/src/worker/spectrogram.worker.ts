@@ -32,11 +32,24 @@ const audioDataRegistry = new Map<
 // Caches raw dB spectrogram data keyed by FFT computation params.
 // Display-only params (gain, range, colormap) don't affect the cache key.
 // sampleOffset: the sample position where this FFT data starts (for range-limited FFT)
+// Bounded to MAX_CACHE_ENTRIES to prevent OOM on long files with many ranges.
 interface FFTCacheEntry {
   spectrograms: SpectrogramData[];
   sampleOffset: number;
 }
+const MAX_CACHE_ENTRIES = 16;
 const fftCache = new Map<string, FFTCacheEntry>();
+
+function evictOldestCacheEntries(keepKey?: string) {
+  while (fftCache.size >= MAX_CACHE_ENTRIES) {
+    for (const key of fftCache.keys()) {
+      if (key !== keepKey) {
+        fftCache.delete(key);
+        break;
+      }
+    }
+  }
+}
 
 function generateCacheKey(params: {
   clipId: string;
@@ -457,13 +470,8 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
       if (!fftCache.has(cacheKey)) {
         const t0 = performance.now();
 
-        // Evict stale cache entries for this clip (different FFT params)
-        const clipPrefix = `${clipId}:`;
-        for (const key of fftCache.keys()) {
-          if (key.startsWith(clipPrefix) && key !== cacheKey) {
-            fftCache.delete(key);
-          }
-        }
+        // Evict oldest cache entries if at capacity
+        evictOldestCacheEntries(cacheKey);
 
         const spectrograms: SpectrogramData[] = [];
         if (mono || channelDataArrays.length === 1) {

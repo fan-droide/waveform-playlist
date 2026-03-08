@@ -59,7 +59,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
   const spectrogramGenerationRef = useRef(0);
   const prevCanvasVersionRef = useRef(0);
   const [spectrogramWorkerReady, setSpectrogramWorkerReady] = useState(false);
-  const clipCacheKeysRef = useRef<Map<string, string>>(new Map());
+  const renderedClipIdsRef = useRef<Set<string>>(new Set());
   const backgroundRenderAbortRef = useRef<{ aborted: boolean } | null>(null);
   const registeredAudioClipIdsRef = useRef<Set<string>>(new Set());
 
@@ -216,7 +216,11 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
     const clipsNeedingDisplayOnly: Array<{
       clipId: string;
       trackIndex: number;
+      channelDataArrays: Float32Array[];
       config: SpectrogramConfig;
+      sampleRate: number;
+      offsetSamples: number;
+      durationSamples: number;
       clipStartSample: number;
       monoFlag: boolean;
       colorMap: ColorMapValue;
@@ -253,11 +257,19 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
         const monoFlag = mono || clip.audioBuffer.numberOfChannels === 1;
 
-        if (!trackFFTChanged && !hasRegisteredCanvases && clipCacheKeysRef.current.has(clip.id)) {
+        if (!trackFFTChanged && !hasRegisteredCanvases && renderedClipIdsRef.current.has(clip.id)) {
+          const channelDataArrays: Float32Array[] = [];
+          for (let ch = 0; ch < clip.audioBuffer.numberOfChannels; ch++) {
+            channelDataArrays.push(clip.audioBuffer.getChannelData(ch));
+          }
           clipsNeedingDisplayOnly.push({
             clipId: clip.id,
             trackIndex: i,
+            channelDataArrays,
             config: cfg,
+            sampleRate: clip.audioBuffer.sampleRate,
+            offsetSamples: clip.offsetSamples,
+            durationSamples: clip.durationSamples,
             clipStartSample: clip.startSample,
             monoFlag,
             colorMap: cm,
@@ -363,11 +375,96 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
       });
     };
 
+    // Compute FFT for the sample range covered by a set of chunk indices.
+    // Returns the cache key (data covers all channels).
+    // This avoids computing a single full-clip FFT (which OOMs on 1hr+ files)
+    // by computing per-batch ranges on demand.
+    const computeFFTForChunks = async (
+      api: SpectrogramWorkerApi,
+      channelInfo: { canvasIds: string[]; canvasWidths: number[] },
+      indices: number[],
+      item: {
+        clipId: string;
+        channelDataArrays: Float32Array[];
+        config: SpectrogramConfig;
+        sampleRate: number;
+        offsetSamples: number;
+        durationSamples: number;
+        monoFlag: boolean;
+      }
+    ): Promise<string> => {
+      // Determine the sample range these chunks cover
+      const chunkNumbers = indices.map((i) => extractChunkNumber(channelInfo.canvasIds[i]));
+      const minChunk = Math.min(...chunkNumbers);
+      const maxChunk = Math.max(...chunkNumbers);
+      const maxChunkIdx = indices[chunkNumbers.indexOf(maxChunk)];
+      const lastChunkWidth = channelInfo.canvasWidths[maxChunkIdx];
+
+      const startPx = minChunk * MAX_CANVAS_WIDTH;
+      const endPx = maxChunk * MAX_CANVAS_WIDTH + lastChunkWidth;
+
+      const windowSize = item.config.fftSize ?? 2048;
+      const rangeStartSample = item.offsetSamples + Math.floor(startPx * samplesPerPixel);
+      const rangeEndSample = Math.min(
+        item.offsetSamples + item.durationSamples,
+        item.offsetSamples + Math.ceil(endPx * samplesPerPixel)
+      );
+
+      // Pad by windowSize to avoid edge artifacts
+      const paddedStart = Math.max(item.offsetSamples, rangeStartSample - windowSize);
+      const paddedEnd = Math.min(
+        item.offsetSamples + item.durationSamples,
+        rangeEndSample + windowSize
+      );
+
+      const { cacheKey } = await api.computeFFT({
+        clipId: item.clipId,
+        channelDataArrays: item.channelDataArrays,
+        config: item.config,
+        sampleRate: item.sampleRate,
+        offsetSamples: item.offsetSamples,
+        durationSamples: item.durationSamples,
+        mono: item.monoFlag,
+        sampleRange: { start: paddedStart, end: paddedEnd },
+      });
+
+      return cacheKey;
+    };
+
+    // Split indices into contiguous groups based on chunk numbers.
+    // E.g., remaining=[0,1,4,5] → [[0,1],[4,5]] — prevents computing
+    // an FFT range spanning the gap between 1 and 4.
+    const groupContiguousIndices = (
+      channelInfo: { canvasIds: string[] },
+      indices: number[]
+    ): number[][] => {
+      if (indices.length === 0) return [];
+      const groups: number[][] = [];
+      let currentGroup = [indices[0]];
+      let prevChunk = extractChunkNumber(channelInfo.canvasIds[indices[0]]);
+      for (let i = 1; i < indices.length; i++) {
+        const chunk = extractChunkNumber(channelInfo.canvasIds[indices[i]]);
+        if (chunk === prevChunk + 1) {
+          currentGroup.push(indices[i]);
+        } else {
+          groups.push(currentGroup);
+          currentGroup = [indices[i]];
+        }
+        prevChunk = chunk;
+      }
+      groups.push(currentGroup);
+      return groups;
+    };
+
     const computeAsync = async () => {
       const abortToken = { aborted: false };
       backgroundRenderAbortRef.current = abortToken;
 
-      // Render off-screen chunks in idle-callback batches.
+      // Render off-screen chunks in idle-callback batches, computing FFT
+      // per contiguous group to avoid allocating one giant Float32Array for the
+      // full clip (which OOMs on 1hr+ files — e.g., 310K frames × 2048 bins = 2.5GB).
+      // Groups remaining indices into contiguous runs (e.g., [0,1,4,5] → [0,1]+[4,5])
+      // so each FFT only covers the sample range actually needed.
       // Returns true if aborted (caller should return early).
       const renderBackgroundBatches = async (
         channelRanges: Array<{
@@ -375,27 +472,70 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
           channelInfo: { canvasIds: string[]; canvasWidths: number[] };
           remainingIndices: number[];
         }>,
-        cacheKey: string,
-        item: { config: SpectrogramConfig; colorMap: ColorMapValue }
+        item: {
+          clipId: string;
+          channelDataArrays: Float32Array[];
+          config: SpectrogramConfig;
+          sampleRate: number;
+          offsetSamples: number;
+          durationSamples: number;
+          monoFlag: boolean;
+          colorMap: ColorMapValue;
+        }
       ): Promise<boolean> => {
-        const BATCH_SIZE = 4;
-        for (const { ch, channelInfo, remainingIndices } of channelRanges) {
-          for (let batchStart = 0; batchStart < remainingIndices.length; batchStart += BATCH_SIZE) {
-            if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return true;
+        // Collect all contiguous groups across channels, then render
+        // each group for ALL channels before moving to the next group
+        // (multi-channel fairness — avoids ch1 starvation).
+        const allGroups: Array<{
+          group: number[];
+          channelRangeEntries: Array<{
+            ch: number;
+            channelInfo: { canvasIds: string[]; canvasWidths: number[] };
+          }>;
+        }> = [];
 
-            const batch = remainingIndices.slice(batchStart, batchStart + BATCH_SIZE);
-
-            await new Promise<void>((resolve) => {
-              if (typeof requestIdleCallback === 'function') {
-                requestIdleCallback(() => resolve());
-              } else {
-                setTimeout(resolve, 0);
-              }
+        // Build contiguous groups from the first channel's remaining indices
+        // (all channels have the same chunk layout).
+        if (channelRanges.length > 0) {
+          const { channelInfo, remainingIndices } = channelRanges[0];
+          const groups = groupContiguousIndices(channelInfo, remainingIndices);
+          for (const group of groups) {
+            allGroups.push({
+              group,
+              channelRangeEntries: channelRanges.map(({ ch, channelInfo: ci }) => ({
+                ch,
+                channelInfo: ci,
+              })),
             });
+          }
+        }
 
+        for (const { group, channelRangeEntries } of allGroups) {
+          if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return true;
+
+          await new Promise<void>((resolve) => {
+            if (typeof requestIdleCallback === 'function') {
+              requestIdleCallback(() => resolve());
+            } else {
+              setTimeout(resolve, 0);
+            }
+          });
+
+          if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return true;
+
+          // Compute FFT once for this contiguous group (covers all channels)
+          const { channelInfo: firstChannelInfo } = channelRangeEntries[0];
+          const cacheKey = await computeFFTForChunks(
+            workerApi!,
+            firstChannelInfo,
+            group,
+            item
+          );
+
+          // Render all channels from the cached FFT data
+          for (const { ch, channelInfo: ci } of channelRangeEntries) {
             if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return true;
-
-            await renderChunkSubset(workerApi!, cacheKey, channelInfo, batch, item, ch);
+            await renderChunkSubset(workerApi!, cacheKey, ci, group, item, ch);
           }
         }
         return false;
@@ -422,107 +562,18 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             }
 
             const container = scrollContainerRef.current;
-            const windowSize = item.config.fftSize ?? 2048;
-            let visibleRange: { start: number; end: number } | undefined;
-
             if (container) {
               const scrollLeft = container.scrollLeft;
               const viewportWidth = container.clientWidth;
-
-              // Controls are outside the scroll container, so scrollLeft is
-              // already in clip-local coordinate space — no controlWidth offset.
-              const vpStartPx = scrollLeft;
-              const vpEndPx = vpStartPx + viewportWidth;
-
-              const clipStartPx = clipPixelOffset;
-              const clipEndPx = clipStartPx + Math.ceil(item.durationSamples / samplesPerPixel);
-
-              const overlapStartPx = Math.max(vpStartPx, clipStartPx);
-              const overlapEndPx = Math.min(vpEndPx, clipEndPx);
-
-              if (overlapEndPx > overlapStartPx) {
-                const localStartPx = overlapStartPx - clipStartPx;
-                const localEndPx = overlapEndPx - clipStartPx;
-                const visStartSample =
-                  item.offsetSamples + Math.floor(localStartPx * samplesPerPixel);
-                const visEndSample = Math.min(
-                  item.offsetSamples + item.durationSamples,
-                  item.offsetSamples + Math.ceil(localEndPx * samplesPerPixel)
-                );
-                const paddedStart = Math.max(item.offsetSamples, visStartSample - windowSize);
-                const paddedEnd = Math.min(
-                  item.offsetSamples + item.durationSamples,
-                  visEndSample + windowSize
-                );
-
-                if (paddedEnd - paddedStart < item.durationSamples * 0.8) {
-                  visibleRange = { start: paddedStart, end: paddedEnd };
-                }
-              }
-
+              const clipEndPx = clipPixelOffset + Math.ceil(item.durationSamples / samplesPerPixel);
               console.log(
                 `[spectrogram] viewport: scrollLeft=${scrollLeft} width=${viewportWidth} ` +
-                  `vpPx=[${vpStartPx},${vpEndPx}] ` +
-                  `clipPx=[${clipStartPx},${clipEndPx}] ` +
-                  `visibleRange=${visibleRange ? `[${visibleRange.start},${visibleRange.end}]` : 'full'}`
+                  `clipPx=[${clipPixelOffset},${clipEndPx}]`
               );
             }
 
-            const fullClipAlreadyCached = clipCacheKeysRef.current.has(item.clipId);
-            let visibleAlreadyRendered = false;
-
-            if (visibleRange && !fullClipAlreadyCached) {
-              // Phase 0: Fast visible-range FFT — compute and render only the
-              // portion of the clip that's currently on screen.
-              const { cacheKey: visibleCacheKey } = await workerApi!.computeFFT({
-                clipId: item.clipId,
-                channelDataArrays: item.channelDataArrays,
-                config: item.config,
-                sampleRate: item.sampleRate,
-                offsetSamples: item.offsetSamples,
-                durationSamples: item.durationSamples,
-                mono: item.monoFlag,
-                sampleRange: visibleRange,
-              });
-              if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
-
-              for (let ch = 0; ch < numChannels; ch++) {
-                const channelInfo = clipCanvasInfo.get(ch);
-                if (!channelInfo) continue;
-
-                const { visibleIndices } = getVisibleChunkRange(channelInfo, clipPixelOffset);
-                await renderChunkSubset(
-                  workerApi!,
-                  visibleCacheKey,
-                  channelInfo,
-                  visibleIndices,
-                  item,
-                  ch
-                );
-              }
-
-              if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
-              visibleAlreadyRendered = true;
-            }
-
-            // Full-clip FFT (needed for off-screen chunks and scrolling).
-            const { cacheKey } = await workerApi!.computeFFT({
-              clipId: item.clipId,
-              channelDataArrays: item.channelDataArrays,
-              config: item.config,
-              sampleRate: item.sampleRate,
-              offsetSamples: item.offsetSamples,
-              durationSamples: item.durationSamples,
-              mono: item.monoFlag,
-            });
-
-            if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
-
-            clipCacheKeysRef.current.set(item.clipId, cacheKey);
-
-            // Phase 1: Render visible chunks for ALL channels first (unless
-            // already rendered from the visible-range FFT — the padded sample
-            // range produces identical pixels for visible chunks).
+            // Phase 1: Compute FFT once and render visible chunks for ALL
+            // channels before background batches (multi-channel fairness).
             const phase1Start = performance.now();
             const channelRanges: Array<{
               ch: number;
@@ -530,28 +581,32 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               visibleIndices: number[];
               remainingIndices: number[];
             }> = [];
+
+            // Collect visible/remaining ranges for all channels
             for (let ch = 0; ch < numChannels; ch++) {
               const channelInfo = clipCanvasInfo.get(ch);
               if (!channelInfo) continue;
               const range = getVisibleChunkRange(channelInfo, clipPixelOffset);
               channelRanges.push({ ch, channelInfo, ...range });
+              console.log(
+                `[spectrogram] phase1 ch=${ch}: visible=[${range.visibleIndices.join(',')}] remaining=[${range.remainingIndices.join(',')}]`
+              );
+            }
 
-              if (!visibleAlreadyRendered) {
-                console.log(
-                  `[spectrogram] phase1 ch=${ch}: visible=[${range.visibleIndices.join(',')}] remaining=[${range.remainingIndices.join(',')}]`
-                );
-                await renderChunkSubset(
-                  workerApi!,
-                  cacheKey,
-                  channelInfo,
-                  range.visibleIndices,
-                  item,
-                  ch
-                );
-              } else {
-                console.log(
-                  `[spectrogram] phase1 ch=${ch}: skipped (already rendered), remaining=[${range.remainingIndices.join(',')}]`
-                );
+            // Compute FFT once for the visible range (covers all channels)
+            if (channelRanges.length > 0 && channelRanges[0].visibleIndices.length > 0) {
+              const cacheKey = await computeFFTForChunks(
+                workerApi!,
+                channelRanges[0].channelInfo,
+                channelRanges[0].visibleIndices,
+                item
+              );
+
+              if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
+
+              // Render all channels from the single cached FFT
+              for (const { ch, channelInfo, visibleIndices } of channelRanges) {
+                await renderChunkSubset(workerApi!, cacheKey, channelInfo, visibleIndices, item, ch);
               }
             }
 
@@ -559,10 +614,13 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               `[spectrogram] phase1 complete: ${(performance.now() - phase1Start).toFixed(1)}ms`
             );
 
+            renderedClipIdsRef.current.add(item.clipId);
+
             if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
 
-            // Phase 2: Render off-screen chunks in background batches.
-            if (await renderBackgroundBatches(channelRanges, cacheKey, item)) return;
+            // Phase 2: Render off-screen chunks in background batches
+            // (each batch computes its own bounded FFT range).
+            if (await renderBackgroundBatches(channelRanges, item)) return;
           }
         } catch (err) {
           console.warn('Spectrogram worker error for clip', item.clipId, err);
@@ -572,16 +630,14 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
       for (const item of clipsNeedingDisplayOnly) {
         if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
 
-        const cacheKey = clipCacheKeysRef.current.get(item.clipId);
-        if (!cacheKey) continue;
-
         const clipCanvasInfo = spectrogramCanvasRegistryRef.current.get(item.clipId);
         if (!clipCanvasInfo || clipCanvasInfo.size === 0) continue;
 
         try {
           const clipPixelOffset = Math.floor(item.clipStartSample / samplesPerPixel);
 
-          // Two-phase rendering: visible chunks first, then background (same as FFT path above).
+          // Two-phase rendering with per-batch FFT (same as FFT path above).
+          // Worker cache provides instant hits for previously computed ranges.
           const channelRanges: Array<{
             ch: number;
             channelInfo: { canvasIds: string[]; canvasWidths: number[] };
@@ -595,13 +651,36 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               clipPixelOffset
             );
             channelRanges.push({ ch, channelInfo, remainingIndices });
-            await renderChunkSubset(workerApi!, cacheKey, channelInfo, visibleIndices, item, ch);
+          }
+
+          // Compute FFT once, render all channels
+          if (channelRanges.length > 0) {
+            const firstVisible = channelRanges.find((r) => r.channelInfo.canvasIds.length > 0);
+            if (firstVisible) {
+              const visibleIndices = getVisibleChunkRange(
+                firstVisible.channelInfo,
+                clipPixelOffset
+              ).visibleIndices;
+              if (visibleIndices.length > 0) {
+                const cacheKey = await computeFFTForChunks(
+                  workerApi!,
+                  firstVisible.channelInfo,
+                  visibleIndices,
+                  item
+                );
+                if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
+                for (const { ch, channelInfo } of channelRanges) {
+                  const chVisible = getVisibleChunkRange(channelInfo, clipPixelOffset).visibleIndices;
+                  await renderChunkSubset(workerApi!, cacheKey, channelInfo, chVisible, item, ch);
+                }
+              }
+            }
           }
 
           if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
 
           // Phase 2: Render off-screen chunks in background batches.
-          if (await renderBackgroundBatches(channelRanges, cacheKey, item)) return;
+          if (await renderBackgroundBatches(channelRanges, item)) return;
         } catch (err) {
           console.warn('Spectrogram display re-render error for clip', item.clipId, err);
         }
