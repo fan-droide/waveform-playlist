@@ -320,6 +320,11 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
       const scrollLeft = container.scrollLeft;
       const viewportWidth = container.clientWidth;
+      // Match the 1.5× overscan buffer used by useVisibleChunkIndices
+      // (ScrollViewport.tsx) so spectrogram FFT covers all mounted canvases.
+      const buffer = viewportWidth * 1.5;
+      const rangeStart = Math.max(0, scrollLeft - buffer);
+      const rangeEnd = scrollLeft + viewportWidth + buffer;
 
       const visibleIndices: number[] = [];
       const remainingIndices: number[] = [];
@@ -332,7 +337,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
         const chunkNumber = extractChunkNumber(channelInfo.canvasIds[i]);
         const chunkLeft = chunkNumber * MAX_CANVAS_WIDTH + clipPixelOffset;
         const chunkRight = chunkLeft + channelInfo.canvasWidths[i];
-        if (chunkRight > scrollLeft && chunkLeft < scrollLeft + viewportWidth) {
+        if (chunkRight > rangeStart && chunkLeft < rangeEnd) {
           visibleIndices.push(i);
         } else {
           remainingIndices.push(i);
@@ -583,9 +588,11 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             if (container) {
               const scrollLeft = container.scrollLeft;
               const viewportWidth = container.clientWidth;
+              const buffer = viewportWidth * 1.5;
               const clipEndPx = clipPixelOffset + Math.ceil(item.durationSamples / samplesPerPixel);
               console.log(
                 `[spectrogram] viewport: scrollLeft=${scrollLeft} width=${viewportWidth} ` +
+                  `buffered=[${Math.max(0, scrollLeft - buffer).toFixed(0)},${(scrollLeft + viewportWidth + buffer).toFixed(0)}] ` +
                   `clipPx=[${clipPixelOffset},${clipEndPx}]`
               );
             }
