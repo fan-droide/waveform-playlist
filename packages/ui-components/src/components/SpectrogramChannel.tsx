@@ -75,7 +75,7 @@ export const SpectrogramChannel: FunctionComponent<SpectrogramChannelProps> = ({
   length,
   waveHeight,
   devicePixelRatio = 1,
-  samplesPerPixel,
+  samplesPerPixel: _samplesPerPixel,
   workerApi,
   clipId,
   onCanvasesReady,

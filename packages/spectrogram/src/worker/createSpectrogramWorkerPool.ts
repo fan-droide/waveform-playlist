@@ -40,8 +40,15 @@ export function createSpectrogramWorkerPool(
   poolSize = defaultPoolSize()
 ): SpectrogramWorkerApi {
   const workers: SpectrogramWorkerApi[] = [];
-  for (let i = 0; i < poolSize; i++) {
-    workers.push(createSpectrogramWorker(createWorker()));
+  try {
+    for (let i = 0; i < poolSize; i++) {
+      workers.push(createSpectrogramWorker(createWorker()));
+    }
+  } catch (err) {
+    for (const w of workers) {
+      w.terminate();
+    }
+    throw err;
   }
 
   function getWorkerForChannel(channelIndex: number): SpectrogramWorkerApi {

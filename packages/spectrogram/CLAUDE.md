@@ -32,7 +32,7 @@ const spectrogram = useContext(SpectrogramIntegrationContext);
 
 **Mono mode:** Only worker 0 runs (no channelFilter), averages all channels as before.
 
-**Channel cap:** `computeFFT` fan-out is capped to `min(poolSize, channelDataArrays.length)`. A quad-core machine creates 3 workers, but stereo audio only has 2 channels — excess workers sit completely idle (canvas routing also maps by channel, not pool size).
+**Channel cap:** `computeFFT` fan-out is capped to `min(poolSize, channelDataArrays.length)`. If `workerPoolSize` exceeds the channel count (e.g., 3 workers for stereo audio), excess workers sit completely idle (canvas routing also maps by channel, not pool size).
 
 **Location:** `src/worker/createSpectrogramWorkerPool.ts`
 

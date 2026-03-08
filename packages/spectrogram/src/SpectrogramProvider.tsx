@@ -30,7 +30,7 @@ function extractChunkNumber(canvasId: string): number {
 export interface SpectrogramProviderProps {
   config?: SpectrogramConfig;
   colorMap?: ColorMapValue;
-  /** Number of Web Workers for parallel FFT computation. Defaults to min(cores - 1, 4). */
+  /** Number of Web Workers for parallel FFT computation. Defaults to 2 (one per stereo channel). */
   workerPoolSize?: number;
   children: ReactNode;
 }
@@ -91,8 +91,10 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
         );
         spectrogramWorkerRef.current = workerApi;
         setSpectrogramWorkerReady(true);
-      } catch {
-        console.warn('Spectrogram Web Worker unavailable for pre-transfer');
+      } catch (err) {
+        console.warn(
+          `[waveform-playlist] Spectrogram Web Worker unavailable for pre-transfer: ${err instanceof Error ? err.message : String(err)}`
+        );
         return;
       }
     }
@@ -121,7 +123,8 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
         registeredAudioClipIdsRef.current.delete(clipId);
       }
     }
-  }, [isReady, tracks]);
+    // workerPoolSize intentionally omitted — pool is created once via spectrogramWorkerRef guard
+  }, [isReady, tracks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Main spectrogram computation effect
   useEffect(() => {
@@ -679,7 +682,9 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
           }
         } catch (err) {
           if (err instanceof Error && err.message === 'aborted') return;
-          console.warn('Spectrogram worker error for clip', item.clipId, err);
+          console.warn(
+            `[waveform-playlist] Spectrogram worker error for clip ${item.clipId}: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
       }
 
@@ -769,7 +774,9 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
           if (await renderBackgroundBatches(channelRanges, item)) return;
         } catch (err) {
           if (err instanceof Error && err.message === 'aborted') return;
-          console.warn('Spectrogram display re-render error for clip', item.clipId, err);
+          console.warn(
+            `[waveform-playlist] Spectrogram display re-render error for clip ${item.clipId}: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
       }
     };
@@ -777,6 +784,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
     computeAsync().catch((err) => {
       console.error('[waveform-playlist] Spectrogram computation failed:', err);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- workerPoolSize intentionally omitted, pool created once via spectrogramWorkerRef guard
   }, [
     tracks,
     mono,
