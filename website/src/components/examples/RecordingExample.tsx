@@ -354,6 +354,7 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
                   startSample: recordingStartSample,
                   durationSamples: Math.floor(duration * sampleRate),
                   peaks: recordingPeaks,
+                  bits: 16,
                 }
               : undefined
           }
@@ -398,7 +399,6 @@ export function RecordingExample() {
           onTracksChange={setTracks}
           samplesPerPixel={1024}
           zoomLevels={[256, 512, 1024, 2048, 4096]}
-          mono
           waveHeight={100}
           automaticScroll={true}
           controls={{ show: true, width: 200 }}

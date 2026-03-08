@@ -8,9 +8,9 @@
  *
  * Message Format (to main thread):
  * {
- *   samples: Float32Array,  // Audio samples for this chunk
- *   sampleRate: number,     // Sample rate of the audio
- *   channelCount: number    // Number of channels
+ *   channels: Float32Array[],  // Per-channel audio samples for this chunk
+ *   sampleRate: number,        // Sample rate of the audio
+ *   channelCount: number       // Number of channels
  * }
  *
  * Note: VU meter levels are handled by AnalyserNode in useMicrophoneLevel hook,
@@ -44,7 +44,7 @@ declare function registerProcessor(
 ): void;
 
 interface RecordingProcessorMessage {
-  samples: Float32Array;
+  channels: Float32Array[];
   sampleRate: number;
   channelCount: number;
 }
@@ -112,35 +112,51 @@ class RecordingProcessor extends AudioWorkletProcessor {
 
     const frameCount = input[0].length;
 
-    // Process each channel
-    for (let channel = 0; channel < Math.min(input.length, this.channelCount); channel++) {
-      const inputChannel = input[channel];
-      const buffer = this.buffers[channel];
-
-      // Copy samples to buffer
-      for (let i = 0; i < frameCount; i++) {
-        buffer[this.samplesCollected + i] = inputChannel[i];
-      }
+    if (this.bufferSize <= 0) {
+      return true; // Not yet configured via 'start' command
     }
 
-    this.samplesCollected += frameCount;
+    let offset = 0;
 
-    // When buffer is full, send to main thread
-    if (this.samplesCollected >= this.bufferSize) {
-      this.flushBuffers();
+    // Process samples in chunks that fit within the buffer.
+    // The AudioWorklet quantum (128 samples) may not divide evenly into
+    // bufferSize (e.g., 705 at 44100Hz), so a single frame can cross
+    // the buffer boundary. Without this loop, samples beyond bufferSize
+    // are silently dropped by the typed array, causing audio gaps.
+    while (offset < frameCount) {
+      const remaining = this.bufferSize - this.samplesCollected;
+      const toCopy = Math.min(remaining, frameCount - offset);
+
+      for (let channel = 0; channel < Math.min(input.length, this.channelCount); channel++) {
+        const inputChannel = input[channel];
+        const buffer = this.buffers[channel];
+
+        for (let i = 0; i < toCopy; i++) {
+          buffer[this.samplesCollected + i] = inputChannel[offset + i];
+        }
+      }
+
+      this.samplesCollected += toCopy;
+      offset += toCopy;
+
+      // When buffer is full, send to main thread
+      if (this.samplesCollected >= this.bufferSize) {
+        this.flushBuffers();
+      }
     }
 
     return true; // Keep processor alive
   }
 
   private flushBuffers(): void {
-    // For now, we'll mix down to mono or send the first channel
-    // This simplifies peak generation and waveform display
-    const samples = this.buffers[0].slice(0, this.samplesCollected);
+    // Send all channel buffers to main thread
+    const channels: Float32Array[] = [];
+    for (let i = 0; i < this.channelCount; i++) {
+      channels.push(this.buffers[i].slice(0, this.samplesCollected));
+    }
 
-    // Send to main thread
     this.port.postMessage({
-      samples: samples,
+      channels,
       sampleRate: sampleRate,
       channelCount: this.channelCount,
     } as RecordingProcessorMessage);

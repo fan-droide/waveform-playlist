@@ -11,7 +11,7 @@ export interface RecordingState {
 
 export interface RecordingData {
   buffer: AudioBuffer | null;
-  peaks: Int8Array | Int16Array;
+  peaks: (Int8Array | Int16Array)[];
   duration: number;
 }
 
@@ -23,7 +23,9 @@ export interface MicrophoneDevice {
 
 export interface RecordingOptions {
   /**
-   * Number of channels to record (1 = mono, 2 = stereo)
+   * Number of channels to record (1 = mono, 2 = stereo).
+   * The actual channel count is auto-detected from the microphone stream;
+   * this value is used as a fallback if the stream doesn't report its channel count.
    * Default: 1 (mono)
    * Note: Sample rate is determined by the global AudioContext
    */
@@ -34,6 +36,12 @@ export interface RecordingOptions {
    * Default: 1024
    */
   samplesPerPixel?: number;
+
+  /**
+   * Bit depth for peak values (8 or 16)
+   * Default: 16
+   */
+  bits?: 8 | 16;
 
   /**
    * Specific device ID to use for recording
@@ -53,7 +61,7 @@ export interface UseRecordingReturn {
   isRecording: boolean;
   isPaused: boolean;
   duration: number;
-  peaks: Int8Array | Int16Array;
+  peaks: (Int8Array | Int16Array)[];
   audioBuffer: AudioBuffer | null;
   level: number; // Current RMS level (0-1)
   peakLevel: number; // Peak RMS level since recording started (0-1)

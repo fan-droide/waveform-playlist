@@ -86,6 +86,16 @@ Three approaches for detecting when tracks finish loading:
 
 **Applied in:** `WaveformPlaylistContext.tsx`, `Playlist.tsx`, all E2E tests
 
+## Recording Preview Rendering Path
+
+**Two paths for recording data:**
+1. **Live preview** — `PlaylistVisualization` renders `recordingState.peaks` directly, one `ChannelWithProgress` per channel. Bypasses the `WaveformPlaylistContext` peak generation pipeline entirely.
+2. **Post-recording** — clips go through the peak effect (Path A/B/C), which applies `mono` merge via `extractPeaksFromWaveformDataFull`.
+
+Both paths must respect `mono` flag consistently. Live preview slices to first channel when `mono` is true. `recordingState.bits` flows through to the renderer (not hardcoded).
+
+**`durationSamples` must be zoom-independent:** Use `duration * sampleRate`, not peaks-derived calculations that depend on `samplesPerPixel` (which changes on zoom).
+
 ## Refs for Dynamic Audio Callbacks
 
 **Problem:** useCallback with state dependencies creates stale closures when callbacks are stored and called later.
@@ -168,6 +178,12 @@ const rebuildChain = useCallback(() => {
 
 - **`engine.play()` try-catch in play callback** — `engine.play()` is synchronous but can throw (adapter failures). Wrap in try-catch; on error, `stopAnimationLoop()` and return early to avoid `setIsPlaying(true)` with no audio.
 - **Fire-and-forget async `.catch()` handlers** — `reschedulePlayback()` and `resumePlayback()` are async functions called without `await` in useEffect callbacks. Without `.catch()`, throws become unhandled promise rejections. Each `.catch()` resets UI state (`setIsPlaying(false)`, `stopAnimationLoop()`).
+
+## useAudioTracks Real Sample Rate
+
+**Decision:** `buildTrackFromConfig` receives the actual `audioContext.sampleRate` from `loadTracks`, cached in `contextSampleRateRef` for immediate-mode `useMemo`. Static fallback is 48000 (worst case before AudioContext exists).
+
+**Why:** Hardcoded 48000 caused sample-to-second conversion errors on systems with 44100Hz AudioContext.
 
 ## Aligned Peak Resampling (waveformDataLoader.ts)
 

@@ -8,23 +8,26 @@ import { concatenateAudioData, createAudioBuffer } from '../utils/audioBufferUti
 import { appendPeaks } from '../utils/peaksGenerator';
 import { getContext } from 'tone';
 
+function emptyPeaks(bits: 8 | 16): Int8Array | Int16Array {
+  return bits === 8 ? new Int8Array(0) : new Int16Array(0);
+}
+
 export function useRecording(
   stream: MediaStream | null,
   options: RecordingOptions = {}
 ): UseRecordingReturn {
-  const { channelCount = 1, samplesPerPixel = 1024 } = options;
+  const { channelCount = 1, samplesPerPixel = 1024, bits = 16 } = options;
 
   // State
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [duration, setDuration] = useState(0);
-  const [peaks, setPeaks] = useState<Int8Array | Int16Array>(new Int16Array(0));
+  // Per-channel peaks for multi-channel live preview
+  const [peaks, setPeaks] = useState<(Int8Array | Int16Array)[]>([emptyPeaks(bits)]);
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [level, setLevel] = useState(0); // Current RMS level (0-1)
   const [peakLevel, setPeakLevel] = useState(0); // Peak level since recording started (0-1)
-
-  const bits: 8 | 16 = 16; // Match the bit depth used by the final waveform
 
   // Global flag to prevent loading worklet multiple times
   // (AudioWorklet processors can only be registered once per AudioContext)
@@ -33,7 +36,8 @@ export function useRecording(
   // Refs for AudioWorklet and data accumulation
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const recordedChunksRef = useRef<Float32Array[]>([]);
+  // Per-channel sample accumulation: recordedChunksRef[channelIndex] = Float32Array[]
+  const recordedChunksRef = useRef<Float32Array[][]>([]);
   const totalSamplesRef = useRef(0);
   const animationFrameRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -83,55 +87,82 @@ export function useRecording(
       // Load worklet module
       await loadWorklet();
 
+      // Detect actual channel count from the stream's audio track settings.
+      // Falls back to the user-provided channelCount option.
+      const detectedChannelCount = stream.getAudioTracks()[0]?.getSettings().channelCount;
+      if (detectedChannelCount === undefined) {
+        console.warn(
+          `[waveform-playlist] Could not detect stream channel count, using fallback: ${channelCount}`
+        );
+      }
+      const streamChannelCount = detectedChannelCount ?? channelCount;
+
       // Create MediaStreamSource from Tone's context
       // Each hook creates its own source to avoid cross-context issues in Firefox
       const source = context.createMediaStreamSource(stream);
       mediaStreamSourceRef.current = source;
 
-      // Create AudioWorklet node using Tone's method
-      const workletNode = context.createAudioWorkletNode('recording-processor');
+      // Create AudioWorklet node — set channelCount to match the stream
+      const workletNode = context.createAudioWorkletNode('recording-processor', {
+        channelCount: streamChannelCount,
+        channelCountMode: 'explicit',
+      });
       workletNodeRef.current = workletNode;
 
-      // Connect source to worklet (but not to destination - no monitoring)
-      source.connect(workletNode);
+      // Reset state before connecting — prevents race where a worklet message
+      // arrives before refs are cleared, corrupting samplesProcessedBefore calculations
+      recordedChunksRef.current = Array.from({ length: streamChannelCount }, () => []);
+      totalSamplesRef.current = 0;
+      setPeaks(Array.from({ length: streamChannelCount }, () => emptyPeaks(bits)));
+      setAudioBuffer(null);
+      setLevel(0);
+      setPeakLevel(0);
 
-      //Listen for audio data from worklet
+      // Listen for audio data from worklet
       workletNode.port.onmessage = (event: MessageEvent) => {
-        const { samples } = event.data;
+        const { channels } = event.data as { channels: Float32Array[] };
 
-        // Accumulate samples
-        recordedChunksRef.current.push(samples);
-        totalSamplesRef.current += samples.length;
+        if (!channels || channels.length === 0) {
+          console.warn('[waveform-playlist] Recording worklet sent empty or missing channels data');
+          return;
+        }
 
-        // Update peaks incrementally for live waveform visualization
-        setPeaks((prevPeaks) =>
-          appendPeaks(
-            prevPeaks,
-            samples,
-            samplesPerPixel,
-            totalSamplesRef.current - samples.length,
-            bits
-          )
-        );
+        // Accumulate per-channel samples
+        for (let ch = 0; ch < channels.length; ch++) {
+          if (!recordedChunksRef.current[ch]) {
+            console.warn(
+              `[waveform-playlist] Unexpected channel ${ch} from worklet (expected ${recordedChunksRef.current.length})`
+            );
+            recordedChunksRef.current[ch] = [];
+          }
+          recordedChunksRef.current[ch].push(channels[ch]);
+        }
+        // Capture sample offset before incrementing — used by peak alignment
+        const samplesProcessedBefore = totalSamplesRef.current;
+        totalSamplesRef.current += channels[0].length;
+        setPeaks((prevPeaks) => {
+          // Ensure we have an entry per channel
+          const updated: (Int8Array | Int16Array)[] = [];
+          for (let ch = 0; ch < channels.length; ch++) {
+            const prev = prevPeaks[ch] ?? emptyPeaks(bits);
+            updated.push(
+              appendPeaks(prev, channels[ch], samplesPerPixel, samplesProcessedBefore, bits)
+            );
+          }
+          return updated;
+        });
 
         // Note: VU meter levels come from useMicrophoneLevel (AnalyserNode)
         // We don't update level/peakLevel here to avoid conflicting state updates
       };
 
-      // Start the worklet processor
+      // Connect and start — after state reset and handler setup
+      source.connect(workletNode);
       workletNode.port.postMessage({
         command: 'start',
         sampleRate: context.sampleRate,
-        channelCount,
+        channelCount: streamChannelCount,
       });
-
-      // Reset state
-      recordedChunksRef.current = [];
-      totalSamplesRef.current = 0;
-      setPeaks(new Int16Array(0));
-      setAudioBuffer(null);
-      setLevel(0);
-      setPeakLevel(0);
       isRecordingRef.current = true;
       isPausedRef.current = false;
       setIsRecording(true);
@@ -151,7 +182,7 @@ export function useRecording(
       console.error('Failed to start recording:', err);
       setError(err instanceof Error ? err : new Error('Failed to start recording'));
     }
-  }, [stream, channelCount, samplesPerPixel, loadWorklet]);
+  }, [stream, channelCount, samplesPerPixel, bits, loadWorklet]);
 
   // Stop recording
   const stopRecording = useCallback(async (): Promise<AudioBuffer | null> => {
@@ -168,9 +199,8 @@ export function useRecording(
         if (mediaStreamSourceRef.current) {
           try {
             mediaStreamSourceRef.current.disconnect(workletNodeRef.current);
-          } catch {
-            // Source may have already been disconnected when stream changed
-            // This is fine - just ignore the error
+          } catch (err) {
+            console.warn('[waveform-playlist] Source disconnect during stop:', String(err));
           }
         }
         workletNodeRef.current.disconnect();
@@ -182,12 +212,12 @@ export function useRecording(
         animationFrameRef.current = null;
       }
 
-      // Create final AudioBuffer from accumulated chunks
-      const allSamples = concatenateAudioData(recordedChunksRef.current);
+      // Create final AudioBuffer from accumulated per-channel chunks
       const context = getContext();
-      // Use rawContext for createBuffer (native AudioContext method)
       const rawContext = context.rawContext as AudioContext;
-      const buffer = createAudioBuffer(rawContext, allSamples, rawContext.sampleRate, channelCount);
+      const numChannels = recordedChunksRef.current.length || channelCount;
+      const channelData = recordedChunksRef.current.map((chunks) => concatenateAudioData(chunks));
+      const buffer = createAudioBuffer(rawContext, channelData, rawContext.sampleRate, numChannels);
 
       setAudioBuffer(buffer);
       setDuration(buffer.duration);
@@ -246,9 +276,8 @@ export function useRecording(
         if (mediaStreamSourceRef.current) {
           try {
             mediaStreamSourceRef.current.disconnect(workletNodeRef.current);
-          } catch {
-            // Source may have already been disconnected when stream changed
-            // This is fine - just ignore the error
+          } catch (err) {
+            console.warn('[waveform-playlist] Source disconnect during cleanup:', String(err));
           }
         }
         workletNodeRef.current.disconnect();
