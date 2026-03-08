@@ -3,7 +3,7 @@ import { useDevicePixelRatio, usePlaylistInfo, useTheme } from '../contexts';
 import { Channel } from './Channel';
 import { PianoRollChannel } from './PianoRollChannel';
 import { SpectrogramChannel, type SpectrogramWorkerCanvasApi } from './SpectrogramChannel';
-import type { SpectrogramData, RenderMode, MidiNoteData } from '@waveform-playlist/core';
+import type { RenderMode, MidiNoteData } from '@waveform-playlist/core';
 
 export interface SmartChannelProps {
   className?: string;
@@ -16,18 +16,8 @@ export interface SmartChannelProps {
   transparentBackground?: boolean;
   /** Render mode: waveform, spectrogram, or both */
   renderMode?: RenderMode;
-  /** Spectrogram data for this channel */
-  spectrogramData?: SpectrogramData;
-  /** 256-entry RGB LUT from getColorMap() */
-  spectrogramColorLUT?: Uint8Array;
   /** Samples per pixel at current zoom level */
   samplesPerPixel?: number;
-  /** Frequency scale function */
-  spectrogramFrequencyScaleFn?: (f: number, minF: number, maxF: number) => number;
-  /** Min frequency in Hz */
-  spectrogramMinFrequency?: number;
-  /** Max frequency in Hz */
-  spectrogramMaxFrequency?: number;
   /** Worker API for OffscreenCanvas transfer */
   spectrogramWorkerApi?: SpectrogramWorkerCanvasApi;
   /** Clip ID for worker canvas registration */
@@ -46,12 +36,7 @@ export const SmartChannel: FunctionComponent<SmartChannelProps> = ({
   isSelected,
   transparentBackground,
   renderMode = 'waveform',
-  spectrogramData,
-  spectrogramColorLUT,
   samplesPerPixel: sppProp,
-  spectrogramFrequencyScaleFn,
-  spectrogramMinFrequency,
-  spectrogramMaxFrequency,
   spectrogramWorkerApi,
   spectrogramClipId,
   spectrogramOnCanvasesReady,
@@ -80,22 +65,17 @@ export const SmartChannel: FunctionComponent<SmartChannelProps> = ({
   // Get draw mode from theme (defaults to 'inverted' for backwards compatibility)
   const drawMode = theme?.waveformDrawMode || 'inverted';
 
-  // Worker mode: spectrogram data is optional (worker renders directly)
-  const hasSpectrogram = spectrogramData || spectrogramWorkerApi;
+  // Spectrogram requires worker API and clip ID
+  const hasSpectrogram = spectrogramWorkerApi && spectrogramClipId;
 
   if (renderMode === 'spectrogram' && hasSpectrogram) {
     return (
       <SpectrogramChannel
         index={props.index}
-        data={spectrogramData}
         length={props.length}
         waveHeight={waveHeight}
         devicePixelRatio={devicePixelRatio}
         samplesPerPixel={samplesPerPixel}
-        colorLUT={spectrogramColorLUT}
-        frequencyScaleFn={spectrogramFrequencyScaleFn}
-        minFrequency={spectrogramMinFrequency}
-        maxFrequency={spectrogramMaxFrequency}
         workerApi={spectrogramWorkerApi}
         clipId={spectrogramClipId}
         onCanvasesReady={spectrogramOnCanvasesReady}
@@ -112,15 +92,10 @@ export const SmartChannel: FunctionComponent<SmartChannelProps> = ({
         <SpectrogramChannel
           index={props.index * 2}
           channelIndex={props.index}
-          data={spectrogramData}
           length={props.length}
           waveHeight={halfHeight}
           devicePixelRatio={devicePixelRatio}
           samplesPerPixel={samplesPerPixel}
-          colorLUT={spectrogramColorLUT}
-          frequencyScaleFn={spectrogramFrequencyScaleFn}
-          minFrequency={spectrogramMinFrequency}
-          maxFrequency={spectrogramMaxFrequency}
           workerApi={spectrogramWorkerApi}
           clipId={spectrogramClipId}
           onCanvasesReady={spectrogramOnCanvasesReady}

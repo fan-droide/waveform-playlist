@@ -1,7 +1,6 @@
-export { createSpectrogramWorker } from './createSpectrogramWorker';
+export { createSpectrogramWorker, SpectrogramAbortError } from './createSpectrogramWorker';
+export { createSpectrogramWorkerPool } from './createSpectrogramWorkerPool';
 export type {
-  SpectrogramWorkerComputeParams,
-  SpectrogramWorkerRenderParams,
   SpectrogramWorkerFFTParams,
   SpectrogramWorkerRenderChunksParams,
   SpectrogramWorkerApi,
