@@ -2,7 +2,7 @@
 
 Multi-track audio editor roadmap for waveform-playlist.
 
-**Branch:** `main` | **Last Updated:** 2026-03-03
+**Branch:** `main` | **Last Updated:** 2026-03-07
 
 ---
 
@@ -36,15 +36,12 @@ Multi-track audio editor roadmap for waveform-playlist.
 
 ### Phase 4: Performance & Virtual Scrolling
 
-- [x] Horizontal virtual scrolling (2+ hour timelines) — ScrollViewportContext, chunked TimeScale, viewport-aware Channel/SpectrogramChannel
-- [ ] Chunked spectrogram computation (worker OOM on 1hr+ files — ArrayBuffer allocation failure)
 - [ ] Vertical virtual scrolling (20+ tracks)
 - [ ] RAF batching
 
 ### Phase 5: Polish & Usability
 
 - Undo/redo (command pattern)
-- Snap to grid
 - Keyboard shortcuts help overlay
 - Re-render spectrograms on tab visibility change (OffscreenCanvas buffers can be cleared by browser when tab is backgrounded)
 - Accessibility (ARIA, focus management)
