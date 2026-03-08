@@ -185,7 +185,9 @@ describe('RecordingProcessor', () => {
       // Stop to flush remaining 512 samples
       proc.port.onmessage({ data: { command: 'stop' } });
       expect(messages.length).toBe(expectedFlushes + 1);
-      expect(messages[expectedFlushes].channels[0].length).toBe(totalSamples - expectedFlushes * 768); // 512
+      expect(messages[expectedFlushes].channels[0].length).toBe(
+        totalSamples - expectedFlushes * 768
+      ); // 512
     });
   });
 
