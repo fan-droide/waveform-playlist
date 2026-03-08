@@ -469,7 +469,11 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             }
 
             const fullClipAlreadyCached = clipCacheKeysRef.current.has(item.clipId);
+            let visibleAlreadyRendered = false;
+
             if (visibleRange && !fullClipAlreadyCached) {
+              // Phase 0: Fast visible-range FFT — compute and render only the
+              // portion of the clip that's currently on screen.
               const { cacheKey: visibleCacheKey } = await workerApi!.computeFFT({
                 clipId: item.clipId,
                 channelDataArrays: item.channelDataArrays,
@@ -498,8 +502,10 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               }
 
               if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
+              visibleAlreadyRendered = true;
             }
 
+            // Full-clip FFT (needed for off-screen chunks and scrolling).
             const { cacheKey } = await workerApi!.computeFFT({
               clipId: item.clipId,
               channelDataArrays: item.channelDataArrays,
@@ -514,9 +520,9 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
             clipCacheKeysRef.current.set(item.clipId, cacheKey);
 
-            // Phase 1: Render visible chunks for ALL channels first.
-            // This prevents ch1 from being starved when ch0's background
-            // batches cause generation aborts during scrolling.
+            // Phase 1: Render visible chunks for ALL channels first (unless
+            // already rendered from the visible-range FFT — the padded sample
+            // range produces identical pixels for visible chunks).
             const phase1Start = performance.now();
             const channelRanges: Array<{
               ch: number;
@@ -529,17 +535,24 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               if (!channelInfo) continue;
               const range = getVisibleChunkRange(channelInfo, clipPixelOffset);
               channelRanges.push({ ch, channelInfo, ...range });
-              console.log(
-                `[spectrogram] phase1 ch=${ch}: visible=[${range.visibleIndices.join(',')}] remaining=[${range.remainingIndices.join(',')}]`
-              );
-              await renderChunkSubset(
-                workerApi!,
-                cacheKey,
-                channelInfo,
-                range.visibleIndices,
-                item,
-                ch
-              );
+
+              if (!visibleAlreadyRendered) {
+                console.log(
+                  `[spectrogram] phase1 ch=${ch}: visible=[${range.visibleIndices.join(',')}] remaining=[${range.remainingIndices.join(',')}]`
+                );
+                await renderChunkSubset(
+                  workerApi!,
+                  cacheKey,
+                  channelInfo,
+                  range.visibleIndices,
+                  item,
+                  ch
+                );
+              } else {
+                console.log(
+                  `[spectrogram] phase1 ch=${ch}: skipped (already rendered), remaining=[${range.remainingIndices.join(',')}]`
+                );
+              }
             }
 
             console.log(
