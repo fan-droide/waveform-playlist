@@ -54,6 +54,19 @@ const spectrogram = useContext(SpectrogramIntegrationContext);
 
 **Critical:** `getVisibleChunkRange` in SpectrogramProvider MUST use the same 1.5× viewport-width buffer as `useVisibleChunkIndices` in ScrollViewport.tsx. Without this, canvases mounted in the buffer zone (by the virtualizer) remain black — they're classified as "remaining" and get aborted during scrolling before background batches render them.
 
+## Three-Tier Rendering Pipeline
+
+**Decision:** Classify chunks into viewport/buffer/remaining instead of binary visible/remaining.
+
+**Why:** The virtualizer only mounts chunks within the 1.5× buffer. A binary split with a 1.5× buffer classifies ALL mounted chunks as "visible", making phase 1 FFT cover 5-6 chunks (~4.5s) instead of 2 viewport chunks (~1.5s).
+
+**Tiers:**
+- **Phase 1a (viewport):** Chunks intersecting exact scroll viewport — fast first paint (~1.5s cold, ~80ms cached)
+- **Phase 1b (buffer):** Chunks in 1.5× overscan but outside viewport — prevents black chunks on scroll
+- **Phase 2 (remaining):** Off-screen chunks via `requestIdleCallback` background batches
+
+**Contiguous grouping (critical):** Buffer indices may map to non-contiguous chunk numbers (e.g., indices `[0,3,4,5]` → chunks `[10,14,15,11]`). Always use `groupContiguousIndices()` before `computeFFTForChunks()` — without it, min-to-max spanning computes a huge FFT range (96K frames / 4.5s instead of 16K / 700ms per group).
+
 ## Controls Outside Scroll Container
 
 **Gotcha:** `scrollContainerRef` coordinates do NOT include `controlWidth`. Controls render in a fixed `ControlsColumn` outside the scroll area. Never add `controlWidth` to chunk pixel positions in `getVisibleChunkRange` or viewport calculations.
