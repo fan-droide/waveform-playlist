@@ -117,6 +117,8 @@
 
 **Backwards compatibility:** `useScrollViewport()` returns `null` without provider. All components default to rendering everything when viewport is `null`.
 
+**Overscan buffer contract:** The 1.5× container-width buffer in `ScrollViewportProvider` is a contract — `SpectrogramProvider.getVisibleChunkRange()` depends on matching this exact buffer size. If changed, update both.
+
 ## @dnd-kit Feedback Plugin Per-Entity Config
 
 **Pattern:** `useDraggable({ feedback: 'none' })` disables the Feedback plugin for that draggable — no fixed positioning, no CSS translate, no placeholder, no drop animation. Used on boundary trim handles where React state provides visual feedback.
