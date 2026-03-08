@@ -217,7 +217,9 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
         spectrogramWorkerRef.current = workerApi;
         setSpectrogramWorkerReady(true);
       } catch (err) {
-        console.error('[waveform-playlist] Spectrogram Web Worker required but unavailable:', err);
+        console.error(
+          `[waveform-playlist] Spectrogram Web Worker required but unavailable: ${err instanceof Error ? err.message : String(err)}`
+        );
         return;
       }
     }
@@ -661,13 +663,11 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
                 if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
 
                 for (const { ch, channelInfo } of channelRanges) {
-                  // Map this group's indices to the corresponding buffer indices for this channel
-                  const chBufferIndices = group;
                   await renderChunkSubset(
                     workerApi!,
                     cacheKey,
                     channelInfo,
-                    chBufferIndices,
+                    group,
                     item,
                     ch,
                     generation
@@ -786,7 +786,9 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
     };
 
     computeAsync().catch((err) => {
-      console.error('[waveform-playlist] Spectrogram computation failed:', err);
+      console.error(
+        `[waveform-playlist] Spectrogram computation failed: ${err instanceof Error ? err.message : String(err)}`
+      );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- workerPoolSize intentionally omitted, pool created once via spectrogramWorkerRef guard
   }, [
@@ -871,7 +873,6 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
   const value: SpectrogramIntegration = useMemo(
     () => ({
-      spectrogramDataMap: new Map(),
       trackSpectrogramOverrides,
       spectrogramWorkerApi: spectrogramWorkerReady ? spectrogramWorkerRef.current : null,
       spectrogramConfig,

@@ -1,6 +1,5 @@
 import { createContext, useContext } from 'react';
 import type {
-  SpectrogramData,
   SpectrogramConfig,
   ColorMapValue,
   RenderMode,
@@ -9,7 +8,6 @@ import type {
 import type { TrackMenuItem } from '@waveform-playlist/ui-components';
 
 export interface SpectrogramIntegration {
-  spectrogramDataMap: Map<string, SpectrogramData[]>;
   trackSpectrogramOverrides: Map<string, TrackSpectrogramOverrides>;
   spectrogramWorkerApi: SpectrogramWorkerApi | null;
   spectrogramConfig?: SpectrogramConfig;

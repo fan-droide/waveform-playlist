@@ -421,7 +421,7 @@ function renderSpectrogramToCanvas(
       const tmpCtx = tmpCanvas.getContext('2d');
       if (!tmpCtx) {
         console.warn(
-          `[spectrogram-worker] getContext('2d') failed for DPR scaling of "${canvasIds[i]}"`
+          `[spectrogram-worker] getContext('2d') failed for DPR scaling of "${canvasIds[chunkIdx]}"`
         );
         continue;
       }

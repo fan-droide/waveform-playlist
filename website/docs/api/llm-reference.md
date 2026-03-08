@@ -931,6 +931,8 @@ import { SpectrogramProvider } from '@waveform-playlist/spectrogram';
 interface SpectrogramProviderProps {
   config?: SpectrogramConfig;
   colorMap?: ColorMapValue;
+  /** Number of Web Workers for parallel FFT computation. Default: 2 (one per stereo channel). */
+  workerPoolSize?: number;
   children: ReactNode;
 }
 ```
@@ -979,21 +981,22 @@ interface TrackSpectrogramOverrides {
 
 // From @waveform-playlist/spectrogram
 interface SpectrogramWorkerApi {
-  compute(params: SpectrogramWorkerComputeParams): Promise<SpectrogramData[]>;
-  computeFFT(params: SpectrogramWorkerFFTParams): Promise<{ cacheKey: string }>;
-  renderChunks(params: SpectrogramWorkerRenderChunksParams): Promise<void>;
+  computeFFT(params: SpectrogramWorkerFFTParams, generation?: number): Promise<{ cacheKey: string }>;
+  renderChunks(params: SpectrogramWorkerRenderChunksParams, generation?: number): Promise<void>;
+  abortGeneration(generation: number): void;
   registerCanvas(canvasId: string, canvas: OffscreenCanvas): void;
   unregisterCanvas(canvasId: string): void;
   registerAudioData(clipId: string, channelDataArrays: Float32Array[], sampleRate: number): void;
   unregisterAudioData(clipId: string): void;
-  computeAndRender(params: SpectrogramWorkerRenderParams): Promise<void>;
   terminate(): void;
 }
 
+class SpectrogramAbortError extends Error {}  // instanceof check for aborted FFT computations
+
 // Key exports
-export { SpectrogramProvider } from '@waveform-playlist/spectrogram';
+export { SpectrogramProvider, SpectrogramAbortError } from '@waveform-playlist/spectrogram';
 export { computeSpectrogram, computeSpectrogramMono, getColorMap, getFrequencyScale } from '@waveform-playlist/spectrogram';
-export { createSpectrogramWorker } from '@waveform-playlist/spectrogram';
+export { createSpectrogramWorker, createSpectrogramWorkerPool } from '@waveform-playlist/spectrogram';
 export { SpectrogramMenuItems, SpectrogramSettingsModal } from '@waveform-playlist/spectrogram';
 
 // Integration context (from @waveform-playlist/browser)
