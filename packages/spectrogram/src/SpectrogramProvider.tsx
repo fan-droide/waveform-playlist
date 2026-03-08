@@ -8,7 +8,7 @@ import {
   type TrackSpectrogramOverrides,
 } from '@waveform-playlist/core';
 import { getColorMap, getFrequencyScale } from './computation';
-import { createSpectrogramWorker, type SpectrogramWorkerApi } from './worker';
+import { createSpectrogramWorkerPool, type SpectrogramWorkerApi } from './worker';
 import { SpectrogramMenuItems } from './components';
 import { SpectrogramSettingsModal } from './components';
 import {
@@ -78,11 +78,13 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
     let workerApi = spectrogramWorkerRef.current;
     if (!workerApi) {
       try {
-        const rawWorker = new Worker(
-          new URL('@waveform-playlist/spectrogram/worker/spectrogram.worker', import.meta.url),
-          { type: 'module' }
+        workerApi = createSpectrogramWorkerPool(
+          () =>
+            new Worker(
+              new URL('@waveform-playlist/spectrogram/worker/spectrogram.worker', import.meta.url),
+              { type: 'module' }
+            )
         );
-        workerApi = createSpectrogramWorker(rawWorker);
         spectrogramWorkerRef.current = workerApi;
         setSpectrogramWorkerReady(true);
       } catch {
@@ -193,11 +195,13 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
     let workerApi = spectrogramWorkerRef.current;
     if (!workerApi) {
       try {
-        const rawWorker = new Worker(
-          new URL('@waveform-playlist/spectrogram/worker/spectrogram.worker', import.meta.url),
-          { type: 'module' }
+        workerApi = createSpectrogramWorkerPool(
+          () =>
+            new Worker(
+              new URL('@waveform-playlist/spectrogram/worker/spectrogram.worker', import.meta.url),
+              { type: 'module' }
+            )
         );
-        workerApi = createSpectrogramWorker(rawWorker);
         spectrogramWorkerRef.current = workerApi;
         setSpectrogramWorkerReady(true);
       } catch (err) {

@@ -9,6 +9,8 @@ export interface SpectrogramWorkerFFTParams {
   durationSamples: number;
   mono: boolean;
   sampleRange?: { start: number; end: number };
+  /** If set, compute only this channel index (used by worker pool). */
+  channelFilter?: number;
 }
 
 export interface SpectrogramWorkerRenderChunksParams {
@@ -147,6 +149,7 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
             durationSamples: params.durationSamples,
             mono: params.mono,
             ...(params.sampleRange ? { sampleRange: params.sampleRange } : {}),
+            ...(params.channelFilter !== undefined ? { channelFilter: params.channelFilter } : {}),
           },
           transferables
         );

@@ -105,6 +105,8 @@ interface ComputeFFTRequest {
   durationSamples: number;
   mono: boolean;
   sampleRange?: { start: number; end: number };
+  /** If set, compute only this channel index (not all channels). */
+  channelFilter?: number;
 }
 
 interface RenderChunksRequest {
@@ -428,6 +430,7 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
     durationSamples,
     mono,
     sampleRange,
+    channelFilter,
   } = msg;
 
   // Use pre-registered audio data if available, otherwise use message payload
@@ -468,6 +471,35 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
     if (mono || channelDataArrays.length === 1) {
       const result = await computeMonoFromChannels(
         channelDataArrays,
+        config,
+        sampleRate,
+        effectiveOffset,
+        effectiveDuration,
+        generation
+      );
+      if (result === null) {
+        console.log(
+          `[spectrogram-worker] compute-fft: aborted (gen ${generation} < ${latestGeneration})`
+        );
+        const response: ComputeResponse = { id, type: 'aborted' };
+        (self as unknown as Worker).postMessage(response);
+        return;
+      }
+      spectrograms.push(result);
+    } else if (channelFilter !== undefined) {
+      // Pool mode: compute only the requested channel
+      const channelData = channelDataArrays[channelFilter];
+      if (!channelData) {
+        const response: ComputeResponse = {
+          id,
+          type: 'error',
+          error: `channelFilter ${channelFilter} out of range (${channelDataArrays.length} channels)`,
+        };
+        (self as unknown as Worker).postMessage(response);
+        return;
+      }
+      const result = await computeFromChannelData(
+        channelData,
         config,
         sampleRate,
         effectiveOffset,
