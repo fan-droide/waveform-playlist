@@ -613,7 +613,10 @@ function useIntegratedRecording(
 
 ```typescript
 interface IntegratedRecordingOptions {
-  currentTime?: number;  // Current playhead position for recording start
+  currentTime?: number;       // Current playhead position for recording start
+  channelCount?: number;      // Default: 1 (auto-detected from stream; fallback)
+  samplesPerPixel?: number;   // Default: 1024
+  bits?: 8 | 16;             // Default: 16
 }
 ```
 
@@ -641,7 +644,7 @@ interface UseIntegratedRecordingReturn {
   changeDevice: (deviceId: string) => void;
 
   // Live waveform data
-  recordingPeaks: number[];
+  recordingPeaks: (Int8Array | Int16Array)[];  // Per-channel live peaks
 
   // Error handling
   error: Error | null;
