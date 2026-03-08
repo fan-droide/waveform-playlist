@@ -185,6 +185,11 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
     const generation = ++spectrogramGenerationRef.current;
 
+    // Tell the worker to abort any in-flight FFT from previous generations
+    if (spectrogramWorkerRef.current) {
+      spectrogramWorkerRef.current.abortGeneration(generation);
+    }
+
     let workerApi = spectrogramWorkerRef.current;
     if (!workerApi) {
       try {
@@ -339,7 +344,8 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
       channelInfo: { canvasIds: string[]; canvasWidths: number[] },
       indices: number[],
       item: { config: SpectrogramConfig; colorMap: ColorMapValue },
-      channelIndex: number
+      channelIndex: number,
+      gen: number
     ) => {
       if (indices.length === 0) return;
 
@@ -357,22 +363,25 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
       const colorLUT = getColorMap(item.colorMap);
 
-      await api.renderChunks({
-        cacheKey,
-        canvasIds,
-        canvasWidths,
-        globalPixelOffsets,
-        canvasHeight: waveHeight,
-        devicePixelRatio: typeof window !== 'undefined' ? window.devicePixelRatio : 1,
-        samplesPerPixel,
-        colorLUT,
-        frequencyScale: item.config.frequencyScale ?? 'mel',
-        minFrequency: item.config.minFrequency ?? 0,
-        maxFrequency: item.config.maxFrequency ?? 0,
-        gainDb: item.config.gainDb ?? 20,
-        rangeDb: item.config.rangeDb ?? 80,
-        channelIndex,
-      });
+      await api.renderChunks(
+        {
+          cacheKey,
+          canvasIds,
+          canvasWidths,
+          globalPixelOffsets,
+          canvasHeight: waveHeight,
+          devicePixelRatio: typeof window !== 'undefined' ? window.devicePixelRatio : 1,
+          samplesPerPixel,
+          colorLUT,
+          frequencyScale: item.config.frequencyScale ?? 'mel',
+          minFrequency: item.config.minFrequency ?? 0,
+          maxFrequency: item.config.maxFrequency ?? 0,
+          gainDb: item.config.gainDb ?? 20,
+          rangeDb: item.config.rangeDb ?? 80,
+          channelIndex,
+        },
+        gen
+      );
     };
 
     // Compute FFT for the sample range covered by a set of chunk indices.
@@ -391,7 +400,8 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
         offsetSamples: number;
         durationSamples: number;
         monoFlag: boolean;
-      }
+      },
+      gen: number
     ): Promise<string> => {
       // Determine the sample range these chunks cover
       const chunkNumbers = indices.map((i) => extractChunkNumber(channelInfo.canvasIds[i]));
@@ -417,16 +427,19 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
         rangeEndSample + windowSize
       );
 
-      const { cacheKey } = await api.computeFFT({
-        clipId: item.clipId,
-        channelDataArrays: item.channelDataArrays,
-        config: item.config,
-        sampleRate: item.sampleRate,
-        offsetSamples: item.offsetSamples,
-        durationSamples: item.durationSamples,
-        mono: item.monoFlag,
-        sampleRange: { start: paddedStart, end: paddedEnd },
-      });
+      const { cacheKey } = await api.computeFFT(
+        {
+          clipId: item.clipId,
+          channelDataArrays: item.channelDataArrays,
+          config: item.config,
+          sampleRate: item.sampleRate,
+          offsetSamples: item.offsetSamples,
+          durationSamples: item.durationSamples,
+          mono: item.monoFlag,
+          sampleRange: { start: paddedStart, end: paddedEnd },
+        },
+        gen
+      );
 
       return cacheKey;
     };
@@ -529,13 +542,14 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             workerApi!,
             firstChannelInfo,
             group,
-            item
+            item,
+            generation
           );
 
           // Render all channels from the cached FFT data
           for (const { ch, channelInfo: ci } of channelRangeEntries) {
             if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return true;
-            await renderChunkSubset(workerApi!, cacheKey, ci, group, item, ch);
+            await renderChunkSubset(workerApi!, cacheKey, ci, group, item, ch, generation);
           }
         }
         return false;
@@ -599,14 +613,23 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
                 workerApi!,
                 channelRanges[0].channelInfo,
                 channelRanges[0].visibleIndices,
-                item
+                item,
+                generation
               );
 
               if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
 
               // Render all channels from the single cached FFT
               for (const { ch, channelInfo, visibleIndices } of channelRanges) {
-                await renderChunkSubset(workerApi!, cacheKey, channelInfo, visibleIndices, item, ch);
+                await renderChunkSubset(
+                  workerApi!,
+                  cacheKey,
+                  channelInfo,
+                  visibleIndices,
+                  item,
+                  ch,
+                  generation
+                );
               }
             }
 
@@ -623,6 +646,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             if (await renderBackgroundBatches(channelRanges, item)) return;
           }
         } catch (err) {
+          if (err instanceof Error && err.message === 'aborted') return;
           console.warn('Spectrogram worker error for clip', item.clipId, err);
         }
       }
@@ -666,12 +690,24 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
                   workerApi!,
                   firstVisible.channelInfo,
                   visibleIndices,
-                  item
+                  item,
+                  generation
                 );
                 if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
                 for (const { ch, channelInfo } of channelRanges) {
-                  const chVisible = getVisibleChunkRange(channelInfo, clipPixelOffset).visibleIndices;
-                  await renderChunkSubset(workerApi!, cacheKey, channelInfo, chVisible, item, ch);
+                  const chVisible = getVisibleChunkRange(
+                    channelInfo,
+                    clipPixelOffset
+                  ).visibleIndices;
+                  await renderChunkSubset(
+                    workerApi!,
+                    cacheKey,
+                    channelInfo,
+                    chVisible,
+                    item,
+                    ch,
+                    generation
+                  );
                 }
               }
             }
@@ -682,6 +718,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
           // Phase 2: Render off-screen chunks in background batches.
           if (await renderBackgroundBatches(channelRanges, item)) return;
         } catch (err) {
+          if (err instanceof Error && err.message === 'aborted') return;
           console.warn('Spectrogram display re-render error for clip', item.clipId, err);
         }
       }

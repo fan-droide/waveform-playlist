@@ -31,6 +31,7 @@ export interface SpectrogramWorkerRenderChunksParams {
 type ComputeResponse =
   | { id: string; type: 'cache-key'; cacheKey: string }
   | { id: string; type: 'done' }
+  | { id: string; type: 'aborted' }
   | { id: string; type: 'error'; error: string };
 
 /** Union of all values that worker resolve callbacks receive. */
@@ -52,8 +53,12 @@ function addPending<T>(
 }
 
 export interface SpectrogramWorkerApi {
-  computeFFT(params: SpectrogramWorkerFFTParams): Promise<{ cacheKey: string }>;
-  renderChunks(params: SpectrogramWorkerRenderChunksParams): Promise<void>;
+  computeFFT(
+    params: SpectrogramWorkerFFTParams,
+    generation?: number
+  ): Promise<{ cacheKey: string }>;
+  renderChunks(params: SpectrogramWorkerRenderChunksParams, generation?: number): Promise<void>;
+  abortGeneration(generation: number): void;
   registerCanvas(canvasId: string, canvas: OffscreenCanvas): void;
   unregisterCanvas(canvasId: string): void;
   registerAudioData(clipId: string, channelDataArrays: Float32Array[], sampleRate: number): void;
@@ -91,6 +96,9 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
         case 'error':
           entry.reject(new Error(msg.error));
           break;
+        case 'aborted':
+          entry.reject(new Error('aborted'));
+          break;
         case 'cache-key':
           entry.resolve({ cacheKey: msg.cacheKey });
           break;
@@ -112,7 +120,7 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
   };
 
   return {
-    computeFFT(params: SpectrogramWorkerFFTParams): Promise<{ cacheKey: string }> {
+    computeFFT(params: SpectrogramWorkerFFTParams, generation = 0): Promise<{ cacheKey: string }> {
       if (terminated) return Promise.reject(new Error('Worker terminated'));
       const id = String(++idCounter);
 
@@ -130,6 +138,7 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
           {
             type: 'compute-fft',
             id,
+            generation,
             clipId: params.clipId,
             channelDataArrays: transferableArrays,
             config: params.config,
@@ -144,7 +153,7 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
       });
     },
 
-    renderChunks(params: SpectrogramWorkerRenderChunksParams): Promise<void> {
+    renderChunks(params: SpectrogramWorkerRenderChunksParams, generation = 0): Promise<void> {
       if (terminated) return Promise.reject(new Error('Worker terminated'));
       const id = String(++idCounter);
 
@@ -154,6 +163,7 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
         worker.postMessage({
           type: 'render-chunks',
           id,
+          generation,
           cacheKey: params.cacheKey,
           canvasIds: params.canvasIds,
           canvasWidths: params.canvasWidths,
@@ -170,6 +180,11 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
           channelIndex: params.channelIndex,
         });
       });
+    },
+
+    abortGeneration(generation: number): void {
+      if (terminated) return;
+      worker.postMessage({ type: 'abort-generation', generation });
     },
 
     registerCanvas(canvasId: string, canvas: OffscreenCanvas): void {
