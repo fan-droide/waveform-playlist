@@ -471,8 +471,6 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
   });
 
   if (!fftCache.has(cacheKey)) {
-    const t0 = performance.now();
-
     // Evict oldest cache entries if at capacity
     evictLRUCacheEntries(cacheKey);
 
@@ -487,9 +485,6 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
         generation
       );
       if (result === null) {
-        console.log(
-          `[spectrogram-worker] compute-fft: aborted (gen ${generation} < ${latestGeneration})`
-        );
         const response: ComputeResponse = { id, type: 'aborted' };
         (self as unknown as Worker).postMessage(response);
         return;
@@ -516,9 +511,6 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
         generation
       );
       if (result === null) {
-        console.log(
-          `[spectrogram-worker] compute-fft: aborted (gen ${generation} < ${latestGeneration})`
-        );
         const response: ComputeResponse = { id, type: 'aborted' };
         (self as unknown as Worker).postMessage(response);
         return;
@@ -535,9 +527,6 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
           generation
         );
         if (result === null) {
-          console.log(
-            `[spectrogram-worker] compute-fft: aborted (gen ${generation} < ${latestGeneration})`
-          );
           const response: ComputeResponse = { id, type: 'aborted' };
           (self as unknown as Worker).postMessage(response);
           return;
@@ -546,18 +535,9 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
       }
     }
     fftCache.set(cacheKey, { spectrograms, sampleOffset: effectiveOffset });
-
-    console.log(
-      `[spectrogram-worker] compute-fft: ${(performance.now() - t0).toFixed(1)}ms, ` +
-        `${spectrograms.length} channel(s), ` +
-        `${spectrograms[0].frameCount} frames, ` +
-        `range=${sampleRange ? `${sampleRange.start}-${sampleRange.end}` : 'full'}, ` +
-        `duration=${effectiveDuration} samples`
-    );
   } else {
     // Bump to most-recently-used so scroll-back patterns keep hot entries alive
     touchCacheEntry(cacheKey);
-    console.log(`[spectrogram-worker] compute-fft: cache hit for ${clipId}`);
   }
 
   const response: ComputeResponse = { id, type: 'cache-key', cacheKey };
@@ -679,8 +659,6 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
         return;
       }
 
-      const t0 = performance.now();
-
       const scaleFn = getFrequencyScale((frequencyScale ?? 'mel') as FrequencyScaleName);
       const isNonLinear = frequencyScale !== 'linear';
 
@@ -700,12 +678,6 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
         gainDb,
         rangeDb,
         cacheEntry.sampleOffset
-      );
-
-      console.log(
-        `[spectrogram-worker] render-chunks: ${(performance.now() - t0).toFixed(1)}ms, ` +
-          `ch=${channelIndex}, ${canvasIds.length} chunk(s), ` +
-          `offsets=[${globalPixelOffsets.join(',')}], widths=[${canvasWidths.join(',')}]`
       );
 
       const response: ComputeResponse = { id, type: 'done' };

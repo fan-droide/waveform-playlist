@@ -585,35 +585,10 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             const numChannels = item.monoFlag ? 1 : item.channelDataArrays.length;
             const clipPixelOffset = Math.floor(item.clipStartSample / samplesPerPixel);
 
-            // Debug: log registered canvas info per channel
-            for (const [ch, info] of clipCanvasInfo.entries()) {
-              const chunkNumbers = info.canvasIds.map((id: string) => {
-                const m = id.match(/chunk(\d+)$/);
-                return m ? parseInt(m[1], 10) : -1;
-              });
-              console.log(
-                `[spectrogram] clip=${item.clipId} ch=${ch} registered chunks=[${chunkNumbers.join(',')}] widths=[${info.canvasWidths.join(',')}]`
-              );
-            }
-
-            const container = scrollContainerRef.current;
-            if (container) {
-              const scrollLeft = container.scrollLeft;
-              const viewportWidth = container.clientWidth;
-              const buffer = viewportWidth * 1.5;
-              const clipEndPx = clipPixelOffset + Math.ceil(item.durationSamples / samplesPerPixel);
-              console.log(
-                `[spectrogram] viewport: scrollLeft=${scrollLeft} width=${viewportWidth} ` +
-                  `buffered=[${Math.max(0, scrollLeft - buffer).toFixed(0)},${(scrollLeft + viewportWidth + buffer).toFixed(0)}] ` +
-                  `clipPx=[${clipPixelOffset},${clipEndPx}]`
-              );
-            }
-
             // Three-phase rendering:
             // Phase 1a: viewport-only chunks (fast first paint)
             // Phase 1b: buffer-zone chunks (prevents black chunks on scroll)
             // Phase 2: off-screen chunks (background batches)
-            const phase1Start = performance.now();
             const channelRanges: Array<{
               ch: number;
               channelInfo: { canvasIds: string[]; canvasWidths: number[] };
@@ -627,9 +602,6 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               if (!channelInfo) continue;
               const range = getVisibleChunkRange(channelInfo, clipPixelOffset);
               channelRanges.push({ ch, channelInfo, ...range });
-              console.log(
-                `[spectrogram] ch=${ch}: viewport=[${range.viewportIndices.join(',')}] buffer=[${range.bufferIndices.join(',')}] remaining=[${range.remainingIndices.join(',')}]`
-              );
             }
 
             // Phase 1a: Compute FFT for viewport chunks only, render all channels
@@ -657,17 +629,12 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               }
             }
 
-            console.log(
-              `[spectrogram] phase1a (viewport) complete: ${(performance.now() - phase1Start).toFixed(1)}ms`
-            );
-
             if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
 
             // Phase 1b: Compute FFT for buffer-zone chunks, render all channels.
             // Buffer indices may be non-contiguous (e.g., chunks [10,14,15] from
             // indices [0,3,4,5]), so group them to avoid spanning a huge FFT range.
             if (channelRanges.length > 0 && channelRanges[0].bufferIndices.length > 0) {
-              const phase1bStart = performance.now();
               const bufferGroups = groupContiguousIndices(
                 channelRanges[0].channelInfo,
                 channelRanges[0].bufferIndices
@@ -700,10 +667,6 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
                   );
                 }
               }
-
-              console.log(
-                `[spectrogram] phase1b (buffer) complete: ${(performance.now() - phase1bStart).toFixed(1)}ms`
-              );
             }
 
             renderedClipIdsRef.current.add(item.clipId);
