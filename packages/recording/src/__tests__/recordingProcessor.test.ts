@@ -147,7 +147,7 @@ describe('RecordingProcessor', () => {
       expect(flushed[704]).toBeCloseTo(0.9);
     });
 
-    it('no samples lost over many frames', () => {
+    it('no samples lost over many frames at 44100Hz', () => {
       const proc = createProcessor(44100, 1);
       // bufferSize = 705
       // Send 100 frames of 128 = 12800 total samples
@@ -164,6 +164,28 @@ describe('RecordingProcessor', () => {
       // Verify total flushed samples
       const flushedTotal = messages.reduce((sum, m) => sum + m.channels[0].length, 0);
       expect(flushedTotal).toBe(expectedFlushes * 705);
+    });
+
+    it('no samples lost over many frames at 48000Hz', () => {
+      const proc = createProcessor(48000, 1);
+      // bufferSize at 48000Hz = floor(48000 * 0.016) = 768
+      // 768 / 128 = 6 exactly (no boundary crossing), but verify over long run
+      const totalFrames = 100;
+      for (let i = 0; i < totalFrames; i++) {
+        proc.process(monoInput(128), [], {});
+      }
+
+      const totalSamples = totalFrames * 128; // 12800
+      const expectedFlushes = Math.floor(totalSamples / 768); // 16
+      expect(messages.length).toBe(expectedFlushes);
+
+      const flushedTotal = messages.reduce((sum, m) => sum + m.channels[0].length, 0);
+      expect(flushedTotal).toBe(expectedFlushes * 768); // 12288
+
+      // Stop to flush remaining 512 samples
+      proc.port.onmessage({ data: { command: 'stop' } });
+      expect(messages.length).toBe(expectedFlushes + 1);
+      expect(messages[expectedFlushes].channels[0].length).toBe(totalSamples - expectedFlushes * 768); // 512
     });
   });
 
