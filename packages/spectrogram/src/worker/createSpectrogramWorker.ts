@@ -1,27 +1,4 @@
-import type { SpectrogramConfig, SpectrogramData } from '@waveform-playlist/core';
-
-export interface SpectrogramWorkerComputeParams {
-  channelDataArrays: Float32Array[];
-  config: SpectrogramConfig;
-  sampleRate: number;
-  offsetSamples: number;
-  durationSamples: number;
-  mono: boolean;
-}
-
-export interface SpectrogramWorkerRenderParams extends SpectrogramWorkerComputeParams {
-  render: {
-    canvasIds: string[][];
-    canvasWidths: number[];
-    canvasHeight: number;
-    devicePixelRatio: number;
-    samplesPerPixel: number;
-    colorLUT: Uint8Array;
-    frequencyScale: string;
-    minFrequency: number;
-    maxFrequency: number;
-  };
-}
+import type { SpectrogramConfig } from '@waveform-playlist/core';
 
 export interface SpectrogramWorkerFFTParams {
   clipId: string;
@@ -52,13 +29,12 @@ export interface SpectrogramWorkerRenderChunksParams {
 }
 
 type ComputeResponse =
-  | { id: string; type: 'spectrograms'; spectrograms: SpectrogramData[] }
   | { id: string; type: 'cache-key'; cacheKey: string }
   | { id: string; type: 'done' }
   | { id: string; type: 'error'; error: string };
 
 /** Union of all values that worker resolve callbacks receive. */
-type PendingResolveValue = SpectrogramData[] | { cacheKey: string } | void;
+type PendingResolveValue = { cacheKey: string } | void;
 
 interface PendingEntry {
   resolve: (value: PendingResolveValue) => void;
@@ -76,14 +52,12 @@ function addPending<T>(
 }
 
 export interface SpectrogramWorkerApi {
-  compute(params: SpectrogramWorkerComputeParams): Promise<SpectrogramData[]>;
   computeFFT(params: SpectrogramWorkerFFTParams): Promise<{ cacheKey: string }>;
   renderChunks(params: SpectrogramWorkerRenderChunksParams): Promise<void>;
   registerCanvas(canvasId: string, canvas: OffscreenCanvas): void;
   unregisterCanvas(canvasId: string): void;
   registerAudioData(clipId: string, channelDataArrays: Float32Array[], sampleRate: number): void;
   unregisterAudioData(clipId: string): void;
-  computeAndRender(params: SpectrogramWorkerRenderParams): Promise<void>;
   terminate(): void;
 }
 
@@ -123,9 +97,6 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
         case 'done':
           entry.resolve(undefined);
           break;
-        case 'spectrograms':
-          entry.resolve(msg.spectrograms);
-          break;
       }
     } else if (msg.id) {
       console.warn(`[spectrogram] Received response for unknown message ID: ${msg.id}`);
@@ -141,32 +112,6 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
   };
 
   return {
-    compute(params: SpectrogramWorkerComputeParams): Promise<SpectrogramData[]> {
-      if (terminated) return Promise.reject(new Error('Worker terminated'));
-      const id = String(++idCounter);
-
-      return new Promise<SpectrogramData[]>((resolve, reject) => {
-        addPending(pending, id, resolve, reject);
-
-        // Slice channel data so we can transfer without detaching the original AudioBuffer views
-        const transferableArrays = params.channelDataArrays.map((arr) => arr.slice());
-        const transferables = transferableArrays.map((arr) => arr.buffer);
-
-        worker.postMessage(
-          {
-            id,
-            channelDataArrays: transferableArrays,
-            config: params.config,
-            sampleRate: params.sampleRate,
-            offsetSamples: params.offsetSamples,
-            durationSamples: params.durationSamples,
-            mono: params.mono,
-          },
-          transferables
-        );
-      });
-    },
-
     computeFFT(params: SpectrogramWorkerFFTParams): Promise<{ cacheKey: string }> {
       if (terminated) return Promise.reject(new Error('Worker terminated'));
       const id = String(++idCounter);
@@ -248,33 +193,6 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
     unregisterAudioData(clipId: string): void {
       worker.postMessage({ type: 'unregister-audio-data', clipId });
       registeredClipIds.delete(clipId);
-    },
-
-    computeAndRender(params: SpectrogramWorkerRenderParams): Promise<void> {
-      if (terminated) return Promise.reject(new Error('Worker terminated'));
-      const id = String(++idCounter);
-
-      return new Promise<void>((resolve, reject) => {
-        addPending(pending, id, resolve, reject);
-
-        const transferableArrays = params.channelDataArrays.map((arr) => arr.slice());
-        const transferables: Transferable[] = transferableArrays.map((arr) => arr.buffer);
-
-        worker.postMessage(
-          {
-            type: 'compute-render',
-            id,
-            channelDataArrays: transferableArrays,
-            config: params.config,
-            sampleRate: params.sampleRate,
-            offsetSamples: params.offsetSamples,
-            durationSamples: params.durationSamples,
-            mono: params.mono,
-            render: params.render,
-          },
-          transferables
-        );
-      });
     },
 
     terminate() {

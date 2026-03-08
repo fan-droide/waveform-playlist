@@ -1,19 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import {
   MAX_CANVAS_WIDTH,
-  type SpectrogramData,
   type SpectrogramConfig,
   type SpectrogramComputeConfig,
   type ColorMapValue,
   type RenderMode,
   type TrackSpectrogramOverrides,
 } from '@waveform-playlist/core';
-import {
-  computeSpectrogram,
-  computeSpectrogramMono,
-  getColorMap,
-  getFrequencyScale,
-} from './computation';
+import { getColorMap, getFrequencyScale } from './computation';
 import { createSpectrogramWorker, type SpectrogramWorkerApi } from './worker';
 import { SpectrogramMenuItems } from './components';
 import { SpectrogramSettingsModal } from './components';
@@ -44,13 +38,10 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
   colorMap: spectrogramColorMap,
   children,
 }) => {
-  const { tracks, waveHeight, samplesPerPixel, isReady, mono, controls } = usePlaylistData();
+  const { tracks, waveHeight, samplesPerPixel, isReady, mono } = usePlaylistData();
   const { scrollContainerRef } = usePlaylistControls();
 
   // State
-  const [spectrogramDataMap, setSpectrogramDataMap] = useState<Map<string, SpectrogramData[]>>(
-    new Map()
-  );
   const [trackSpectrogramOverrides, setTrackSpectrogramOverrides] = useState<
     Map<string, TrackSpectrogramOverrides>
   >(new Map());
@@ -188,28 +179,6 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
       prevSpectrogramFFTKeyRef.current = currentFFTKeys;
     }
 
-    if (configChanged) {
-      setSpectrogramDataMap((prevMap) => {
-        const activeClipIds = new Set<string>();
-        for (const track of tracks) {
-          const mode =
-            trackSpectrogramOverrides.get(track.id)?.renderMode ?? track.renderMode ?? 'waveform';
-          if (mode === 'spectrogram' || mode === 'both') {
-            for (const clip of track.clips) {
-              activeClipIds.add(clip.id);
-            }
-          }
-        }
-        const newMap = new Map(prevMap);
-        for (const clipId of newMap.keys()) {
-          if (!activeClipIds.has(clipId)) {
-            newMap.delete(clipId);
-          }
-        }
-        return newMap;
-      });
-    }
-
     if (backgroundRenderAbortRef.current) {
       backgroundRenderAbortRef.current.aborted = true;
     }
@@ -226,8 +195,9 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
         workerApi = createSpectrogramWorker(rawWorker);
         spectrogramWorkerRef.current = workerApi;
         setSpectrogramWorkerReady(true);
-      } catch {
-        console.warn('Spectrogram Web Worker unavailable, falling back to synchronous computation');
+      } catch (err) {
+        console.error('[waveform-playlist] Spectrogram Web Worker required but unavailable:', err);
+        return;
       }
     }
 
@@ -318,46 +288,6 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
     if (clipsNeedingFFT.length === 0 && clipsNeedingDisplayOnly.length === 0) return;
 
-    if (!workerApi) {
-      try {
-        setSpectrogramDataMap((prevMap) => {
-          const newMap = new Map(prevMap);
-          for (const item of clipsNeedingFFT) {
-            const clip = tracks.flatMap((t) => t.clips).find((c) => c.id === item.clipId);
-            if (!clip?.audioBuffer) continue;
-            const channelSpectrograms: SpectrogramData[] = [];
-            if (item.monoFlag) {
-              channelSpectrograms.push(
-                computeSpectrogramMono(
-                  clip.audioBuffer,
-                  item.config,
-                  item.offsetSamples,
-                  item.durationSamples
-                )
-              );
-            } else {
-              for (let ch = 0; ch < clip.audioBuffer.numberOfChannels; ch++) {
-                channelSpectrograms.push(
-                  computeSpectrogram(
-                    clip.audioBuffer,
-                    item.config,
-                    item.offsetSamples,
-                    item.durationSamples,
-                    ch
-                  )
-                );
-              }
-            }
-            newMap.set(item.clipId, channelSpectrograms);
-          }
-          return newMap;
-        });
-      } catch (err) {
-        console.error('[waveform-playlist] Synchronous spectrogram computation failed:', err);
-      }
-      return;
-    }
-
     const getVisibleChunkRange = (
       channelInfo: { canvasIds: string[]; canvasWidths: number[] },
       clipPixelOffset = 0
@@ -369,7 +299,6 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
       const scrollLeft = container.scrollLeft;
       const viewportWidth = container.clientWidth;
-      const controlWidth = controls.show ? controls.width : 0;
 
       const visibleIndices: number[] = [];
       const remainingIndices: number[] = [];
@@ -378,8 +307,9 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
         // Extract the actual chunk number from the canvas ID to compute the
         // correct global pixel offset. With virtual scrolling, the registry
         // may contain non-consecutive chunks (e.g., chunks 50-55).
+        // Controls are outside the scroll container, so no controlWidth offset needed.
         const chunkNumber = extractChunkNumber(channelInfo.canvasIds[i]);
-        const chunkLeft = chunkNumber * MAX_CANVAS_WIDTH + controlWidth + clipPixelOffset;
+        const chunkLeft = chunkNumber * MAX_CANVAS_WIDTH + clipPixelOffset;
         const chunkRight = chunkLeft + channelInfo.canvasWidths[i];
         if (chunkRight > scrollLeft && chunkLeft < scrollLeft + viewportWidth) {
           visibleIndices.push(i);
@@ -480,6 +410,17 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             const numChannels = item.monoFlag ? 1 : item.channelDataArrays.length;
             const clipPixelOffset = Math.floor(item.clipStartSample / samplesPerPixel);
 
+            // Debug: log registered canvas info per channel
+            for (const [ch, info] of clipCanvasInfo.entries()) {
+              const chunkNumbers = info.canvasIds.map((id: string) => {
+                const m = id.match(/chunk(\d+)$/);
+                return m ? parseInt(m[1], 10) : -1;
+              });
+              console.log(
+                `[spectrogram] clip=${item.clipId} ch=${ch} registered chunks=[${chunkNumbers.join(',')}] widths=[${info.canvasWidths.join(',')}]`
+              );
+            }
+
             const container = scrollContainerRef.current;
             const windowSize = item.config.fftSize ?? 2048;
             let visibleRange: { start: number; end: number } | undefined;
@@ -487,9 +428,10 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             if (container) {
               const scrollLeft = container.scrollLeft;
               const viewportWidth = container.clientWidth;
-              const controlWidth = controls.show ? controls.width : 0;
 
-              const vpStartPx = Math.max(0, scrollLeft - controlWidth);
+              // Controls are outside the scroll container, so scrollLeft is
+              // already in clip-local coordinate space — no controlWidth offset.
+              const vpStartPx = scrollLeft;
               const vpEndPx = vpStartPx + viewportWidth;
 
               const clipStartPx = clipPixelOffset;
@@ -517,6 +459,13 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
                   visibleRange = { start: paddedStart, end: paddedEnd };
                 }
               }
+
+              console.log(
+                `[spectrogram] viewport: scrollLeft=${scrollLeft} width=${viewportWidth} ` +
+                  `vpPx=[${vpStartPx},${vpEndPx}] ` +
+                  `clipPx=[${clipStartPx},${clipEndPx}] ` +
+                  `visibleRange=${visibleRange ? `[${visibleRange.start},${visibleRange.end}]` : 'full'}`
+              );
             }
 
             const fullClipAlreadyCached = clipCacheKeysRef.current.has(item.clipId);
@@ -568,6 +517,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             // Phase 1: Render visible chunks for ALL channels first.
             // This prevents ch1 from being starved when ch0's background
             // batches cause generation aborts during scrolling.
+            const phase1Start = performance.now();
             const channelRanges: Array<{
               ch: number;
               channelInfo: { canvasIds: string[]; canvasWidths: number[] };
@@ -579,6 +529,9 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               if (!channelInfo) continue;
               const range = getVisibleChunkRange(channelInfo, clipPixelOffset);
               channelRanges.push({ ch, channelInfo, ...range });
+              console.log(
+                `[spectrogram] phase1 ch=${ch}: visible=[${range.visibleIndices.join(',')}] remaining=[${range.remainingIndices.join(',')}]`
+              );
               await renderChunkSubset(
                 workerApi!,
                 cacheKey,
@@ -589,27 +542,14 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
               );
             }
 
+            console.log(
+              `[spectrogram] phase1 complete: ${(performance.now() - phase1Start).toFixed(1)}ms`
+            );
+
             if (spectrogramGenerationRef.current !== generation || abortToken.aborted) return;
 
             // Phase 2: Render off-screen chunks in background batches.
             if (await renderBackgroundBatches(channelRanges, cacheKey, item)) return;
-          } else {
-            const spectrograms = await workerApi!.compute({
-              channelDataArrays: item.channelDataArrays,
-              config: item.config,
-              sampleRate: item.sampleRate,
-              offsetSamples: item.offsetSamples,
-              durationSamples: item.durationSamples,
-              mono: item.monoFlag,
-            });
-
-            if (spectrogramGenerationRef.current !== generation) return;
-
-            setSpectrogramDataMap((prevMap) => {
-              const newMap = new Map(prevMap);
-              newMap.set(item.clipId, spectrograms);
-              return newMap;
-            });
           }
         } catch (err) {
           console.warn('Spectrogram worker error for clip', item.clipId, err);
@@ -667,7 +607,6 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
     waveHeight,
     samplesPerPixel,
     spectrogramCanvasVersion,
-    controls,
     scrollContainerRef,
   ]);
 
@@ -741,7 +680,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
 
   const value: SpectrogramIntegration = useMemo(
     () => ({
-      spectrogramDataMap,
+      spectrogramDataMap: new Map(),
       trackSpectrogramOverrides,
       spectrogramWorkerApi: spectrogramWorkerReady ? spectrogramWorkerRef.current : null,
       spectrogramConfig,
@@ -758,7 +697,6 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
       ) => (f: number, minF: number, maxF: number) => number,
     }),
     [
-      spectrogramDataMap,
       trackSpectrogramOverrides,
       spectrogramWorkerReady,
       spectrogramConfig,

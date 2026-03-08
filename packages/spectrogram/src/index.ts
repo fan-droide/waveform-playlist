@@ -16,7 +16,7 @@ export type { TrackMenuItem } from './components';
 
 // Worker
 export { createSpectrogramWorker } from './worker';
-export type { SpectrogramWorkerApi, SpectrogramWorkerRenderParams } from './worker';
+export type { SpectrogramWorkerApi } from './worker';
 
 // Provider
 export { SpectrogramProvider } from './SpectrogramProvider';

@@ -692,12 +692,6 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
                         }}
                       >
                         {peaksData.data.map((channelPeaks: Peaks, channelIndex: number) => {
-                          const clipSpectrograms = spectrogram?.spectrogramDataMap.get(clip.clipId);
-                          const channelSpectrogram =
-                            clipSpectrograms?.[channelIndex] ?? clipSpectrograms?.[0];
-                          const helpers = perTrackSpectrogramHelpers.get(track.id);
-                          const trackCfg = helpers?.config;
-
                           return (
                             <ChannelWithProgress
                               key={`${clip.clipId}-${channelIndex}`}
@@ -716,12 +710,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
                                   ? clip.offsetSamples / (clip.sampleRate || sampleRate)
                                   : 0
                               }
-                              spectrogramData={channelSpectrogram}
                               samplesPerPixel={samplesPerPixel}
-                              spectrogramColorLUT={helpers?.colorLUT}
-                              spectrogramFrequencyScaleFn={helpers?.frequencyScaleFn}
-                              spectrogramMinFrequency={trackCfg?.minFrequency}
-                              spectrogramMaxFrequency={trackCfg?.maxFrequency}
                               spectrogramWorkerApi={workerCanvasApi}
                               spectrogramClipId={clip.clipId}
                               spectrogramOnCanvasesReady={
