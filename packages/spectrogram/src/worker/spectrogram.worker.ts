@@ -3,9 +3,10 @@
  *
  * Supports:
  * 1. `register-canvas` / `unregister-canvas` — manage OffscreenCanvas ownership
- * 2. `compute-fft` — FFT with caching, returns cache key (no rendering)
- * 3. `render-chunks` — render specific chunks from cached FFT data
- * 4. `abort-generation` — cancel stale FFT computations cooperatively
+ * 2. `register-audio-data` / `unregister-audio-data` — pre-transfer clip audio data to avoid re-transfer on each FFT request
+ * 3. `compute-fft` — FFT with LRU caching, returns cache key (no rendering)
+ * 4. `render-chunks` — render specific chunks from cached FFT data
+ * 5. `abort-generation` — cancel stale FFT computations cooperatively
  */
 
 import type {
@@ -41,12 +42,15 @@ const fftCache = new Map<string, FFTCacheEntry>();
 
 function evictLRUCacheEntries(keepKey?: string) {
   while (fftCache.size >= MAX_CACHE_ENTRIES) {
+    let deleted = false;
     for (const key of fftCache.keys()) {
       if (key !== keepKey) {
         fftCache.delete(key);
+        deleted = true;
         break;
       }
     }
+    if (!deleted) break; // Safety: prevent infinite loop if keepKey is the only entry
   }
 }
 
@@ -415,7 +419,12 @@ function renderSpectrogramToCanvas(
       // Render at CSS size to a temporary OffscreenCanvas, then scale up
       const tmpCanvas = new OffscreenCanvas(canvasWidth, canvasHeight);
       const tmpCtx = tmpCanvas.getContext('2d');
-      if (!tmpCtx) continue;
+      if (!tmpCtx) {
+        console.warn(
+          `[spectrogram-worker] getContext('2d') failed for DPR scaling of "${canvasIds[i]}"`
+        );
+        continue;
+      }
       tmpCtx.putImageData(imgData, 0, 0);
 
       ctx.imageSmoothingEnabled = false;
@@ -617,7 +626,8 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
     }
 
     handleComputeFFT(msg).catch((err) => {
-      const response: ComputeResponse = { id, type: 'error', error: String(err) };
+      const errorMsg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+      const response: ComputeResponse = { id, type: 'error', error: errorMsg };
       (self as unknown as Worker).postMessage(response);
     });
     return;
@@ -653,8 +663,21 @@ self.onmessage = (e: MessageEvent<WorkerMessage>) => {
       } = msg;
 
       const cacheEntry = fftCache.get(cacheKey);
-      if (!cacheEntry || channelIndex >= cacheEntry.spectrograms.length) {
-        const response: ComputeResponse = { id, type: 'error', error: 'cache-miss' };
+      if (!cacheEntry) {
+        const response: ComputeResponse = {
+          id,
+          type: 'error',
+          error: `cache-miss: key "${cacheKey}" not found (cache has ${fftCache.size} entries)`,
+        };
+        (self as unknown as Worker).postMessage(response);
+        return;
+      }
+      if (channelIndex >= cacheEntry.spectrograms.length) {
+        const response: ComputeResponse = {
+          id,
+          type: 'error',
+          error: `cache-miss: channelIndex ${channelIndex} out of range (${cacheEntry.spectrograms.length} channels cached)`,
+        };
         (self as unknown as Worker).postMessage(response);
         return;
       }

@@ -15,7 +15,7 @@ export type { SpectrogramSettingsModalProps } from './components';
 export type { TrackMenuItem } from './components';
 
 // Worker
-export { createSpectrogramWorker } from './worker';
+export { createSpectrogramWorker, SpectrogramAbortError } from './worker';
 export { createSpectrogramWorkerPool } from './worker';
 export type { SpectrogramWorkerApi } from './worker';
 

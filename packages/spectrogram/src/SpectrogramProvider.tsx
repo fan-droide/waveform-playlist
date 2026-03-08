@@ -8,7 +8,11 @@ import {
   type TrackSpectrogramOverrides,
 } from '@waveform-playlist/core';
 import { getColorMap, getFrequencyScale } from './computation';
-import { createSpectrogramWorkerPool, type SpectrogramWorkerApi } from './worker';
+import {
+  createSpectrogramWorkerPool,
+  SpectrogramAbortError,
+  type SpectrogramWorkerApi,
+} from './worker';
 import { SpectrogramMenuItems } from './components';
 import { SpectrogramSettingsModal } from './components';
 import {
@@ -681,7 +685,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
             if (await renderBackgroundBatches(channelRanges, item)) return;
           }
         } catch (err) {
-          if (err instanceof Error && err.message === 'aborted') return;
+          if (err instanceof SpectrogramAbortError) return;
           console.warn(
             `[waveform-playlist] Spectrogram worker error for clip ${item.clipId}: ${err instanceof Error ? err.message : String(err)}`
           );
@@ -773,7 +777,7 @@ export const SpectrogramProvider: React.FC<SpectrogramProviderProps> = ({
           // Phase 2: Render off-screen chunks in background batches.
           if (await renderBackgroundBatches(channelRanges, item)) return;
         } catch (err) {
-          if (err instanceof Error && err.message === 'aborted') return;
+          if (err instanceof SpectrogramAbortError) return;
           console.warn(
             `[waveform-playlist] Spectrogram display re-render error for clip ${item.clipId}: ${err instanceof Error ? err.message : String(err)}`
           );

@@ -1,5 +1,16 @@
 import type { SpectrogramConfig } from '@waveform-playlist/core';
 
+/**
+ * Error thrown when a spectrogram computation is aborted due to a generation change.
+ * Use `instanceof SpectrogramAbortError` instead of string matching on error messages.
+ */
+export class SpectrogramAbortError extends Error {
+  constructor() {
+    super('aborted');
+    this.name = 'SpectrogramAbortError';
+  }
+}
+
 export interface SpectrogramWorkerFFTParams {
   clipId: string;
   channelDataArrays: Float32Array[];
@@ -99,7 +110,7 @@ export function createSpectrogramWorker(worker: Worker): SpectrogramWorkerApi {
           entry.reject(new Error(msg.error));
           break;
         case 'aborted':
-          entry.reject(new Error('aborted'));
+          entry.reject(new SpectrogramAbortError());
           break;
         case 'cache-key':
           entry.resolve({ cacheKey: msg.cacheKey });
