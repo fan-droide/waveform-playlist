@@ -39,7 +39,7 @@ interface FFTCacheEntry {
 const MAX_CACHE_ENTRIES = 16;
 const fftCache = new Map<string, FFTCacheEntry>();
 
-function evictOldestCacheEntries(keepKey?: string) {
+function evictLRUCacheEntries(keepKey?: string) {
   while (fftCache.size >= MAX_CACHE_ENTRIES) {
     for (const key of fftCache.keys()) {
       if (key !== keepKey) {
@@ -47,6 +47,15 @@ function evictOldestCacheEntries(keepKey?: string) {
         break;
       }
     }
+  }
+}
+
+/** Bump a cache entry to most-recently-used by re-inserting it. */
+function touchCacheEntry(key: string) {
+  const entry = fftCache.get(key);
+  if (entry) {
+    fftCache.delete(key);
+    fftCache.set(key, entry);
   }
 }
 
@@ -465,7 +474,7 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
     const t0 = performance.now();
 
     // Evict oldest cache entries if at capacity
-    evictOldestCacheEntries(cacheKey);
+    evictLRUCacheEntries(cacheKey);
 
     const spectrograms: SpectrogramData[] = [];
     if (mono || channelDataArrays.length === 1) {
@@ -546,6 +555,8 @@ async function handleComputeFFT(msg: ComputeFFTRequest): Promise<void> {
         `duration=${effectiveDuration} samples`
     );
   } else {
+    // Bump to most-recently-used so scroll-back patterns keep hot entries alive
+    touchCacheEntry(cacheKey);
     console.log(`[spectrogram-worker] compute-fft: cache hit for ${clipId}`);
   }
 
