@@ -231,19 +231,18 @@ test.describe('BBC Waveform Data Example', () => {
       await expect(link).toHaveAttribute('href', 'https://github.com/bbc/audiowaveform');
     });
 
-    test('displays code examples', async ({ page }) => {
-      // Check for CLI example
+    test('displays CLI examples', async ({ page }) => {
       await expect(page.getByText('brew install audiowaveform')).toBeVisible();
-      // Check for code example
-      await expect(page.getByText('loadWaveformData')).toBeVisible();
+      await expect(page.getByText('audiowaveform -i audio.mp3 -o peaks.dat -z 256 -b 8')).toBeVisible();
     });
 
     test('generating peaks section exists', async ({ page }) => {
       await expect(page.getByRole('heading', { name: 'Generating BBC Peaks Files' })).toBeVisible();
     });
 
-    test('progressive loading section exists', async ({ page }) => {
-      await expect(page.getByRole('heading', { name: 'Fully Progressive Loading' })).toBeVisible();
+    test('links to Immediate Mode guide for progressive loading', async ({ page }) => {
+      const link = page.getByRole('link', { name: 'Immediate Mode guide' });
+      await expect(link).toBeVisible();
     });
   });
 
