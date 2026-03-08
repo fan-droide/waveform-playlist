@@ -40,7 +40,7 @@ const spectrogram = useContext(SpectrogramIntegrationContext);
 
 **Problem:** During scrolling, stale FFT requests (~1.4s each) block the worker queue, delaying visible-range FFT for the new scroll position.
 
-**Fix:** Cooperative abort via `setTimeout(0)` yielding every 2000 FFT frames. Main thread sends `abort-generation` messages; worker checks `latestGeneration` between yields and returns `null` if stale. Provider catches `Error('aborted')` silently.
+**Fix:** Cooperative abort via `setTimeout(0)` yielding every 2000 FFT frames. Main thread sends `abort-generation` messages; worker checks `latestGeneration` between yields and returns `null` if stale. Provider catches `SpectrogramAbortError` (via `instanceof`, not string matching) silently.
 
 **Key fields:** `generation` on `ComputeFFTRequest`/`RenderChunksRequest`, `AbortGenerationMessage`, `latestGeneration` in worker.
 
