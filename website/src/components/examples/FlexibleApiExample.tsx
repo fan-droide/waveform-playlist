@@ -557,6 +557,7 @@ export function FlexibleApiExample() {
         <WaveformPlaylistProvider
           tracks={tracks}
           onTracksChange={setTracks}
+          deferEngineRebuild={loading}
           samplesPerPixel={512}
           mono
           waveHeight={40}

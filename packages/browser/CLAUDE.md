@@ -240,6 +240,12 @@ const sourceEnd = Math.min(waveformData.length, Math.ceil(targetEnd * ratio));
 
 **Test helper:** `WaveformData.create()` requires JSON with `{ version: 2, channels: 1, sample_rate, samples_per_pixel, bits, length, data }` — omitting `version`/`channels` causes a TypeScript error.
 
+## jsdom Keyboard Event Testing Quirks
+
+- `new KeyboardEvent()` has `target: null` in jsdom — use `Object.defineProperty(event, 'target', { value: document.body })` when calling handlers directly (not via `dispatchEvent`)
+- jsdom doesn't implement `isContentEditable` (returns `undefined` as of jsdom 28). Polyfill with `Object.defineProperty(el, 'isContentEditable', { value: true })` in tests
+- `handleKeyboardEvent` is exported as a pure function from `useKeyboardShortcuts.ts` for direct unit testing without React rendering infrastructure
+
 ## Click-to-Seek During Auto-Scroll
 
 `handleMouseUp` must NOT recompute click time from `getBoundingClientRect()` during playback — auto-scroll shifts the overlay between mouseDown and mouseUp, producing wrong positions. Instead, `mouseDownTimeRef` captures the time at mouseDown, and mouseUp reuses it when `isPlaying`. Applied in both `PlaylistVisualization` and `MediaElementPlaylist`.

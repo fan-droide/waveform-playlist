@@ -75,7 +75,11 @@
     "tone": "^15.0.0"
   },
   "peerDependenciesMeta": {
-    "@waveform-playlist/annotations": { "optional": true },
-    "@waveform-playlist/recording": { "optional": true }
+    "@waveform-playlist/annotations": {
+      "optional": true
+    },
+    "@waveform-playlist/recording": {
+      "optional": true
+    }
   }
 }

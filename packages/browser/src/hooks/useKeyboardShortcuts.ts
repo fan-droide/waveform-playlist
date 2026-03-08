@@ -17,27 +17,64 @@ export interface UseKeyboardShortcutsOptions {
 }
 
 /**
+ * Handle a keyboard event against a list of shortcuts.
+ * Extracted from the hook for testability — pure function, no React dependency.
+ */
+export function handleKeyboardEvent(
+  event: KeyboardEvent,
+  shortcuts: KeyboardShortcut[],
+  enabled: boolean
+): void {
+  if (!enabled) return;
+
+  // Ignore key repeat events — holding a key fires keydown repeatedly.
+  // Without this guard, holding Space rapidly toggles play/pause.
+  if (event.repeat) return;
+
+  const target = event.target as HTMLElement;
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+    return;
+  }
+
+  const matchingShortcut = shortcuts.find((shortcut) => {
+    const keyMatch =
+      event.key.toLowerCase() === shortcut.key.toLowerCase() || event.key === shortcut.key;
+
+    const ctrlMatch = shortcut.ctrlKey === undefined || event.ctrlKey === shortcut.ctrlKey;
+    const shiftMatch = shortcut.shiftKey === undefined || event.shiftKey === shortcut.shiftKey;
+    const metaMatch = shortcut.metaKey === undefined || event.metaKey === shortcut.metaKey;
+    const altMatch = shortcut.altKey === undefined || event.altKey === shortcut.altKey;
+
+    return keyMatch && ctrlMatch && shiftMatch && metaMatch && altMatch;
+  });
+
+  if (matchingShortcut) {
+    if (matchingShortcut.preventDefault !== false) {
+      event.preventDefault();
+    }
+    matchingShortcut.action();
+  }
+}
+
+/**
  * Hook for managing keyboard shortcuts
  *
  * @param options - Configuration options
  *
  * @example
  * ```tsx
- * const { splitClipAtPlayhead } = useClipSplitting({ ... });
- *
  * useKeyboardShortcuts({
  *   shortcuts: [
+ *     {
+ *       key: ' ',
+ *       action: togglePlayPause,
+ *       description: 'Play/Pause',
+ *       preventDefault: true,
+ *     },
  *     {
  *       key: 's',
  *       action: splitClipAtPlayhead,
  *       description: 'Split clip at playhead',
- *       preventDefault: true,
- *     },
- *     {
- *       key: 'S',
- *       shiftKey: true,
- *       action: () => splitAtSelection(),
- *       description: 'Split at selection boundaries',
  *       preventDefault: true,
  *     },
  *   ],
@@ -48,36 +85,7 @@ export const useKeyboardShortcuts = (options: UseKeyboardShortcutsOptions): void
   const { shortcuts, enabled = true } = options;
 
   const handleKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (!enabled) return;
-
-      // Check if we're in an input/textarea element
-      const target = event.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
-        // Don't trigger shortcuts when typing in input fields
-        return;
-      }
-
-      // Find matching shortcut
-      const matchingShortcut = shortcuts.find((shortcut) => {
-        const keyMatch =
-          event.key.toLowerCase() === shortcut.key.toLowerCase() || event.key === shortcut.key;
-
-        const ctrlMatch = shortcut.ctrlKey === undefined || event.ctrlKey === shortcut.ctrlKey;
-        const shiftMatch = shortcut.shiftKey === undefined || event.shiftKey === shortcut.shiftKey;
-        const metaMatch = shortcut.metaKey === undefined || event.metaKey === shortcut.metaKey;
-        const altMatch = shortcut.altKey === undefined || event.altKey === shortcut.altKey;
-
-        return keyMatch && ctrlMatch && shiftMatch && metaMatch && altMatch;
-      });
-
-      if (matchingShortcut) {
-        if (matchingShortcut.preventDefault !== false) {
-          event.preventDefault();
-        }
-        matchingShortcut.action();
-      }
-    },
+    (event: KeyboardEvent) => handleKeyboardEvent(event, shortcuts, enabled),
     [shortcuts, enabled]
   );
 
