@@ -26,7 +26,7 @@ const spectrogram = useContext(SpectrogramIntegrationContext);
 
 ## Worker Pool Architecture
 
-**Decision:** `createSpectrogramWorkerPool` creates N workers (default 2) for parallel per-channel FFT.
+**Decision:** `createSpectrogramWorkerPool` creates N workers (default `min(cores - 1, 4)`) for parallel per-channel FFT. Configurable via `<SpectrogramProvider workerPoolSize={N}>`.
 
 **How it works:** Each worker computes a single channel via `channelFilter` param. Pool routes canvases by channel parsed from canvas ID (`clipId-ch0-chunk5` → worker 0). `renderChunks({channelIndex: N})` remaps to `channelIndex: 0` at the target worker since each worker stores its channel at index 0. Audio data registered in ALL workers (needed for mono mode).
 
