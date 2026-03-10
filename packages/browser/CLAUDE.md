@@ -322,6 +322,57 @@ if (derived !== prevRef.current) {
 
 **Stable stub refs:** When MediaElement components pass `PlayheadProps` to render functions, Tone.js-specific refs (`playbackStartTimeRef`, `audioStartPositionRef`) are stubbed as `ZERO_REF` (module-level constant). Never create `{ current: 0 }` inline — it causes useEffect dep churn on every render.
 
+## Output Metering (useOutputMeter)
+
+**Critical: Context mismatch gotcha.** Always use `getGlobalContext()` from `@waveform-playlist/playout` — never `getContext()`/`getDestination()` from Tone.js. `getGlobalContext()` creates a new Context via `setContext()`, replacing the default. Nodes created with `getContext()` before that happens end up on a dead audio graph.
+
+**Destination.chain(workletNode)** inserts the meter worklet as a pass-through in the master output. Audio flows through unchanged while the worklet measures every sample. Cleanup: `destination.chain()` restores the default path.
+
+**Sample-accurate metering:** Uses `meter-processor` AudioWorklet from `@waveform-playlist/worklets`. The worklet accumulates peak and RMS across all 128-sample quantums and posts results at ~60Hz — no transient is missed between animation frames.
+
+## indefinitePlayback Prop
+
+**Decision:** `indefinitePlayback` controls whether the timeline fills the visible scroll container and whether playback auto-stops at the end of audio.
+
+**Wiring:** Prop on `WaveformPlaylistProvider` → stored in ref for animation loop → exposed via `usePlaylistState()` (in `PlaylistStateContextValue`) → consumed by `PlaylistVisualization` to gate min container width calculation.
+
+**Min container width:** Only when `indefinitePlayback` is true does `displayDuration` get floored to fill the viewport. Without it, the timeline ends at the natural audio duration.
+
+## Output Meter Clearing (isPlaying Prop)
+
+**Problem:** When playback stops, browsers stop calling the worklet's `process()` (tail-time optimization — no active upstream sources). The last non-zero levels freeze in React state.
+
+**Fix:** `useOutputMeter({ isPlaying })` — a separate `useEffect` resets all levels (current, peak, RMS) and smoothed state when `isPlaying` transitions to `false`. Prefer state-driven cleanup over staleness timers.
+
+## Incremental Track Addition (loadAudio optimization)
+
+**Detection:** `isIncrementalAdd` is computed during render by comparing `prevTracksRef` with current tracks. Uses reference equality on individual track objects — if all previous tracks are unchanged and only new ones were appended, the incremental path is used.
+
+**When incremental:** File drops, new empty tracks, any append where existing tracks are untouched. Calls `engine.addTrack()` per new track, updates duration/trackStates/audioBuffers. No engine dispose/rebuild.
+
+**When full rebuild:** Recording adds clip to existing track (modifies track object), effects change, any existing track modified.
+
+**`skipEngineDisposeRef` integration:** `isIncrementalAdd` joins `isEngineTracks` and `isDraggingRef` in preventing the effect cleanup from disposing the engine.
+
+**`prevTracksRef`:** Updated in all `loadAudio` exit paths (engine tracks guard, incremental add, clear state, full rebuild) to keep detection accurate.
+
+## Rewind / Seek Without Playback
+
+**Rule:** Use `seekTo(time)` to move the cursor without starting audio. Never use `play(time, 0)` — `playDuration=0` is truthy (`!== undefined`), so the Transport starts but the animation loop immediately stops at `endTime=0`. This causes ghost audio playback with no visual indication. The built-in `RewindButton` uses `setCurrentTime(0)` + conditional `play(0)` only if already playing.
+
+## Debugging State Changes with console.trace
+
+**Technique:** Wrap `useState` setter with a traced version to pinpoint which code path modifies state. Useful for controlled state like `tracks` where multiple sources (`onTracksChange`, recording hooks, file drops) can call `setTracks`.
+
+```typescript
+const [state, setStateRaw] = useState(initial);
+const setState = useCallback((v) => {
+  console.log('[Component] setState: ' + summarize(v));
+  console.trace('[Component] setState trace');
+  setStateRaw(v);
+}, []);
+```
+
 ## MediaElement currentTime vs currentTimeRef
 
 `currentTime` (React state from `useMediaElementAnimation`) only updates on pause/stop/seek/playback-end — NOT during playback. For smooth real-time display, use `currentTimeRef` with a local `requestAnimationFrame` loop and direct DOM manipulation (e.g., `ref.current.textContent = ...`). Never use `currentTime` for time displays that should update during playback.

@@ -288,69 +288,59 @@ For WAV file export, use the `useExportWav` hook or `ExportWavButton` component 
 
 ### useMicrophoneLevel Hook
 
-Display real-time input levels:
+Display real-time input levels. Pass `channelCount: 2` to monitor stereo inputs:
 
 ```tsx
-import { useMicrophoneLevel } from '@waveform-playlist/recording';
+import { useMicrophoneAccess, useMicrophoneLevel } from '@waveform-playlist/recording';
 
 function LevelMeter() {
-  const { level, peak } = useMicrophoneLevel();
+  const { stream } = useMicrophoneAccess();
+  const { levels, peakLevels } = useMicrophoneLevel(stream, { channelCount: 2 });
 
-  // level: 0-1 (current RMS level)
-  // peak: 0-1 (peak level with decay)
+  // levels: number[] (per-channel peak levels, 0-1)
+  // peakLevels: number[] (per-channel held peak levels with decay, 0-1)
 
   return (
-    <div style={{ display: 'flex', gap: '1rem' }}>
-      <div>
-        <label>Level</label>
-        <div
-          style={{
-            width: '200px',
-            height: '20px',
-            background: '#ddd',
-          }}
-        >
-          <div
-            style={{
-              width: `${level * 100}%`,
-              height: '100%',
-              background: level > 0.9 ? 'red' : level > 0.7 ? 'yellow' : 'green',
-              transition: 'width 50ms',
-            }}
-          />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+      {levels.map((level, ch) => (
+        <div key={ch} style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <label>{ch === 0 ? 'L' : 'R'}</label>
+          <div style={{ width: '200px', height: '20px', background: '#ddd' }}>
+            <div
+              style={{
+                width: `${level * 100}%`,
+                height: '100%',
+                background: level > 0.9 ? 'red' : level > 0.7 ? 'yellow' : 'green',
+                transition: 'width 50ms',
+              }}
+            />
+          </div>
+          <div style={{ width: '200px', height: '20px', background: '#ddd' }}>
+            <div
+              style={{
+                width: `${peakLevels[ch] * 100}%`,
+                height: '100%',
+                background: peakLevels[ch] > 0.9 ? 'red' : '#333',
+              }}
+            />
+          </div>
         </div>
-      </div>
-      <div>
-        <label>Peak</label>
-        <div
-          style={{
-            width: '200px',
-            height: '20px',
-            background: '#ddd',
-          }}
-        >
-          <div
-            style={{
-              width: `${peak * 100}%`,
-              height: '100%',
-              background: peak > 0.9 ? 'red' : '#333',
-            }}
-          />
-        </div>
-      </div>
+      ))}
     </div>
   );
 }
 ```
+
+For advanced metering including output meters and custom visualizations, see the [VU Meters guide](./vu-meters.md).
 
 ### Clipping Indicator
 
 Warn users when audio is too loud:
 
 ```tsx
-function ClippingIndicator() {
-  const { peak } = useMicrophoneLevel();
-  const isClipping = peak > 0.95;
+function ClippingIndicator({ stream }: { stream: MediaStream | null }) {
+  const { peakLevels } = useMicrophoneLevel(stream);
+  const isClipping = peakLevels.some((peak) => peak > 0.95);
 
   return (
     <div
@@ -494,7 +484,8 @@ import {
   ExportWavButton,
   usePlaybackAnimation,
 } from '@waveform-playlist/browser';
-import { useIntegratedRecording, VUMeter } from '@waveform-playlist/recording';
+import { useIntegratedRecording } from '@waveform-playlist/recording';
+import { SegmentedVUMeter } from '@waveform-playlist/ui-components';
 import { createTrack, type ClipTrack } from '@waveform-playlist/core';
 
 function RecordingControls({
@@ -513,8 +504,8 @@ function RecordingControls({
   const {
     isRecording,
     duration,
-    level,
-    peakLevel,
+    levels,
+    peakLevels,
     hasPermission,
     startRecording,
     stopRecording,
@@ -553,7 +544,7 @@ function RecordingControls({
       </button>
       <button onClick={handleAddTrack}>+ Add Track</button>
       {hasPermission && (
-        <VUMeter level={level} peakLevel={peakLevel} width={200} height={20} />
+        <SegmentedVUMeter levels={levels} peakLevels={peakLevels} />
       )}
     </div>
   );

@@ -3,13 +3,17 @@
  * Combines recording functionality with track management
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRecording } from './useRecording';
 import { useMicrophoneAccess } from './useMicrophoneAccess';
 import { useMicrophoneLevel } from './useMicrophoneLevel';
 import type { MicrophoneDevice } from '../types';
 import { type ClipTrack, type AudioClip } from '@waveform-playlist/core';
-import { resumeGlobalAudioContext } from '@waveform-playlist/playout';
+import {
+  resumeGlobalAudioContext,
+  getGlobalAudioContext,
+  getGlobalContext,
+} from '@waveform-playlist/playout';
 
 export interface IntegratedRecordingOptions {
   /**
@@ -44,6 +48,12 @@ export interface UseIntegratedRecordingReturn {
   duration: number;
   level: number;
   peakLevel: number;
+  /** Per-channel peak levels (0-1). Array length matches channelCount. */
+  levels: number[];
+  /** Per-channel held peak levels (0-1). Array length matches channelCount. */
+  peakLevels: number[];
+  /** Per-channel RMS levels (0-1). Array length matches channelCount. */
+  rmsLevels: number[];
   error: Error | null;
 
   // Microphone state
@@ -77,11 +87,32 @@ export function useIntegratedRecording(
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [hookError, setHookError] = useState<Error | null>(null);
 
+  // Capture timeline position when recording starts (not at stop time)
+  const recordingStartTimeRef = useRef(0);
+
+  // Keep selectedTrackId and currentTime in refs for use in callbacks.
+  // Avoids stale closures and prevents 60fps useCallback recreation
+  // (currentTime updates at animation-frame rate during playback).
+  const selectedTrackIdRef = useRef(selectedTrackId);
+  selectedTrackIdRef.current = selectedTrackId;
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
+
   // Microphone access
   const { stream, devices, hasPermission, requestAccess, error: micError } = useMicrophoneAccess();
 
   // Microphone level (for VU meter)
-  const { level, peakLevel } = useMicrophoneLevel(stream);
+  const {
+    level,
+    peakLevel,
+    levels,
+    peakLevels,
+    rmsLevels,
+    resetPeak,
+    error: meterError,
+  } = useMicrophoneLevel(stream, {
+    channelCount: recordingOptions.channelCount,
+  });
 
   // Recording
   const {
@@ -98,8 +129,10 @@ export function useIntegratedRecording(
   } = useRecording(stream, recordingOptions);
 
   // Start recording handler
+  // Reads selectedTrackId from ref to avoid stale closures when
+  // auto-create track + start recording happen in the same render cycle
   const startRecording = useCallback(async () => {
-    if (!selectedTrackId) {
+    if (!selectedTrackIdRef.current) {
       setHookError(
         new Error('Cannot start recording: no track selected. Select or create a track first.')
       );
@@ -114,11 +147,16 @@ export function useIntegratedRecording(
         setIsMonitoring(true);
       }
 
+      // Capture timeline position NOW — before recording starts.
+      // Using currentTime at stop time would be wrong during overdub
+      // (playback advances currentTime while recording).
+      recordingStartTimeRef.current = currentTimeRef.current;
+
       await startRec();
     } catch (err) {
       setHookError(err instanceof Error ? err : new Error(String(err)));
     }
-  }, [selectedTrackId, isMonitoring, startRec]);
+  }, [isMonitoring, startRec]);
 
   // Stop recording and add clip to selected track
   const stopRecording = useCallback(async () => {
@@ -131,41 +169,63 @@ export function useIntegratedRecording(
     }
 
     // Add clip to track after recording completes
-    if (buffer && selectedTrackId) {
-      const selectedTrackIndex = tracks.findIndex((t) => t.id === selectedTrackId);
+    const trackId = selectedTrackIdRef.current;
+    if (buffer && trackId) {
+      const selectedTrackIndex = tracks.findIndex((t) => t.id === trackId);
       if (selectedTrackIndex === -1) {
         const err = new Error(
-          `Recording completed but track "${selectedTrackId}" no longer exists. The recorded audio could not be saved.`
+          `Recording completed but track "${trackId}" no longer exists. The recorded audio could not be saved.`
         );
-        console.error(`[waveform-playlist] ${err.message}`);
+        console.warn(`[waveform-playlist] ${err.message}`);
         setHookError(err);
         return;
       }
 
       const selectedTrack = tracks[selectedTrackIndex];
 
-      // Calculate start position: max(currentTime, lastClipEndTime)
-      const currentTimeSamples = Math.floor(currentTime * buffer.sampleRate);
+      // Use the captured start time (not live currentTime which advances during overdub)
+      const recordStartTimeSamples = Math.floor(recordingStartTimeRef.current * buffer.sampleRate);
 
       let lastClipEndSample = 0;
       if (selectedTrack.clips.length > 0) {
-        // Find the end time of the last clip (in samples)
         const endSamples = selectedTrack.clips.map(
           (clip) => clip.startSample + clip.durationSamples
         );
         lastClipEndSample = Math.max(...endSamples);
       }
 
-      // Use whichever is greater: cursor position or last clip end
-      const startSample = Math.max(currentTimeSamples, lastClipEndSample);
+      const startSample = Math.max(recordStartTimeSamples, lastClipEndSample);
+
+      // Latency compensation:
+      // Two sources of delay between recording start and audible playback:
+      // 1. Tone.js lookAhead (~100ms) — Transport schedules audio ahead of real time
+      // 2. Output latency — hardware DAC delay before audio reaches speakers
+      // The user hears playback delayed by both, so they perform late relative
+      // to the timeline. Skip that duration at the start of the recorded audio.
+      const audioContext = getGlobalAudioContext();
+      const outputLatency = audioContext.outputLatency ?? 0;
+      const toneContext = getGlobalContext();
+      const lookAhead = toneContext.lookAhead ?? 0;
+      const totalLatency = outputLatency + lookAhead;
+      const latencyOffsetSamples = Math.floor(totalLatency * buffer.sampleRate);
+
+      // Guard: very short recordings (< latency compensation) would produce negative duration
+      const effectiveDuration = Math.max(0, buffer.length - latencyOffsetSamples);
+      if (effectiveDuration === 0) {
+        console.warn(
+          '[waveform-playlist] Recording too short for latency compensation — discarding'
+        );
+        setHookError(new Error('Recording was too short to save. Try recording for longer.'));
+        return;
+      }
 
       // Create new clip from recording
       const newClip: AudioClip = {
         id: `clip-${Date.now()}`,
         audioBuffer: buffer,
         startSample,
-        durationSamples: buffer.length,
-        offsetSamples: 0,
+        durationSamples: effectiveDuration,
+        offsetSamples: latencyOffsetSamples,
         sampleRate: buffer.sampleRate,
         sourceDurationSamples: buffer.length,
         gain: 1.0,
@@ -185,15 +245,23 @@ export function useIntegratedRecording(
 
       setTracks(newTracks);
     }
-  }, [selectedTrackId, tracks, setTracks, currentTime, stopRec]);
+  }, [tracks, setTracks, stopRec]);
 
-  // Auto-select the first device when devices become available
+  // Auto-select first device when available, or fallback if selected device was unplugged
   useEffect(() => {
-    // Only auto-select if we have permission, devices are available, and nothing is selected yet
-    if (hasPermission && devices.length > 0 && selectedDevice === null) {
+    if (!hasPermission || devices.length === 0) return;
+
+    if (selectedDevice === null) {
+      // First-time selection
       setSelectedDevice(devices[0].deviceId);
+    } else if (!devices.some((d) => d.deviceId === selectedDevice)) {
+      // Selected device was removed — fall back to first available
+      const fallbackId = devices[0].deviceId;
+      setSelectedDevice(fallbackId);
+      resetPeak();
+      requestAccess(fallbackId, audioConstraints);
     }
-  }, [hasPermission, devices, selectedDevice]);
+  }, [hasPermission, devices, selectedDevice, resetPeak, requestAccess, audioConstraints]);
 
   // Request microphone access
   const requestMicAccess = useCallback(async () => {
@@ -213,6 +281,7 @@ export function useIntegratedRecording(
       try {
         setHookError(null);
         setSelectedDevice(deviceId);
+        resetPeak();
         await requestAccess(deviceId, audioConstraints);
         await resumeGlobalAudioContext();
         setIsMonitoring(true);
@@ -220,7 +289,7 @@ export function useIntegratedRecording(
         setHookError(err instanceof Error ? err : new Error(String(err)));
       }
     },
-    [requestAccess, audioConstraints]
+    [requestAccess, audioConstraints, resetPeak]
   );
 
   return {
@@ -230,7 +299,10 @@ export function useIntegratedRecording(
     duration,
     level,
     peakLevel,
-    error: hookError || micError || recError,
+    levels,
+    peakLevels,
+    rmsLevels,
+    error: hookError || micError || meterError || recError,
 
     // Microphone state
     stream,

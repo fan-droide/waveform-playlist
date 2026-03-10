@@ -1,7 +1,7 @@
 import React, { useContext, useRef, useState, useMemo, type ReactNode, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import styled from 'styled-components';
-import { getContext } from 'tone';
+import { getGlobalContext } from '@waveform-playlist/playout';
 import {
   Playlist,
   Track as TrackComponent,
@@ -129,7 +129,7 @@ const CustomPlayhead: React.FC<{
     samplesPerPixel,
     sampleRate,
     controlsOffset: 0,
-    getAudioContextTime: () => getContext().currentTime,
+    getAudioContextTime: () => getGlobalContext().rawContext.currentTime,
     getPlaybackTime,
   }) as React.ReactElement;
 };
@@ -193,6 +193,7 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
     loopStart,
     loopEnd,
     isLoopEnabled,
+    indefinitePlayback,
   } = usePlaylistState();
   const annotationIntegration = useContext(AnnotationIntegrationContext);
   const {
@@ -312,6 +313,13 @@ export const PlaylistVisualization: React.FC<PlaylistVisualizationProps> = ({
       : duration > 0
         ? duration
         : DEFAULT_EMPTY_TRACK_DURATION;
+
+  // When indefinitePlayback is enabled, ensure the timeline fills the visible scroll container
+  if (indefinitePlayback) {
+    const containerWidth = scrollContainerRef.current?.clientWidth ?? 0;
+    const minContainerDuration = (containerWidth * samplesPerPixel) / sampleRate;
+    displayDuration = Math.max(displayDuration, minContainerDuration);
+  }
 
   if (recordingState?.isRecording) {
     const recordingEndSample = recordingState.startSample + recordingState.durationSamples;

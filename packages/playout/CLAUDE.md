@@ -147,6 +147,12 @@ AudioBufferSourceNode (native, one-shot, pitch-shifted via playbackRate)
 
 **Dependency:** `soundfont2` (MIT) in `package.json`. SF2 files have separate licenses — not bundled in npm package, users provide via URL.
 
+## Incremental Track Addition
+
+**`addTrackToPlayout()` helper:** Extracted from `buildPlayout`'s per-track loop. Shared by both `buildPlayout` (full rebuild) and `adapter.addTrack()` (incremental). Handles audio clips, MIDI clips, and SoundFont routing.
+
+**`adapter.addTrack(track)`:** Adds a single track to the existing playout without disposing/recreating. Calls `addTrackToPlayout()` then `playout.applyInitialSoloState()`. Throws if called before `setTracks()` (no playout exists yet) — this is a programming error, not a recoverable condition.
+
 ## Firefox Compatibility (standardized-audio-context)
 
 **Problem 1: AudioListener Error**
@@ -194,3 +200,13 @@ const analyser = context.createAnalyser();
 
 **References:**
 - [Tone.js Issue #681](https://github.com/Tonejs/Tone.js/issues/681) - AudioListener Firefox error
+
+## Tone.js Panner Stereo Downmix Gotcha
+
+**Critical:** `new Panner(pan)` defaults to `channelCount: 1` + `channelCountMode: "explicit"` (for standardized-audio-context compat). This forces stereo→mono downmix at 1/√2 gain before panning. Stereo recordings play back ~3dB quieter with identical L/R channels.
+
+**Fix:** `new Panner({ pan, channelCount: 2 })` for `ToneTrack` (audio playback). MidiToneTrack/SoundFontToneTrack use mono synth sources, so `channelCount: 1` is correct there.
+
+## Context Singleton Warning
+
+**`getGlobalContext()` replaces Tone's default context.** Any Tone.js node created via `getContext()` BEFORE `getGlobalContext()` first runs will be on a different (orphaned) audio graph. This affects hooks that run on mount (useEffect with `[]` deps) — they may capture the default context before audio init. Always import and use `getGlobalContext()` for nodes that must be in the playback signal path.

@@ -613,10 +613,11 @@ function useIntegratedRecording(
 
 ```typescript
 interface IntegratedRecordingOptions {
-  currentTime?: number;       // Current playhead position for recording start
-  channelCount?: number;      // Default: 1 (auto-detected from stream; fallback)
-  samplesPerPixel?: number;   // Default: 1024
-  bits?: 8 | 16;             // Default: 16
+  currentTime?: number;                  // Current playhead position for recording start
+  audioConstraints?: MediaTrackConstraints; // Override recording-optimized defaults
+  channelCount?: number;                 // Default: 1 (auto-detected from stream; fallback)
+  samplesPerPixel?: number;              // Default: 1024
+  bits?: 8 | 16;                         // Default: 16
 }
 ```
 
@@ -629,8 +630,8 @@ interface UseIntegratedRecordingReturn {
   duration: number;
 
   // Microphone levels
-  level: number;      // Current RMS level (0-1)
-  peakLevel: number;  // Peak level with decay (0-1)
+  level: number;      // Current peak level (0-1)
+  peakLevel: number;  // Held peak level with decay (0-1)
 
   // Device management
   devices: MediaDeviceInfo[];
@@ -662,8 +663,8 @@ function RecordingControls() {
   const {
     isRecording,
     duration,
-    level,
-    peakLevel,
+    levels,
+    peakLevels,
     devices,
     hasPermission,
     startRecording,
@@ -687,7 +688,7 @@ function RecordingControls() {
         {isRecording ? 'Stop' : 'Record'}
       </button>
       {isRecording && <span>Recording: {duration.toFixed(1)}s</span>}
-      <VUMeter level={level} peakLevel={peakLevel} />
+      <SegmentedVUMeter levels={levels} peakLevels={peakLevels} />
     </div>
   );
 }
@@ -894,40 +895,109 @@ From `@waveform-playlist/recording`:
 ### useMicrophoneAccess
 
 ```typescript
-function useMicrophoneAccess(options?: {
-  audioConstraints?: MediaTrackConstraints;
-}): {
-  hasAccess: boolean;
-  isRequesting: boolean;
-  error: string | null;
-  requestAccess: () => Promise<void>;
-  revokeAccess: () => void;
+function useMicrophoneAccess(): {
+  stream: MediaStream | null;
+  devices: MicrophoneDevice[];
+  hasPermission: boolean;
+  isLoading: boolean;
+  error: Error | null;
+  requestAccess: (deviceId?: string, audioConstraints?: MediaTrackConstraints) => Promise<void>;
+  stopStream: () => void;
 };
 ```
 
 ### useRecording
 
 ```typescript
-function useRecording(): {
+function useRecording(
+  stream: MediaStream | null,
+  options?: RecordingOptions
+): {
   isRecording: boolean;
   isPaused: boolean;
   duration: number;
-  recordedBlob: Blob | null;
-  startRecording: () => void;
-  stopRecording: () => void;
+  peaks: (Int8Array | Int16Array)[];
+  audioBuffer: AudioBuffer | null;
+  level: number;
+  peakLevel: number;
+  startRecording: () => Promise<void>;
+  stopRecording: () => Promise<AudioBuffer | null>;
   pauseRecording: () => void;
   resumeRecording: () => void;
-  clearRecording: () => void;
+  error: Error | null;
 };
 ```
 
 ### useMicrophoneLevel
 
 ```typescript
-function useMicrophoneLevel(): {
-  level: number;  // 0-1 RMS level
-  peak: number;   // 0-1 peak with decay
+function useMicrophoneLevel(
+  stream: MediaStream | null,
+  options?: {
+    channelCount?: number;  // Default: 1 (mono). Set to 2 for stereo.
+    updateRate?: number;    // Default: 60 (Hz)
+  }
+): {
+  level: number;          // 0-1 peak level (max across channels, for backwards compatibility)
+  peakLevel: number;      // 0-1 held peak with decay (max across channels)
+  levels: number[];       // Per-channel peak levels (0-1)
+  peakLevels: number[];   // Per-channel held peak levels with decay (0-1)
+  rmsLevels: number[];    // Per-channel RMS levels (0-1)
+  resetPeak: () => void;  // Reset all held peak levels
 };
+```
+
+### useOutputMeter
+
+*From `@waveform-playlist/browser`*
+
+Monitor the master output level of the playlist. Must be used inside `WaveformPlaylistProvider`.
+
+```typescript
+function useOutputMeter(options?: UseOutputMeterOptions): UseOutputMeterReturn;
+```
+
+#### Options
+
+```typescript
+interface UseOutputMeterOptions {
+  channelCount?: number;   // Default: 2
+  updateRate?: number;     // Default: 60 (Hz)
+  isPlaying?: boolean;     // Reset levels when false (prevents frozen meters)
+}
+```
+
+#### Returns
+
+```typescript
+interface UseOutputMeterReturn {
+  levels: number[];       // Per-channel peak output levels (0-1)
+  peakLevels: number[];   // Per-channel held peak levels with decay (0-1)
+  rmsLevels: number[];    // Per-channel RMS output levels (0-1)
+  resetPeak: () => void;  // Reset all peak hold indicators
+}
+```
+
+#### Example
+
+```tsx
+import { useOutputMeter } from '@waveform-playlist/browser';
+
+function OutputMeter() {
+  const { levels, peakLevels, resetPeak } = useOutputMeter({ channelCount: 2 });
+
+  return (
+    <div>
+      {levels.map((level, ch) => (
+        <div key={ch}>
+          <span>{ch === 0 ? 'L' : 'R'}: {(level * 100).toFixed(0)}%</span>
+          <span>Peak: {(peakLevels[ch] * 100).toFixed(0)}%</span>
+        </div>
+      ))}
+      <button onClick={resetPeak}>Reset Peak</button>
+    </div>
+  );
+}
 ```
 
 ---

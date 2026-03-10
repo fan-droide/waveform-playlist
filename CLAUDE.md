@@ -342,12 +342,14 @@ const LazyExample = createLazyExample(() =>
 19. **Render-Phase Guards ≠ Effect Dependencies** — Derived booleans computed during render (e.g., `isEngineTracks = tracks === engineTracksRef.current`) that are read inside effect bodies as guards should NOT be in the effect's dep array. They flip between renders (e.g., true→false after clearing the ref), causing spurious re-runs. Read them inside the effect body; depend only on the source data (`tracks`). When the same guard also needs to be visible to the _previous_ effect's cleanup, store it in a ref during render (as with `skipEngineDisposeRef`).
 20. **Adding a New Rendering Mode** — Requires changes across packages: `RenderMode` type in core, theme colors + `*Channel` component in ui-components, `SmartChannel` branch, `ChannelWithProgress` background, `ClipPeaks` data fields in browser, `PlaylistVisualization` auto-detection. Follow `Channel.tsx` pattern for virtual scrolling.
 21. **will-change Budget** — Only use `will-change` on actively animating elements (playheads, progress overlays). Firefox enforces a 3× document surface area budget; static canvas chunks with `translateZ(0)` don't need it.
-22. **Always Use getGlobalAudioContext()** — Never `new AudioContext()`. Firefox blocks contexts created before user gesture. Use `getGlobalAudioContext()` from playout package (shared with Tone.js, resumed on first play).
+22. **Always Use getGlobalAudioContext() / getGlobalContext()** — Never `new AudioContext()` or `getContext()`/`getDestination()` from Tone.js. Firefox blocks contexts created before user gesture. `getGlobalContext()` from playout calls `setContext()`, replacing Tone's default context — nodes created on the old default are on a dead audio graph. Use `getGlobalContext()` and `context.destination` for any Tone.js node in the playback signal path.
 23. **Gate Provider Behind Async Readiness** — When multiple async resources must load before rendering (e.g., MIDI tracks + SoundFont), gate the `WaveformPlaylistProvider` mount behind all resources being ready. This prevents double engine rebuilds. Check both the loading flag AND `tracks.length > 0` since hooks can briefly report `loading: false` with empty data.
 24. **Shared Clip Pixel Width** — Use `clipPixelWidth()` from `@waveform-playlist/core` for any pixel width derived from `startSample`/`durationSamples`/`samplesPerPixel`. Both `Clip.tsx` (container) and `ChannelWithProgress.tsx` (progress overlay) must use this shared function — never `peaksData.length`, which may be shorter than the clip when audio is shorter than configured duration.
 25. **Grep Comments When Renaming APIs** — When renaming an option or prop across files (e.g., `progressive` → `immediate`), also grep for the old name in comments. Mechanical find-replace on code misses adjacent comments that describe the old behavior.
 26. **Prefer Props Over Mount/Unmount for Optional Providers** — If a provider controls both data (e.g., snap config) and rendering (e.g., timescale mode), add a mode prop instead of conditionally mounting/unmounting. Unmounting tears down the subtree and loses state; a prop switch is cheaper and keeps context consumers stable.
 27. **Stop Before Clear** — Always call `stop()` before clearing tracks. Clearing React state without stopping Tone.js Transport leaves orphaned audio playing. Use `ClearAllButton` (from `@waveform-playlist/browser`) which handles this automatically via `usePlaylistControls().stop()`.
+28. **Tone.js Panner Stereo Preservation** — `new Panner(pan)` defaults to `channelCount: 1`, downmixing stereo to mono at 1/√2 gain. Use `new Panner({ pan, channelCount: 2 })` for audio tracks with stereo content. MIDI/SoundFont tracks use mono synths so `channelCount: 1` is fine.
+29. **Never Use Tone.js `addAudioWorkletModule`** — Tone.js caches a single `_workletPromise` per context. Only the first URL is loaded; subsequent calls with different URLs are silently skipped. Always use `rawContext.audioWorklet.addModule(url)` directly. `context.createAudioWorkletNode()` is still fine for node creation.
 
 ---
 
@@ -383,6 +385,7 @@ Package-specific conventions, architecture, and patterns live in each package's 
 - `packages/ui-components/CLAUDE.md` — Theming, virtual scrolling, ClipViewportOrigin
 - `packages/recording/CLAUDE.md` — AudioWorklets, Firefox compat, VU meter, mic access
 - `packages/annotations/CLAUDE.md` — Integration context, annotation provider pattern
+- `packages/worklets/CLAUDE.md` — AudioWorklet processors (metering, recording)
 - `packages/spectrogram/CLAUDE.md` — Integration context, SpectrogramChannel index
 - `website/CLAUDE.md` — Docusaurus site, CSS pitfalls, custom pages
 

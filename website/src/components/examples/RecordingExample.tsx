@@ -10,38 +10,39 @@
  * - Auto-scroll keeps recording in view
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import styled from 'styled-components';
-import { Theme, Button, Flex, Card, Text, Separator } from '@radix-ui/themes';
+import { Theme, Button, Text } from '@radix-ui/themes';
 import '@radix-ui/themes/styles.css';
 import { createTrack, createClipFromSeconds, type ClipTrack } from '@waveform-playlist/core';
+import { getGlobalAudioContext } from '@waveform-playlist/playout';
 import {
   WaveformPlaylistProvider,
   Waveform,
-  PlayButton,
-  PauseButton,
-  StopButton,
-  ZoomInButton,
-  ZoomOutButton,
+  // PlayButton, PauseButton, StopButton omitted — recording example uses
+  // custom versions that are disabled during recording
   AudioPosition,
-  AutomaticScrollCheckbox,
-  MasterVolumeControl,
   ExportWavButton,
   ClipInteractionProvider,
   usePlaybackAnimation,
   usePlaylistData,
   usePlaylistControls,
   usePlaylistState,
+  useOutputMeter,
+  KeyboardShortcuts,
 } from '@waveform-playlist/browser';
+import { useIntegratedRecording } from '@waveform-playlist/recording';
 import {
   RecordButton,
+  TransportPlayButton,
+  TransportPauseButton,
+  TransportStopButton,
+  RewindButton,
   MicrophoneSelector,
-  VUMeter,
-  RecordingIndicator,
-  useIntegratedRecording,
-} from '@waveform-playlist/recording';
+} from './RecordingControls';
+import { SegmentedVUMeter, BaseControlButton } from '@waveform-playlist/ui-components';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
-import { MicrophoneIcon } from '@phosphor-icons/react';
+import { MicrophoneIcon, SpeakerHighIcon } from '@phosphor-icons/react';
 import { FileDropZone } from '../FileDropZone';
 
 const Container = styled.div`
@@ -53,33 +54,74 @@ const StyledDropZone = styled(FileDropZone)`
   margin-bottom: 1.5rem;
 `;
 
-const VUMeterWrapper = styled.div`
+// --- DAW Toolbar ---
+
+const Toolbar = styled.div`
+  background: var(--color-surface);
+  border: 1px solid var(--gray-6);
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: var(--gray-3);
-  border-radius: var(--radius-2);
+  min-height: 44px;
+  overflow: hidden;
 `;
 
-const RecordingControlsRow = styled.div`
+const ToolbarSection = styled.div<{ $grow?: boolean; $noBorder?: boolean }>`
   display: flex;
-  align-items: flex-end;
-  gap: 1rem;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-right: ${(props) => (props.$noBorder ? 'none' : '1px solid var(--gray-5)')};
+  ${(props) => props.$grow && 'flex: 1; min-width: 0; overflow: hidden;'}
+  white-space: nowrap;
+  flex-shrink: 0;
+  ${(props) => props.$grow && 'flex-shrink: 1;'}
 `;
 
-const Label = styled.span`
-  font-size: 0.875rem;
-  color: var(--gray-11);
-  font-weight: 500;
+const MeterLabel = styled.span`
+  font-family: 'Courier New', Monaco, monospace;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--gray-9);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  min-width: 28px;
+  user-select: none;
 `;
 
-const ErrorCard = styled(Card)`
+const MeterChannel = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 6px;
+`;
+
+const MeterGroup = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+`;
+
+const BottomBar = styled.div`
+  background: var(--color-surface);
+  border: 1px solid var(--gray-6);
+  border-radius: 6px;
+  padding: 6px 12px;
+  margin-bottom: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+const ErrorBanner = styled.div`
   background: var(--red-3);
   border: 1px solid var(--red-6);
+  border-radius: 6px;
+  padding: 8px 12px;
   margin-bottom: 1rem;
 `;
+
 
 
 // Inner component that uses playlist context
@@ -98,18 +140,38 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
   setSelectedTrackId,
   onAddTrack,
 }) => {
-  const { currentTime } = usePlaybackAnimation();
+  const { currentTime, isPlaying, currentTimeRef } = usePlaybackAnimation();
   const { sampleRate, samplesPerPixel, controls } = usePlaylistData();
-  const { scrollContainerRef, setSelectedTrackId: setProviderSelectedTrackId } = usePlaylistControls();
-  const { isAutomaticScroll } = usePlaylistState();
+  const { scrollContainerRef, setSelectedTrackId: setProviderSelectedTrackId, play, stop, pause, seekTo } = usePlaylistControls();
+  const {
+    isAutomaticScroll,
+    selectionStart,
+    selectionEnd,
+    isLoopEnabled,
+    selectedTrackId: providerSelectedTrackId,
+  } = usePlaylistState();
 
-  // Sync provider's selectedTrackId with local state
+  // Sync local → provider when local state changes (e.g. auto-create track)
   useEffect(() => {
     setProviderSelectedTrackId(selectedTrackId);
   }, [selectedTrackId, setProviderSelectedTrackId]);
 
+  // Sync provider → local when user clicks a track in the waveform area.
+  // Only react to provider changes (not local), to avoid overwriting local
+  // state with stale provider values during auto-create track flows.
+  const prevProviderTrackIdRef = useRef(providerSelectedTrackId);
+  useEffect(() => {
+    if (providerSelectedTrackId !== prevProviderTrackIdRef.current) {
+      prevProviderTrackIdRef.current = providerSelectedTrackId;
+      setSelectedTrackId(providerSelectedTrackId);
+    }
+  }, [providerSelectedTrackId, setSelectedTrackId]);
+
   // Flag to auto-start recording after creating a new track
   const [shouldAutoStartRecording, setShouldAutoStartRecording] = useState(false);
+
+  // Capture timeline position at record start for live preview positioning
+  const recordStartTimeRef = useRef(0);
 
   // Integrated recording hook
   const {
@@ -117,6 +179,8 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
     duration,
     level,
     peakLevel,
+    levels: inputLevels,
+    peakLevels: inputPeaks,
     devices,
     hasPermission,
     selectedDevice,
@@ -126,19 +190,71 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
     changeDevice,
     error,
     recordingPeaks,
-  } = useIntegratedRecording(tracks, setTracks, selectedTrackId, { currentTime });
+  } = useIntegratedRecording(tracks, setTracks, selectedTrackId, { currentTime, channelCount: 2 });
+
+  // Output meter for master bus
+  const { levels: outputLevels, peakLevels: outputPeaks } = useOutputMeter({ channelCount: 2, isPlaying });
+
+  // Auto-request mic access on mount
+  useEffect(() => {
+    if (!hasPermission) {
+      requestMicAccess().catch(() => {
+        // Error already surfaced via useIntegratedRecording's error state
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Start recording and playback together (overdub)
+  const startRecordingWithPlayback = useCallback(async () => {
+    recordStartTimeRef.current = currentTime;
+    await startRecording();
+    // Start playback from current position so user hears existing tracks
+    const hasClips = tracks.some(t => t.clips.length > 0);
+    if (hasClips) {
+      await play(currentTime);
+    }
+  }, [startRecording, play, currentTime, tracks]);
 
   // Auto-start recording when a new track is created and selected
   useEffect(() => {
     if (shouldAutoStartRecording && selectedTrackId) {
       setShouldAutoStartRecording(false);
-      startRecording();
+      startRecordingWithPlayback();
     }
-  }, [shouldAutoStartRecording, selectedTrackId, startRecording]);
+  }, [shouldAutoStartRecording, selectedTrackId, startRecordingWithPlayback]);
 
-  const handleRecordClick = () => {
+  // Rewind to start
+  const handleRewind = useCallback(() => {
+    stop();
+    seekTo(0);
+  }, [stop, seekTo]);
+
+  // Play with selection/loop awareness (mirrors PlayButton logic)
+  const handlePlay = useCallback(async () => {
+    const hasSelection = selectionStart !== selectionEnd && selectionEnd > selectionStart;
+    if (hasSelection && !isLoopEnabled) {
+      const duration = selectionEnd - selectionStart;
+      await play(selectionStart, duration);
+    } else {
+      await play(currentTimeRef.current ?? 0);
+    }
+  }, [selectionStart, selectionEnd, isLoopEnabled, play, currentTimeRef]);
+
+  // Stop both playback and recording
+  const handleStop = useCallback(() => {
     if (isRecording) {
       stopRecording();
+    }
+    stop();
+  }, [isRecording, stopRecording, stop]);
+
+  const handleRecordClick = (e: React.MouseEvent) => {
+    if (isRecording) return;
+
+    // Shift+click: always create a new track (like Shift+R)
+    if (e.shiftKey) {
+      setShouldAutoStartRecording(true);
+      onAddTrack();
       return;
     }
 
@@ -150,15 +266,87 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
     }
 
     // Track is selected, start recording immediately
-    startRecording();
+    startRecordingWithPlayback();
   };
 
+  // Shift+R: always create a new track and record on it
+  const handleForceNewTrackRecord = useCallback(() => {
+    if (isRecording || !hasPermission) return;
+    setShouldAutoStartRecording(true);
+    onAddTrack();
+  }, [isRecording, hasPermission, onAddTrack]);
+
+  // R: record on selected track (auto-create if none selected)
+  const handleRecordShortcut = useCallback(() => {
+    if (isRecording || !hasPermission) return;
+
+    if (!selectedTrackId) {
+      setShouldAutoStartRecording(true);
+      onAddTrack();
+      return;
+    }
+
+    startRecordingWithPlayback();
+  }, [isRecording, hasPermission, selectedTrackId, onAddTrack, startRecordingWithPlayback]);
+
+  // Toggle play/pause
+  const handleTogglePlayPause = useCallback(() => {
+    if (isPlaying) {
+      pause();
+    } else {
+      handlePlay();
+    }
+  }, [isPlaying, pause, handlePlay]);
+
+  // All keyboard shortcuts — no presets, fully recording-aware
+  const allShortcuts = useMemo(() => [
+    {
+      key: ' ',
+      action: handleTogglePlayPause,
+      description: 'Play/Pause',
+      preventDefault: true,
+    },
+    {
+      key: 'Escape',
+      action: handleStop,
+      description: 'Stop playback and recording',
+      preventDefault: true,
+    },
+    {
+      key: '0',
+      action: handleRewind,
+      description: 'Rewind to start',
+      preventDefault: true,
+    },
+    {
+      key: 'r',
+      shiftKey: true,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      action: handleForceNewTrackRecord,
+      description: 'Create new track and record',
+      preventDefault: true,
+    },
+    {
+      key: 'r',
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      action: handleRecordShortcut,
+      description: 'Record on selected track',
+      preventDefault: true,
+    },
+  ], [handleTogglePlayPause, handleStop, handleRewind, handleRecordShortcut, handleForceNewTrackRecord]);
+
   // Calculate recording start position for live preview
+  // Uses captured start time (not live currentTime which advances during overdub)
   let recordingStartSample = 0;
   if (isRecording && selectedTrackId) {
     const selectedTrack = tracks.find(t => t.id === selectedTrackId);
     if (selectedTrack) {
-      const currentTimeSamples = Math.floor(currentTime * sampleRate);
+      const startTimeSamples = Math.floor(recordStartTimeRef.current * sampleRate);
       let lastClipEndSample = 0;
       if (selectedTrack.clips.length > 0) {
         const endSamples = selectedTrack.clips.map(clip =>
@@ -166,7 +354,7 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
         );
         lastClipEndSample = Math.max(...endSamples);
       }
-      recordingStartSample = Math.max(currentTimeSamples, lastClipEndSample);
+      recordingStartSample = Math.max(startTimeSamples, lastClipEndSample);
     }
   }
 
@@ -196,7 +384,7 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
       const audioFiles = files.filter(file => file.type.startsWith('audio/'));
       if (audioFiles.length === 0) return;
 
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioContext = getGlobalAudioContext();
 
       for (const file of audioFiles) {
         const arrayBuffer = await file.arrayBuffer();
@@ -232,6 +420,7 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
       // Must await so the recorded clip is saved before the track is removed
       if (isRecording && trackToRemove.id === selectedTrackId) {
         await stopRecording();
+        stop();
       }
 
       // Clear selection if removed track was selected
@@ -241,107 +430,99 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
 
       setTracks(tracks.filter((_, i) => i !== trackIndex));
     },
-    [tracks, setTracks, selectedTrackId, setSelectedTrackId, isRecording, stopRecording]
+    [tracks, setTracks, selectedTrackId, setSelectedTrackId, isRecording, stopRecording, stop]
   );
 
   return (
     <>
+      <KeyboardShortcuts additionalShortcuts={allShortcuts} />
       {error && (
-        <ErrorCard>
+        <ErrorBanner>
           <Text size="2" color="red">
             Error: {error.message}
           </Text>
-        </ErrorCard>
+        </ErrorBanner>
       )}
 
-      {/* Recording Controls */}
-      <Card style={{ marginBottom: '1.5rem' }}>
-        <Flex direction="column" gap="3">
+      {/* DAW Toolbar — single row */}
+      <Toolbar>
+        {/* Transport */}
+        <ToolbarSection>
+          <RewindButton onClick={handleRewind} disabled={isRecording} />
+          <TransportPlayButton onClick={handlePlay} disabled={isPlaying || isRecording} active={isPlaying} />
+          <RecordButton
+            isRecording={isRecording}
+            onClick={handleRecordClick}
+            disabled={!hasPermission}
+          />
+          <TransportPauseButton onClick={pause} disabled={!isPlaying} />
+          <TransportStopButton onClick={handleStop} disabled={!isPlaying && !isRecording} />
+        </ToolbarSection>
+
+        {/* Mic selector */}
+        <ToolbarSection>
           {!hasPermission ? (
-            <Button size="3" variant="solid" color="blue" onClick={requestMicAccess}>
-              <MicrophoneIcon size={18} weight="light" style={{ marginRight: '6px' }} /> Enable Microphone
+            <Button size="1" variant="soft" color="blue" onClick={requestMicAccess}>
+              <MicrophoneIcon size={14} weight="light" /> Enable Mic
             </Button>
           ) : (
-            <RecordingControlsRow>
-              <MicrophoneSelector
-                devices={devices}
-                selectedDeviceId={selectedDevice || undefined}
-                onDeviceChange={changeDevice}
-                disabled={isRecording}
-              />
-              <RecordButton
-                isRecording={isRecording}
-                onClick={handleRecordClick}
-                disabled={false}
-              />
-              {isRecording && (
-                <RecordingIndicator
-                  isRecording={isRecording}
-                  duration={duration}
-                />
-              )}
-              <VUMeterWrapper>
-                <Label>Input:</Label>
-                <VUMeter level={level} peakLevel={peakLevel} width={200} height={20} />
-              </VUMeterWrapper>
-            </RecordingControlsRow>
+            <MicrophoneSelector
+              devices={devices}
+              selectedDeviceId={selectedDevice || undefined}
+              onDeviceChange={changeDevice}
+              disabled={isRecording}
+            />
           )}
-        </Flex>
-      </Card>
+        </ToolbarSection>
 
-      {/* Drop Zone */}
-      <StyledDropZone
-        accept="audio/*"
-        onFiles={handleFiles}
-        fileFilter={(f) => f.type.startsWith('audio/')}
-        label="Drop audio files or click to browse"
-        dragLabel="Drop audio files here"
-      >
-        <Button size="2" variant="solid" color="blue" style={{ marginTop: '0.5rem' }} onClick={(e) => {
-          e.stopPropagation();
-          onAddTrack();
-        }}>
-          + New Track
-        </Button>
-      </StyledDropZone>
+        {/* Meters */}
+        <ToolbarSection $grow>
+          <MeterGroup>
+            <MeterChannel>
+              <MicrophoneIcon size={12} weight="bold" style={{ color: 'var(--gray-9)', flexShrink: 0 }} />
+              <MeterLabel>In</MeterLabel>
+              <SegmentedVUMeter
+                levels={inputLevels}
+                peakLevels={inputPeaks}
+                orientation="horizontal"
+                segmentCount={40}
+                segmentWidth={14}
+                segmentHeight={4}
+                segmentGap={1}
+                dBRange={[-50, 0]}
+                coloredInactive
+                labelColor="var(--gray-9)"
+              />
+            </MeterChannel>
+            <MeterChannel>
+              <SpeakerHighIcon size={12} weight="bold" style={{ color: 'var(--gray-9)', flexShrink: 0 }} />
+              <MeterLabel>Out</MeterLabel>
+              <SegmentedVUMeter
+                levels={outputLevels}
+                peakLevels={outputPeaks}
+                orientation="horizontal"
+                segmentCount={40}
+                segmentWidth={14}
+                segmentHeight={4}
+                segmentGap={1}
+                coloredInactive
+              />
+            </MeterChannel>
+          </MeterGroup>
+        </ToolbarSection>
 
-      {/* Playback Controls */}
-      <Card style={{ marginBottom: '1.5rem' }}>
-        <Flex gap="3" align="center" wrap="wrap">
-          <Flex gap="2">
-            <PlayButton />
-            <PauseButton />
-            <StopButton />
-          </Flex>
-
-          <Separator orientation="vertical" />
-
-          <Flex gap="2">
-            <ZoomInButton disabled={isRecording} />
-            <ZoomOutButton disabled={isRecording} />
-          </Flex>
-
-          <Separator orientation="vertical" />
-
-          <AudioPosition />
-
-          <Separator orientation="vertical" />
-
-          <AutomaticScrollCheckbox />
-
-          <Separator orientation="vertical" />
-
-          <MasterVolumeControl />
-
-          <Separator orientation="vertical" />
-
+        <ToolbarSection $noBorder>
+          <BaseControlButton onClick={onAddTrack}>
+            + New Track
+          </BaseControlButton>
           <ExportWavButton
-            label="Export Recording"
+            label="Export"
             filename="recording"
           />
-        </Flex>
-      </Card>
+        </ToolbarSection>
+      </Toolbar>
 
+      {/* Waveform */}
       <ClipInteractionProvider>
         <Waveform
           showClipHeaders
@@ -361,13 +542,27 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
         />
       </ClipInteractionProvider>
 
+      {/* Position display — bottom bar */}
+      <BottomBar>
+        <AudioPosition />
+      </BottomBar>
+
       {tracks.length === 0 && (
-        <Flex justify="center" style={{ padding: '3rem', color: 'var(--gray-9)' }}>
+        <div style={{ padding: '3rem', color: 'var(--gray-9)', textAlign: 'center' }}>
           <Text size="2">
-            Click "+ New Track" to add a track, then start recording!
+            Click &quot;+ New Track&quot; in the toolbar to add a track, then start recording!
           </Text>
-        </Flex>
+        </div>
       )}
+
+      {/* Drop Zone */}
+      <StyledDropZone
+        accept="audio/*"
+        onFiles={handleFiles}
+        fileFilter={(f) => f.type.startsWith('audio/')}
+        label="Drop audio files or click to browse"
+        dragLabel="Drop audio files here"
+      />
     </>
   );
 };
@@ -400,7 +595,8 @@ export function RecordingExample() {
           samplesPerPixel={1024}
           zoomLevels={[256, 512, 1024, 2048, 4096]}
           waveHeight={100}
-          automaticScroll={true}
+          automaticScroll
+          indefinitePlayback
           controls={{ show: true, width: 200 }}
           theme={theme}
           timescale

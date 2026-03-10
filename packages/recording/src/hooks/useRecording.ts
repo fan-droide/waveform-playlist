@@ -6,7 +6,8 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { UseRecordingReturn, RecordingOptions } from '../types';
 import { concatenateAudioData, createAudioBuffer } from '../utils/audioBufferUtils';
 import { appendPeaks } from '../utils/peaksGenerator';
-import { getContext } from 'tone';
+import { getGlobalContext } from '@waveform-playlist/playout';
+import { recordingProcessorUrl } from '@waveform-playlist/worklets';
 
 function emptyPeaks(bits: 8 | 16): Int8Array | Int16Array {
   return bits === 8 ? new Int8Array(0) : new Int16Array(0);
@@ -29,8 +30,9 @@ export function useRecording(
   const [level, setLevel] = useState(0); // Current RMS level (0-1)
   const [peakLevel, setPeakLevel] = useState(0); // Peak level since recording started (0-1)
 
-  // Global flag to prevent loading worklet multiple times
-  // (AudioWorklet processors can only be registered once per AudioContext)
+  // Per-instance flag to prevent loading worklet multiple times within the same hook instance.
+  // Note: Multiple hook instances each have their own ref — see "Multi-Instance Worklet
+  // Registration Gap" in recording/CLAUDE.md for the known limitation and planned fix.
   const workletLoadedRef = useRef<boolean>(false);
 
   // Refs for AudioWorklet and data accumulation
@@ -44,6 +46,19 @@ export function useRecording(
   const isRecordingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false);
 
+  // Shared duration update loop — starts a rAF loop that updates duration
+  // from performance.now(). Used by both startRecording and resumeRecording.
+  const startDurationLoop = useCallback(() => {
+    const tick = () => {
+      if (isRecordingRef.current && !isPausedRef.current) {
+        const elapsed = (performance.now() - startTimeRef.current) / 1000;
+        setDuration(elapsed);
+        animationFrameRef.current = requestAnimationFrame(tick);
+      }
+    };
+    tick();
+  }, []);
+
   // Load AudioWorklet module
   const loadWorklet = useCallback(async () => {
     // Skip if already loaded to prevent "already registered" error
@@ -52,17 +67,18 @@ export function useRecording(
     }
 
     try {
-      const context = getContext();
-      // Load the worklet module
-      // Use a relative path that works when bundled
-      const workletUrl = new URL('./worklet/recording-processor.worklet.js', import.meta.url).href;
-
-      // Use Tone's addAudioWorkletModule for cross-browser compatibility
-      await context.addAudioWorkletModule(workletUrl);
+      const context = getGlobalContext();
+      // Load the worklet module directly on the raw AudioContext.
+      // Tone.js's addAudioWorkletModule only loads ONE module per context
+      // (caches _workletPromise). If meter-processor was loaded first by
+      // useMicrophoneLevel, recording-processor is silently skipped.
+      const rawCtx = context.rawContext as AudioContext;
+      await rawCtx.audioWorklet.addModule(recordingProcessorUrl);
       workletLoadedRef.current = true;
     } catch (err) {
-      console.error('Failed to load AudioWorklet module:', err);
-      throw new Error('Failed to load recording processor');
+      console.warn('[waveform-playlist] Failed to load AudioWorklet module:', String(err));
+      const error = new Error('Failed to load recording processor: ' + String(err));
+      throw error;
     }
   }, []);
 
@@ -77,7 +93,7 @@ export function useRecording(
       setError(null);
 
       // Use Tone.js Context for cross-browser compatibility
-      const context = getContext();
+      const context = getGlobalContext();
 
       // Resume AudioContext if suspended
       if (context.state === 'suspended') {
@@ -87,8 +103,14 @@ export function useRecording(
       // Load worklet module
       await loadWorklet();
 
-      // Detect actual channel count from the stream's audio track settings.
-      // Falls back to the user-provided channelCount option.
+      // Create MediaStreamSource from Tone's context
+      // Each hook creates its own source to avoid cross-context issues in Firefox
+      const source = context.createMediaStreamSource(stream);
+      mediaStreamSourceRef.current = source;
+
+      // Use the stream track's actual channel count from getSettings().
+      // source.channelCount defaults to 2 per Web Audio spec (not the mic's
+      // real count). Fall back to user-provided channelCount if unavailable.
       const detectedChannelCount = stream.getAudioTracks()[0]?.getSettings().channelCount;
       if (detectedChannelCount === undefined) {
         console.warn(
@@ -97,17 +119,16 @@ export function useRecording(
       }
       const streamChannelCount = detectedChannelCount ?? channelCount;
 
-      // Create MediaStreamSource from Tone's context
-      // Each hook creates its own source to avoid cross-context issues in Firefox
-      const source = context.createMediaStreamSource(stream);
-      mediaStreamSourceRef.current = source;
-
-      // Create AudioWorklet node — set channelCount to match the stream
       const workletNode = context.createAudioWorkletNode('recording-processor', {
         channelCount: streamChannelCount,
-        channelCountMode: 'explicit',
+        channelCountMode: 'explicit' as globalThis.ChannelCountMode,
       });
       workletNodeRef.current = workletNode;
+
+      workletNode.onprocessorerror = (event) => {
+        console.warn('[waveform-playlist] Recording worklet processor error:', String(event));
+        setError(new Error('Recording processor encountered an error'));
+      };
 
       // Reset state before connecting — prevents race where a worklet message
       // arrives before refs are cleared, corrupting samplesProcessedBefore calculations
@@ -152,7 +173,7 @@ export function useRecording(
           return updated;
         });
 
-        // Note: VU meter levels come from useMicrophoneLevel (AnalyserNode)
+        // Note: VU meter levels come from useMicrophoneLevel (meter-processor worklet)
         // We don't update level/peakLevel here to avoid conflicting state updates
       };
 
@@ -168,21 +189,12 @@ export function useRecording(
       setIsRecording(true);
       setIsPaused(false);
       startTimeRef.current = performance.now();
-
-      // Start duration update loop
-      const updateDuration = () => {
-        if (isRecordingRef.current && !isPausedRef.current) {
-          const elapsed = (performance.now() - startTimeRef.current) / 1000;
-          setDuration(elapsed);
-          animationFrameRef.current = requestAnimationFrame(updateDuration);
-        }
-      };
-      updateDuration();
+      startDurationLoop();
     } catch (err) {
-      console.error('Failed to start recording:', err);
+      console.warn('[waveform-playlist] Failed to start recording:', String(err));
       setError(err instanceof Error ? err : new Error('Failed to start recording'));
     }
-  }, [stream, channelCount, samplesPerPixel, bits, loadWorklet]);
+  }, [stream, channelCount, samplesPerPixel, bits, loadWorklet, startDurationLoop]);
 
   // Stop recording
   const stopRecording = useCallback(async (): Promise<AudioBuffer | null> => {
@@ -213,10 +225,24 @@ export function useRecording(
       }
 
       // Create final AudioBuffer from accumulated per-channel chunks
-      const context = getContext();
+      const context = getGlobalContext();
       const rawContext = context.rawContext as AudioContext;
       const numChannels = recordedChunksRef.current.length || channelCount;
       const channelData = recordedChunksRef.current.map((chunks) => concatenateAudioData(chunks));
+      const totalSamples = channelData[0]?.length ?? 0;
+
+      // Guard: if no samples were captured (e.g., stop called immediately after start),
+      // return null instead of creating a 0-length AudioBuffer which throws
+      if (totalSamples === 0) {
+        console.warn('[waveform-playlist] Recording stopped with 0 samples captured — discarding');
+        isRecordingRef.current = false;
+        isPausedRef.current = false;
+        setIsRecording(false);
+        setIsPaused(false);
+        setLevel(0);
+        return null;
+      }
+
       const buffer = createAudioBuffer(rawContext, channelData, rawContext.sampleRate, numChannels);
 
       setAudioBuffer(buffer);
@@ -230,7 +256,7 @@ export function useRecording(
 
       return buffer;
     } catch (err) {
-      console.error('Failed to stop recording:', err);
+      console.warn('[waveform-playlist] Failed to stop recording:', String(err));
       setError(err instanceof Error ? err : new Error('Failed to stop recording'));
       return null;
     }
@@ -254,17 +280,9 @@ export function useRecording(
       isPausedRef.current = false;
       setIsPaused(false);
       startTimeRef.current = performance.now() - duration * 1000;
-
-      const updateDuration = () => {
-        if (isRecordingRef.current && !isPausedRef.current) {
-          const elapsed = (performance.now() - startTimeRef.current) / 1000;
-          setDuration(elapsed);
-          animationFrameRef.current = requestAnimationFrame(updateDuration);
-        }
-      };
-      updateDuration();
+      startDurationLoop();
     }
-  }, [isRecording, isPaused, duration]);
+  }, [isRecording, isPaused, duration, startDurationLoop]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -280,7 +298,11 @@ export function useRecording(
             console.warn('[waveform-playlist] Source disconnect during cleanup:', String(err));
           }
         }
-        workletNodeRef.current.disconnect();
+        try {
+          workletNodeRef.current.disconnect();
+        } catch (err) {
+          console.warn('[waveform-playlist] Worklet disconnect during cleanup:', String(err));
+        }
       }
       if (animationFrameRef.current !== null) {
         cancelAnimationFrame(animationFrameRef.current);

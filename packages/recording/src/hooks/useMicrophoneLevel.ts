@@ -1,11 +1,17 @@
 /**
  * Hook for monitoring microphone input levels
  *
- * Uses Tone.js Meter for real-time audio level monitoring.
+ * Uses an AudioWorklet-based meter processor for sample-accurate
+ * peak and RMS metering without requestAnimationFrame overhead.
  */
 
-import { useEffect, useState, useRef } from 'react';
-import { Meter, getContext, connect } from 'tone';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { getGlobalContext } from '@waveform-playlist/playout';
+import { gainToNormalized } from '@waveform-playlist/core';
+import { meterProcessorUrl, type MeterMessage } from '@waveform-playlist/worklets';
+
+/** Peak decay constant — exponential decay for smooth peak hold (~800ms to 1/e at 60fps) */
+const PEAK_DECAY = 0.98;
 
 export interface UseMicrophoneLevelOptions {
   /**
@@ -15,35 +21,54 @@ export interface UseMicrophoneLevelOptions {
   updateRate?: number;
 
   /**
-   * FFT size for the analyser
-   * Default: 256
+   * Number of channels to meter (1 = mono, 2 = stereo)
+   * Default: 1
    */
-  fftSize?: number;
-
-  /**
-   * Smoothing time constant (0-1)
-   * Higher values = smoother but slower response
-   * Default: 0.8
-   */
-  smoothingTimeConstant?: number;
+  channelCount?: number;
 }
 
 export interface UseMicrophoneLevelReturn {
   /**
-   * Current audio level (0-1)
-   * 0 = silence, 1 = maximum level
+   * Current peak audio level (0-1)
+   * For single channel: channel 0 level
+   * For multi-channel: max across all channels
    */
   level: number;
 
   /**
-   * Peak level since last reset (0-1)
+   * Held peak level since last reset (0-1)
+   * For single channel: channel 0 peak
+   * For multi-channel: max across all channels
    */
   peakLevel: number;
 
   /**
-   * Reset the peak level
+   * Reset the held peak level
    */
   resetPeak: () => void;
+
+  /**
+   * Per-channel peak levels (0-1). Array length matches channelCount.
+   * True peak: max absolute sample value per analysis frame.
+   */
+  levels: number[];
+
+  /**
+   * Per-channel held peak levels (0-1). Array length matches channelCount.
+   */
+  peakLevels: number[];
+
+  /**
+   * Per-channel RMS levels (0-1). Array length matches channelCount.
+   * RMS: root mean square of samples per analysis frame.
+   */
+  rmsLevels: number[];
+
+  /**
+   * Error from meter setup (worklet load failure, context issues, etc.)
+   * Null when metering is working normally.
+   */
+  error: Error | null;
 }
 
 /**
@@ -51,124 +76,161 @@ export interface UseMicrophoneLevelReturn {
  *
  * @param stream - MediaStream from getUserMedia
  * @param options - Configuration options
- * @returns Object with current level and peak level
+ * @returns Object with current peak level, RMS level, and held peak level
  *
  * @example
  * ```typescript
  * const { stream } = useMicrophoneAccess();
- * const { level, peakLevel, resetPeak } = useMicrophoneLevel(stream);
+ * const { levels, rmsLevels, peakLevels } = useMicrophoneLevel(stream, { channelCount: 2 });
  *
- * return <VUMeter level={level} peakLevel={peakLevel} />;
+ * return <SegmentedVUMeter levels={levels} peakLevels={peakLevels} />;
  * ```
  */
 export function useMicrophoneLevel(
   stream: MediaStream | null,
   options: UseMicrophoneLevelOptions = {}
 ): UseMicrophoneLevelReturn {
-  const { updateRate = 60, smoothingTimeConstant = 0.8 } = options;
+  const { updateRate = 60, channelCount = 1 } = options;
 
-  const [level, setLevel] = useState(0);
-  const [peakLevel, setPeakLevel] = useState(0);
+  const [levels, setLevels] = useState<number[]>(() => new Array(channelCount).fill(0));
+  const [peakLevels, setPeakLevels] = useState<number[]>(() => new Array(channelCount).fill(0));
+  const [rmsLevels, setRmsLevels] = useState<number[]>(() => new Array(channelCount).fill(0));
+  const [meterError, setMeterError] = useState<Error | null>(null);
 
-  const meterRef = useRef<Meter | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const smoothedPeakRef = useRef<number[]>(new Array(channelCount).fill(0));
 
-  const resetPeak = () => setPeakLevel(0);
+  const resetPeak = useCallback(
+    () => setPeakLevels(new Array(channelCount).fill(0)),
+    [channelCount]
+  );
 
   useEffect(() => {
     if (!stream) {
-      setLevel(0);
-      setPeakLevel(0);
+      setLevels(new Array(channelCount).fill(0));
+      setPeakLevels(new Array(channelCount).fill(0));
+      setRmsLevels(new Array(channelCount).fill(0));
+      smoothedPeakRef.current = new Array(channelCount).fill(0);
       return;
     }
 
     let isMounted = true;
 
-    // Setup audio monitoring
     const setupMonitoring = async () => {
       if (!isMounted) return;
 
-      // Get Tone's context and resume if needed
-      const context = getContext();
+      const context = getGlobalContext();
       if (context.state === 'suspended') {
         await context.resume();
       }
-
       if (!isMounted) return;
 
-      // Create Tone.js Meter for level monitoring
-      // Pass context to ensure it's created in the same context as the source
-      const meter = new Meter({ smoothing: smoothingTimeConstant, context });
-      meterRef.current = meter;
+      // Auto-detect actual mic channel count from stream
+      const trackSettings = stream.getAudioTracks()[0]?.getSettings();
+      const actualChannels = trackSettings?.channelCount ?? channelCount;
 
-      // Create MediaStreamSource from the SAME context as the meter
-      // Note: This creates a separate source from useRecording, but that's OK
-      // since we're only using it for level monitoring (not recording)
-      const source = context.createMediaStreamSource(stream);
-      sourceRef.current = source;
+      // Load worklet directly on rawContext — Tone.js's addAudioWorkletModule
+      // only loads ONE module per context (caches _workletPromise), silently
+      // skipping subsequent calls with different URLs.
+      const rawCtx = context.rawContext as AudioContext;
+      await rawCtx.audioWorklet.addModule(meterProcessorUrl);
+      if (!isMounted) return;
 
-      // Connect source to meter using Tone's connect function
-      connect(source, meter);
+      // Use Tone.js's createAudioWorkletNode — avoids rawContext identity issues
+      // in webpack-aliased environments (Docusaurus)
+      const workletNode = context.createAudioWorkletNode('meter-processor', {
+        channelCount: actualChannels,
+        channelCountMode: 'explicit' as globalThis.ChannelCountMode,
+        processorOptions: {
+          numberOfChannels: actualChannels,
+          updateRate,
+        },
+      });
+      workletNodeRef.current = workletNode;
 
-      // Start level monitoring
-      const updateInterval = 1000 / updateRate;
-      let lastUpdateTime = 0;
-
-      const updateLevel = (timestamp: number) => {
-        if (!isMounted || !meterRef.current) return;
-
-        if (timestamp - lastUpdateTime >= updateInterval) {
-          lastUpdateTime = timestamp;
-
-          // Meter.getValue() returns dB, convert to 0-1 range
-          const db = meterRef.current.getValue();
-          const dbValue = typeof db === 'number' ? db : db[0];
-          // dB is typically -Infinity to 0, map -100dB..0dB to 0..1
-          // Using -100dB as floor since Firefox seems to report lower values
-          const normalized = Math.max(0, Math.min(1, (dbValue + 100) / 100));
-
-          setLevel(normalized);
-          setPeakLevel((prev) => Math.max(prev, normalized));
-        }
-
-        animationFrameRef.current = requestAnimationFrame(updateLevel);
+      workletNode.onprocessorerror = (event) => {
+        console.warn('[waveform-playlist] Mic meter worklet processor error:', String(event));
       };
 
-      animationFrameRef.current = requestAnimationFrame(updateLevel);
+      // Create source and connect: source → meter
+      // Don't connect output to destination — mic monitoring would cause feedback
+      const source = context.createMediaStreamSource(stream);
+      sourceRef.current = source;
+      source.connect(workletNode);
+
+      smoothedPeakRef.current = new Array(actualChannels).fill(0);
+
+      // Listen for meter data from worklet
+      workletNode.port.onmessage = (event: MessageEvent) => {
+        if (!isMounted) return;
+
+        const { peak, rms } = event.data as MeterMessage;
+        const smoothed = smoothedPeakRef.current;
+
+        const peakValues: number[] = [];
+        const rmsValues: number[] = [];
+
+        for (let ch = 0; ch < peak.length; ch++) {
+          smoothed[ch] = Math.max(peak[ch], (smoothed[ch] ?? 0) * PEAK_DECAY);
+          peakValues.push(gainToNormalized(smoothed[ch]));
+          rmsValues.push(gainToNormalized(rms[ch]));
+        }
+
+        // Mirror mono to fill requested channelCount
+        const mirroredPeaks =
+          peak.length < channelCount ? new Array(channelCount).fill(peakValues[0]) : peakValues;
+        const mirroredRms =
+          peak.length < channelCount ? new Array(channelCount).fill(rmsValues[0]) : rmsValues;
+
+        setLevels(mirroredPeaks);
+        setRmsLevels(mirroredRms);
+        setPeakLevels((prev) => mirroredPeaks.map((val, i) => Math.max(prev[i] ?? 0, val)));
+      };
     };
 
-    setupMonitoring();
+    setupMonitoring().catch((err) => {
+      console.warn('[waveform-playlist] Failed to set up mic level monitoring:', String(err));
+      if (isMounted) {
+        setMeterError(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
 
-    // Cleanup
     return () => {
       isMounted = false;
 
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-
-      // Disconnect and clean up
       if (sourceRef.current) {
         try {
           sourceRef.current.disconnect();
-        } catch {
-          // Ignore disconnect errors
+        } catch (err) {
+          console.warn('[waveform-playlist] Mic source disconnect during cleanup:', String(err));
         }
         sourceRef.current = null;
       }
 
-      if (meterRef.current) {
-        meterRef.current.dispose();
-        meterRef.current = null;
+      if (workletNodeRef.current) {
+        try {
+          workletNodeRef.current.disconnect();
+          workletNodeRef.current.port.close();
+        } catch (err) {
+          console.warn('[waveform-playlist] Mic meter disconnect during cleanup:', String(err));
+        }
+        workletNodeRef.current = null;
       }
     };
-  }, [stream, smoothingTimeConstant, updateRate]);
+  }, [stream, updateRate, channelCount]);
+
+  // Backwards-compatible scalar values
+  const level = channelCount === 1 ? (levels[0] ?? 0) : Math.max(...levels);
+  const peakLevel = channelCount === 1 ? (peakLevels[0] ?? 0) : Math.max(...peakLevels);
 
   return {
     level,
     peakLevel,
     resetPeak,
+    levels,
+    peakLevels,
+    rmsLevels,
+    error: meterError,
   };
 }

@@ -103,6 +103,8 @@ export interface PlaylistStateContextValue {
   // Loop region (separate from selection) - Audacity-style loop points
   loopStart: number;
   loopEnd: number;
+  /** Whether playback continues past the end of loaded audio */
+  indefinitePlayback: boolean;
 }
 
 export interface PlaylistControlsContextValue {
@@ -238,6 +240,9 @@ export interface WaveformPlaylistProviderProps {
    *  Use this during progressive loading to avoid rebuilding the engine for
    *  each track — flip to false when all tracks are ready for a single build. */
   deferEngineRebuild?: boolean;
+  /** Disable automatic stop when the cursor reaches the end of the longest
+   *  track. Useful for DAW-style recording beyond existing audio. */
+  indefinitePlayback?: boolean;
   children: ReactNode;
 }
 
@@ -262,10 +267,15 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   onTracksChange,
   soundFontCache,
   deferEngineRebuild = false,
+  indefinitePlayback = false,
   children,
 }) => {
   // Default progressBarWidth to barWidth + barGap (fills gaps)
   const progressBarWidth = progressBarWidthProp ?? barWidth + barGap;
+
+  // Ref for animation loop access (avoids adding prop to useCallback deps)
+  const indefinitePlaybackRef = useRef(indefinitePlayback);
+  indefinitePlaybackRef.current = indefinitePlayback;
 
   // Stabilize zoomLevels reference — inline arrays (e.g. zoomLevels={[256, 512]})
   // create a new reference every render, which would trigger engine rebuild via
@@ -352,6 +362,9 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   // loadAudio skips the full engine rebuild — visual updates flow via React
   // state only. On drag end, engine.trimClip() commits the final delta.
   const isDraggingRef = useRef(false);
+  // Snapshot of tracks from the previous loadAudio run, used to detect
+  // additive-only changes (new tracks appended, existing unchanged).
+  const prevTracksRef = useRef<ClipTrack[]>([]);
   // Provider-level ref for scroll-position math and animation loop pixel
   // calculation. Distinct from useZoomControls's internal ref (statechange guard).
   const samplesPerPixelRef = useRef<number>(initialSamplesPerPixel);
@@ -444,7 +457,21 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   // Also skip disposal during active boundary trim drags — onDragMove updates React
   // tracks per-frame, triggering effect re-runs whose cleanup would dispose the engine.
   const isEngineTracks = tracks === engineTracksRef.current;
-  skipEngineDisposeRef.current = isEngineTracks || isDraggingRef.current;
+
+  // Detect additive-only track changes: new tracks appended, existing tracks unchanged.
+  // Uses reference equality on individual tracks — if any existing track object changed
+  // (e.g., clip added to it), this is false and triggers a full rebuild.
+  const prevTracks = prevTracksRef.current;
+  const isIncrementalAdd =
+    engineRef.current !== null &&
+    prevTracks.length > 0 &&
+    tracks.length > prevTracks.length &&
+    prevTracks.every((pt) => {
+      const current = tracks.find((t) => t.id === pt.id);
+      return current === pt; // reference equality — existing tracks must be untouched
+    });
+
+  skipEngineDisposeRef.current = isEngineTracks || isDraggingRef.current || isIncrementalAdd;
 
   // Adjust scroll position proportionally when zoom changes
   useEffect(() => {
@@ -495,7 +522,82 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         });
       });
       setDuration(maxDuration);
+      prevTracksRef.current = tracks;
       return;
+    }
+
+    // Guard: incremental track addition — only new tracks appended, existing
+    // tracks unchanged. Add each new track to the existing engine without
+    // tearing down the playout. This avoids disposing and recreating all
+    // audio nodes when dropping a file or finishing a recording.
+    if (isIncrementalAdd && engineRef.current) {
+      try {
+        // Use prevTracks captured during render (not prevTracksRef.current) to ensure
+        // the guard condition and inner logic operate on the same snapshot.
+        const prevIds = new Set(prevTracks.map((t) => t.id));
+        const addedTracks = tracks.filter((t) => !prevIds.has(t.id));
+
+        // Merge current UI state into new tracks before adding to engine
+        const currentTrackStates = trackStatesRef.current;
+        for (const track of addedTracks) {
+          const trackIndex = tracks.indexOf(track);
+          const trackState = currentTrackStates[trackIndex];
+          const trackWithState = {
+            ...track,
+            volume: trackState?.volume ?? track.volume,
+            muted: trackState?.muted ?? track.muted,
+            soloed: trackState?.soloed ?? track.soloed,
+            pan: trackState?.pan ?? track.pan,
+          };
+          engineRef.current!.addTrack(trackWithState);
+        }
+
+        // Update duration from all tracks (including newly added)
+        let maxDuration = 0;
+        tracks.forEach((track) => {
+          track.clips.forEach((clip) => {
+            const clipEnd = (clip.startSample + clip.durationSamples) / clip.sampleRate;
+            maxDuration = Math.max(maxDuration, clipEnd);
+          });
+        });
+        setDuration(maxDuration);
+
+        // Initialize track states for the new tracks (preserve existing)
+        setTrackStates((prev) => {
+          if (prev.length === tracks.length) return prev;
+          const newStates = [...prev];
+          for (const track of addedTracks) {
+            newStates.push({
+              name: track.name,
+              muted: track.muted,
+              soloed: track.soloed,
+              volume: track.volume,
+              pan: track.pan,
+            });
+          }
+          return newStates;
+        });
+
+        // Extract audio buffers from all clips across all tracks
+        const buffers: AudioBuffer[] = [];
+        tracks.forEach((track) => {
+          track.clips.forEach((clip) => {
+            if (clip.audioBuffer) {
+              buffers.push(clip.audioBuffer);
+            }
+          });
+        });
+        setAudioBuffers(buffers);
+
+        prevTracksRef.current = tracks;
+        return;
+      } catch (err) {
+        console.warn(
+          '[waveform-playlist] Incremental add failed, falling through to full rebuild:',
+          String(err)
+        );
+        // Fall through to full loadAudio path
+      }
     }
 
     // Defer engine rebuild during progressive loading — tracks render visually
@@ -527,6 +629,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         engineRef.current.dispose();
         engineRef.current = null;
       }
+      prevTracksRef.current = tracks;
       return;
     }
 
@@ -545,15 +648,15 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
 
     const loadAudio = async () => {
       try {
-        // Extract all audio buffers from clips (only those that have audioBuffer)
-        // For now, collect the first clip's buffer from each track
+        // Extract all audio buffers from all clips across all tracks
         const buffers: AudioBuffer[] = [];
 
         tracks.forEach((track) => {
-          if (track.clips.length > 0 && track.clips[0].audioBuffer) {
-            // Use first clip's buffer for now (full multi-clip support comes in next phase)
-            buffers.push(track.clips[0].audioBuffer);
-          }
+          track.clips.forEach((clip) => {
+            if (clip.audioBuffer) {
+              buffers.push(clip.audioBuffer);
+            }
+          });
         });
 
         // Calculate total timeline duration from all clips across all tracks
@@ -680,9 +783,11 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         });
         window.dispatchEvent(event);
 
+        prevTracksRef.current = tracks;
+
         onReady?.();
       } catch (error) {
-        console.error('Error loading audio:', error);
+        console.warn('[waveform-playlist] Error loading audio:', String(error));
       }
     };
 
@@ -912,7 +1017,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       // Transport.seconds auto-wraps at loop boundaries, so getPlaybackTime() returns
       // the correct position without manual detection here.
 
-      if (time >= duration) {
+      if (time >= duration && !indefinitePlaybackRef.current) {
         // Stop playback - inline to avoid circular dependency
         if (engineRef.current) {
           engineRef.current.stop();
@@ -1259,6 +1364,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       selectedTrackId,
       loopStart,
       loopEnd,
+      indefinitePlayback,
     }),
     [
       continuousPlay,
@@ -1273,6 +1379,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       selectedTrackId,
       loopStart,
       loopEnd,
+      indefinitePlayback,
     ]
   );
 

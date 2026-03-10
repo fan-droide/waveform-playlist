@@ -1,7 +1,7 @@
 {
-  "name": "@waveform-playlist/recording",
+  "name": "@waveform-playlist/worklets",
   "version": "9.5.2",
-  "description": "Audio recording support for waveform-playlist using AudioWorklet",
+  "description": "AudioWorklet processors for waveform-playlist (metering, recording)",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -20,44 +20,22 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": [
-    "waveform",
-    "audio",
-    "recording",
-    "audioworklet",
-    "waveform-playlist"
-  ],
+  "keywords": ["waveform", "audio", "audioworklet", "metering", "waveform-playlist"],
   "author": "Naomi Aro",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/naomiaro/waveform-playlist.git",
-    "directory": "packages/recording"
+    "directory": "packages/worklets"
   },
   "homepage": "https://naomiaro.github.io/waveform-playlist",
   "bugs": {
     "url": "https://github.com/naomiaro/waveform-playlist/issues"
   },
-  "files": [
-    "dist",
-    "README.md"
-  ],
+  "files": ["dist", "README.md"],
   "devDependencies": {
-    "@types/react": "^18.2.45",
-    "@types/styled-components": "^5.1.26",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
     "vitest": "^3.0.0"
-  },
-  "dependencies": {
-    "@waveform-playlist/core": "workspace:*",
-    "@waveform-playlist/playout": "workspace:*",
-    "@waveform-playlist/ui-components": "workspace:*",
-    "@waveform-playlist/worklets": "workspace:*"
-  },
-  "peerDependencies": {
-    "react": "^18.0.0",
-    "styled-components": "^6.0.0",
-    "tone": "^15.0.0"
   }
 }
