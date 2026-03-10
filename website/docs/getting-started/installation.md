@@ -59,6 +59,8 @@ For microphone recording:
 npm install @waveform-playlist/recording
 ```
 
+This automatically installs `@waveform-playlist/worklets`, which provides the AudioWorklet processors for recording and VU metering. See the [AudioWorklet setup guide](/docs/guides/recording#audioworklet-setup) for bundler configuration.
+
 Use `useIntegratedRecording` inside a `WaveformPlaylistProvider` to combine mic access, recording, and track management:
 
 ```tsx

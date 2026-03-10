@@ -102,6 +102,7 @@ function App() {
 | `@waveform-playlist/midi` | MIDI file parsing, piano roll visualization, and SoundFont playback |
 | `@waveform-playlist/annotations` | Time-synced text annotations with drag editing |
 | `@waveform-playlist/recording` | AudioWorklet recording with live waveform preview (requires [setup](https://naomiaro.github.io/waveform-playlist/docs/guides/recording#audioworklet-setup)) |
+| `@waveform-playlist/worklets` | Shared AudioWorklet processors for metering and recording (auto-installed with recording) |
 | `@waveform-playlist/spectrogram` | Spectrogram visualization with FFT worker |
 | `@waveform-playlist/media-element-playout` | HTMLMediaElement-based playout with pitch-preserving playback rate |
 

@@ -584,16 +584,17 @@ export default RecordingExample;
 
 ## AudioWorklet Setup
 
-Recording uses an [AudioWorklet](https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet) for low-latency, sample-accurate audio capture. The worklet file needs to be served as a separate JavaScript file that the browser loads at runtime.
+Recording uses [AudioWorklets](https://developer.mozilla.org/en-US/docs/Web/API/AudioWorklet) for low-latency, sample-accurate audio capture and metering. The worklet files need to be served as separate JavaScript files that the browser loads at runtime.
 
 ### How It Works
 
-The `@waveform-playlist/recording` package includes a pre-built worklet file at:
+The `@waveform-playlist/worklets` package (auto-installed with `@waveform-playlist/recording`) includes pre-built worklet files at:
 ```
-node_modules/@waveform-playlist/recording/dist/worklet/recording-processor.worklet.js
+node_modules/@waveform-playlist/worklets/dist/worklet/recording-processor.worklet.js
+node_modules/@waveform-playlist/worklets/dist/worklet/meter-processor.worklet.js
 ```
 
-The `useRecording` hook automatically resolves this file using `import.meta.url`, which works out of the box with modern bundlers that support ES modules.
+The recording and metering hooks automatically resolve these files using `import.meta.url`, which works out of the box with modern bundlers that support ES modules.
 
 ### Bundler Configuration
 
