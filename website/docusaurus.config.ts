@@ -222,9 +222,9 @@ const config: Config = {
 
   themeConfig: {
     announcementBar: {
-      id: 'v9_release',
+      id: 'v10_release',
       content:
-        '🎉 <strong>v9 Released!</strong> — Drag-and-drop upgraded to <code>@dnd-kit/react</code>. Update your peer dependencies — see the <a href="https://github.com/naomiaro/waveform-playlist/pull/298">migration PR</a> for details.',
+        '🎉 <strong>v10 Released!</strong> — Multi-channel VU meters, AudioWorklet metering, overdub recording with latency compensation. See the <a href="https://github.com/naomiaro/waveform-playlist/releases/tag/v10.0.0">release notes</a>.',
       isCloseable: true,
     },
     // Social card image for Open Graph and Twitter
