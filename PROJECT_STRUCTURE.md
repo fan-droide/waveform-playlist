@@ -140,17 +140,44 @@ const clip = createClipFromSeconds({
 - **Structure:**
   ```
   src/
-  ├── components/        # Public components
-  │   ├── TimeInput.tsx
-  │   ├── SelectionTimeInputs.tsx
-  │   ├── Playlist.tsx
-  │   ├── Track.tsx
-  │   ├── Clip.tsx
-  │   ├── ClipHeader.tsx
-  │   ├── Playhead.tsx
-  │   ├── Selection.tsx
-  │   ├── AnnotationBox.tsx
-  │   └── TrackControls/
+  ├── components/        # Public components (37 files)
+  │   ├── Playlist.tsx           # Main container
+  │   ├── Track.tsx              # Individual track
+  │   ├── Clip.tsx               # Audio clip (draggable)
+  │   ├── ClipHeader.tsx         # Draggable title bar
+  │   ├── ClipBoundary.tsx       # Trim handles (left/right edges)
+  │   ├── Channel.tsx            # Waveform canvas rendering
+  │   ├── SmartChannel.tsx       # Auto-selects Channel/PianoRoll/Spectrogram
+  │   ├── PianoRollChannel.tsx   # MIDI piano roll canvas
+  │   ├── SpectrogramChannel.tsx # Spectrogram canvas (chunked)
+  │   ├── SpectrogramLabels.tsx  # Frequency axis labels
+  │   ├── Playhead.tsx           # Playback position indicator
+  │   ├── Selection.tsx          # Selection overlay
+  │   ├── LoopRegion.tsx         # Loop region overlay
+  │   ├── FadeOverlay.tsx        # Fade in/out visualization
+  │   ├── SegmentedVUMeter.tsx   # LED-style VU meter (multi-channel)
+  │   ├── ErrorBoundary.tsx      # PlaylistErrorBoundary (plain CSS)
+  │   ├── AudioPosition.tsx      # Current time display
+  │   ├── TimeInput.tsx          # Time value input
+  │   ├── SelectionTimeInputs.tsx # Selection start/end inputs
+  │   ├── TimeScale.tsx          # Timeline ruler
+  │   ├── SmartScale.tsx         # Beats/bars or time scale
+  │   ├── TimeFormatSelect.tsx   # Time format dropdown
+  │   ├── MasterVolumeControl.tsx # Volume slider
+  │   ├── AutomaticScrollCheckbox.tsx # Auto-scroll toggle
+  │   ├── Controls.tsx           # Track controls container
+  │   ├── TrackMenu.tsx          # Per-track dropdown menu
+  │   ├── Header.tsx             # Header component
+  │   ├── Button.tsx             # Base button
+  │   ├── ButtonGroup.tsx        # Button group layout
+  │   ├── CloseButton.tsx        # Close/dismiss button
+  │   ├── Slider.tsx             # Range slider
+  │   ├── SliderWrapper.tsx      # Slider container
+  │   ├── DotsIcon.tsx           # Menu dots icon
+  │   ├── TrashIcon.tsx          # Delete icon
+  │   ├── VolumeDownIcon.tsx     # Volume down icon
+  │   ├── VolumeUpIcon.tsx       # Volume up icon
+  │   └── TrackControls/         # Mute, solo, volume, pan
   ├── contexts/          # React contexts
   │   ├── ScrollViewport.tsx    # Virtual scrolling: viewport state, chunk visibility
   │   ├── ClipViewportOrigin.tsx # Clip pixel offset for correct chunk culling
@@ -269,8 +296,16 @@ const clip = createClipFromSeconds({
   │   ├── KeyboardShortcuts.tsx         # Declarative keyboard shortcut component
   │   ├── PlaybackControls.tsx          # Play/Pause/Stop/Rewind/FastForward buttons
   │   ├── ZoomControls.tsx              # Zoom in/out buttons
-  │   ├── ClearAllButton.tsx            # Stop + clear tracks (safe ordering)
+  │   ├── ExportControls.tsx            # WAV export controls
+  │   ├── AnnotationControls.tsx        # Annotation list + editing UI
   │   ├── ChannelWithProgress.tsx       # Waveform channel with playback progress overlay
+  │   ├── ChannelWithMediaElementProgress.tsx  # MediaElement progress overlay
+  │   ├── AnimatedPlayhead.tsx          # Smooth 60fps playhead (Tone.js)
+  │   ├── AnimatedMediaElementPlayhead.tsx # Smooth 60fps playhead (MediaElement)
+  │   ├── PlaylistAnnotationList.tsx    # Annotation list for Tone.js provider
+  │   ├── MediaElementAnnotationList.tsx # Annotation list for MediaElement provider
+  │   ├── MediaElementPlaylist.tsx      # Single-track waveform (MediaElement)
+  │   ├── MediaElementWaveform.tsx      # Public MediaElement waveform component
   │   ├── ContextualControls.tsx        # Context-aware wrappers
   │   └── index.tsx                     # Component exports
   ├── modifiers/                        # @dnd-kit drag modifiers
@@ -628,6 +663,9 @@ export interface PlaybackAnimationContextValue {
   isPlaying: boolean;
   currentTime: number;
   currentTimeRef: React.RefObject<number>;
+  playbackStartTimeRef: React.RefObject<number>;   // context.currentTime when playback started
+  audioStartPositionRef: React.RefObject<number>;   // Audio position when playback started
+  getPlaybackTime: () => number;                     // Current time from engine (auto-wraps at loops)
 }
 
 // 2. User interaction state - UI components (includes engine-mirrored state)
@@ -644,23 +682,48 @@ export interface PlaylistStateContextValue {
   selectedTrackId: string | null;
   loopStart: number;
   loopEnd: number;
+  indefinitePlayback: boolean;       // Whether playback continues past end of audio
 }
 
 // 3. Control functions - Stable, don't cause re-renders
 export interface PlaylistControlsContextValue {
+  // Playback
   play: (startTime?: number, playDuration?: number) => Promise<void>;
   pause: () => void;
   stop: () => void;
-  setContinuousPlay: (value: boolean) => void;
-  setAnnotations: (annotations: AnnotationData[]) => void;
+  seekTo: (time: number) => void;
+  setCurrentTime: (time: number) => void;
+  // Track controls
+  setTrackMute: (trackIndex: number, muted: boolean) => void;
+  setTrackSolo: (trackIndex: number, soloed: boolean) => void;
+  setTrackVolume: (trackIndex: number, volume: number) => void;
+  setTrackPan: (trackIndex: number, pan: number) => void;
+  // Selection
   setSelection: (start: number, end: number) => void;
   setSelectedTrackId: (trackId: string | null) => void;
+  // Time format
+  setTimeFormat: (format: TimeFormat) => void;
+  formatTime: (seconds: number) => string;
+  // Zoom
   zoomIn: () => void;
   zoomOut: () => void;
+  // Master volume
   setMasterVolume: (volume: number) => void;
+  // Scroll
+  setAutomaticScroll: (enabled: boolean) => void;
+  setScrollContainer: (element: HTMLDivElement | null) => void;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  // Annotations
+  setContinuousPlay: (enabled: boolean) => void;
+  setLinkEndpoints: (enabled: boolean) => void;
+  setAnnotationsEditable: (enabled: boolean) => void;
+  setAnnotations: React.Dispatch<React.SetStateAction<AnnotationData[]>>;
+  setActiveAnnotationId: (id: string | null) => void;
+  // Loop
   setLoopEnabled: (enabled: boolean) => void;
   setLoopRegion: (start: number, end: number) => void;
-  // ... other controls
+  setLoopRegionFromSelection: () => void;
+  clearLoopRegion: () => void;
 }
 
 // 4. Static/infrequent data
@@ -668,11 +731,26 @@ export interface PlaylistDataContextValue {
   duration: number;
   audioBuffers: AudioBuffer[];
   peaksDataArray: TrackClipPeaks[];
+  trackStates: TrackState[];
+  tracks: ClipTrack[];
   sampleRate: number;
+  waveHeight: number;
+  timeScaleHeight: number;
+  minimumPlaylistHeight: number;
+  controls: { show: boolean; width: number };
   playoutRef: React.RefObject<PlaylistEngine | null>;
-  isDraggingRef: React.MutableRefObject<boolean>;
+  samplesPerPixel: number;
+  timeFormat: TimeFormat;
+  masterVolume: number;
+  canZoomIn: boolean;
+  canZoomOut: boolean;
+  barWidth: number;
+  barGap: number;
+  progressBarWidth: number;
+  isReady: boolean;
   mono: boolean;
-  // ... other data
+  isDraggingRef: React.MutableRefObject<boolean>;
+  onTracksChange: ((tracks: ClipTrack[]) => void) | undefined;
 }
 ```
 
@@ -705,8 +783,6 @@ export const ContinuousPlayCheckbox = () => {
 
 **Location:** `packages/browser/src/WaveformPlaylistContext.tsx`
 
-**Documentation:** See `CLAUDE.md` → "Continuous Play Toggle Fix" for detailed implementation
-
 ### Custom Hooks Architecture
 
 Business logic is extracted into reusable custom hooks that can be used by any component:
@@ -732,6 +808,7 @@ Business logic is extracted into reusable custom hooks that can be used by any c
 - `useMasterVolume` - Master volume (engine delegation + onEngineState)
 - `useZoomControls` - Zoom samplesPerPixel/canZoomIn/Out (engine delegation + onEngineState)
 - `useTimeFormat` - Time formatting and format selection
+- `useOutputMeter` - Master bus output VU metering via AudioWorklet
 - `useWaveformDataCache` - Web worker peak generation and cache
 - `useDragSensors` - @dnd-kit sensor configuration
 
