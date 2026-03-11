@@ -20,7 +20,13 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "keywords": ["waveform", "audio", "audioworklet", "metering", "waveform-playlist"],
+  "keywords": [
+    "waveform",
+    "audio",
+    "audioworklet",
+    "metering",
+    "waveform-playlist"
+  ],
   "author": "Naomi Aro",
   "license": "MIT",
   "repository": {
@@ -32,8 +38,12 @@
   "bugs": {
     "url": "https://github.com/naomiaro/waveform-playlist/issues"
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "devDependencies": {
+    "@types/audioworklet": "^0.0.96",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
     "vitest": "^3.0.0"

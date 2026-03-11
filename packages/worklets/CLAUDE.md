@@ -2,9 +2,11 @@
 
 ## TypeScript Configuration
 
-**Decision:** Worklet source files (`src/worklet/*.worklet.ts`) and tests (`src/__tests__/*`) are excluded from `tsconfig.json`.
+**Decision:** Worklet source files (`src/worklet/*.worklet.ts`) and tests (`src/__tests__/*`) are excluded from the main `tsconfig.json`. Worklet files are type-checked separately via `tsconfig.worklet.json` using `@types/audioworklet`.
 
-**Why:** Worklet files declare AudioWorklet-scope globals (`sampleRate`, `AudioWorkletProcessor`, `registerProcessor`) that conflict with `lib: ["DOM"]`. They run in a separate JS scope — tsup bundles them as inline strings via `?url` imports.
+**Why:** Worklet files run in the AudioWorklet scope which has different globals (`sampleRate`, `AudioWorkletProcessor`, `registerProcessor`) that conflict with `lib: ["DOM"]`. The separate tsconfig uses `"lib": ["ES2020"]` and `"types": ["audioworklet"]` to provide the correct types without DOM conflicts.
+
+**Type-check worklets:** `npx tsc --project tsconfig.worklet.json --noEmit`
 
 **Tests:** Use `vi.stubGlobal()` to mock AudioWorklet globals. Typed via `MockProcessor` interface — avoid raw `any`.
 
