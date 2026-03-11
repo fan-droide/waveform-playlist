@@ -4,7 +4,7 @@
 
 Waveform-playlist is a **monorepo** organized with pnpm workspaces. It's a multitrack Web Audio editor and player with canvas-based waveform visualizations.
 
-**Stack:** React + Tone.js + styled-components (v5 released)
+**Stack:** React + Tone.js + styled-components (v10 released)
 
 ## Monorepo Structure
 
@@ -17,15 +17,17 @@ waveform-playlist/
 │   ├── loaders/           # Audio file loaders
 │   ├── media-element-playout/  # Audio playback (HTMLAudioElement, no Tone.js)
 │   ├── engine/            # Framework-agnostic timeline engine
+│   ├── midi/              # 📦 OPTIONAL: MIDI file parsing, piano roll, SoundFont playback
 │   ├── playout/           # Audio playback (Tone.js wrapper)
-│   ├── recording/         # 📦 OPTIONAL: Audio recording with AudioWorklet
+│   ├── recording/         # 📦 OPTIONAL: Audio recording hooks (no UI components)
 │   ├── spectrogram/       # 📦 OPTIONAL: FFT computation, worker rendering, color maps
-│   ├── ui-components/     # Reusable React UI components
-│   └── webaudio-peaks/    # Waveform peak generation
+│   ├── ui-components/     # Reusable React UI components (incl. SegmentedVUMeter)
+│   ├── webaudio-peaks/    # Waveform peak generation
+│   └── worklets/          # Shared AudioWorklet processors (metering, recording)
 │
 └── website/               # Docusaurus documentation site
     ├── src/
-    │   ├── components/examples/  # React example components (16 examples)
+    │   ├── components/examples/  # React example components (18 examples)
     │   │   ├── MinimalExample.tsx
     │   │   ├── StemTracksExample.tsx
     │   │   ├── StereoExample.tsx
@@ -35,6 +37,9 @@ waveform-playlist/
     │   │   ├── MultiClipExample.tsx
     │   │   ├── AnnotationsExample.tsx
     │   │   ├── RecordingExample.tsx
+    │   │   ├── RecordingControls.tsx         # Recording UI helper (not an example)
+    │   │   ├── BeatsAndBarsExample.tsx       # BPM, time signature, snap-to-grid
+    │   │   ├── MidiExample.tsx               # MIDI playback with piano roll
     │   │   ├── FlexibleApiExample.tsx
     │   │   ├── StylingExample.tsx
     │   │   ├── WaveformDataExample.tsx       # BBC peaks demo
@@ -392,97 +397,85 @@ audiowaveform -i audio.mp3 -o peaks-stereo.dat -z 256 --split-channels
 #### `@waveform-playlist/recording`
 
 - **Type:** Optional package (install separately)
-- **Purpose:** Audio recording support using AudioWorklet
-- **Tech:** React, styled-components, AudioWorklet
-- **Install:** `npm install @waveform-playlist/recording`
+- **Purpose:** Recording hooks — no UI components (v10 removed RecordButton, VUMeter, etc.)
+- **Tech:** React, AudioWorklet (via `@waveform-playlist/worklets`)
+- **Install:** `npm install @waveform-playlist/recording` (auto-installs `@waveform-playlist/worklets`)
 - **Structure:**
   ```
   src/
-  ├── components/        # React components
-  │   ├── RecordButton.tsx
-  │   ├── MicrophoneSelector.tsx
-  │   ├── RecordingIndicator.tsx
-  │   └── VUMeter.tsx
   ├── hooks/             # Custom hooks
   │   ├── useRecording.ts
   │   ├── useMicrophoneAccess.ts
-  │   └── useMicrophoneLevel.ts
+  │   ├── useMicrophoneLevel.ts
+  │   └── useIntegratedRecording.ts
   ├── types/             # TypeScript types
   │   └── index.ts
   ├── utils/             # Utilities
   │   ├── peaksGenerator.ts
   │   └── audioBufferUtils.ts
-  ├── worklet/           # AudioWorklet processor
-  │   └── recording-processor.worklet.ts
-  └── index.ts           # Public exports
+  └── index.ts           # Public exports (hooks + types only)
   ```
 
 - **Key Architecture:**
-  - **MediaStreamSource Per Hook** - Each hook creates its own source from Tone's `getContext()`
+  - **MediaStreamSource Per Hook** - Each hook creates its own source from `getGlobalContext()` (playout)
     - Avoids Firefox cross-context errors when sources/nodes are created in different modules
     - Both `useRecording` and `useMicrophoneLevel` create independent sources from same stream
-    - See CLAUDE.md "MediaStreamSource Per Hook" for details
-  - **Two-System Monitoring:**
-    - `useMicrophoneLevel` - Pre-recording monitoring using Tone.js Meter (60fps)
-    - `useRecording` - During-recording peak calculation in AudioWorklet (~16ms chunks)
-  - **Test Microphone Button** - Resumes AudioContext to enable pre-recording level checks
+  - **Worklet-Based Metering** - Both hooks use AudioWorklet processors from `@waveform-playlist/worklets`:
+    - `useMicrophoneLevel` - `meter-processor` worklet for sample-accurate peak/RMS (no transients missed)
+    - `useRecording` - `recording-processor` worklet for multi-channel audio capture with live peaks
   - **AudioWorklet Processing** - Captures audio samples in worklet thread, sends to main thread
-  - **Duration Timer with Refs** - Uses `isRecordingRef`/`isPausedRef` for synchronous checks in animation loop
-    - React state updates are asynchronous, can't be used in `requestAnimationFrame` loops
-    - Refs update immediately and can be checked reliably in the animation loop
+  - **Device Hot-Plug Detection** - `useMicrophoneAccess` listens for `devicechange` events. `useIntegratedRecording` auto-falls back to first available device if selected device unplugged.
 
 - **Key Features:**
-  - **Global AudioContext** - Uses shared global context (same as Tone.js playback)
-  - **Live waveform visualization** - Real-time Int16Array peaks (min/max pairs) during recording
-  - **AudioBuffer support** - WaveformTrack accepts both URLs and AudioBuffer objects
-  - **Microphone selection** - Enumerate and switch between input devices with auto-select first device
-  - **Recording-optimized constraints** - Default audio constraints prioritize raw quality and low latency (no echo cancellation, noise suppression, or auto gain; latency: 0)
-  - **VU meter** - Real-time RMS level display with peak hold
-  - **Test Microphone** - Pre-recording level monitoring before committing to record
+  - **Global AudioContext** - Uses shared global context via `getGlobalContext()` (same as Tone.js playback)
+  - **Live waveform visualization** - Real-time peaks during recording
+  - **Multi-channel support** - Auto-detects mono/stereo from mic, mirrors mono to fill requested channel count
+  - **Microphone selection** - Enumerate and switch between input devices with auto-select and hot-plug detection
+  - **Recording-optimized constraints** - Default audio constraints prioritize raw quality and low latency
+  - **Overdub recording** - Record over existing audio with latency compensation (`outputLatency + lookAhead`)
+  - **Latency compensation** - Clip `offsetSamples` skips combined output + lookAhead latency
 
 - **Hooks:**
-  - `useRecording` - Complete recording lifecycle with AudioWorklet
-    - Returns: `isRecording`, `isPaused`, `duration`, `peaks`, `audioBuffer`, `level`, `peakLevel`
+  - `useIntegratedRecording` - Combined recording + track management (mic access, VU meter, clip creation)
+    - Returns: `isRecording`, `isPaused`, `duration`, `levels`, `peakLevels`, `rmsLevels`, `error`
+    - Methods: `startRecording()`, `stopRecording()`, `pauseRecording()`, `resumeRecording()`, `requestMicAccess()`, `changeDevice()`
+  - `useRecording` - Low-level recording lifecycle with AudioWorklet
+    - Returns: `isRecording`, `isPaused`, `duration`, `peaks`, `audioBuffer`
     - Methods: `startRecording()`, `stopRecording()`, `pauseRecording()`, `resumeRecording()`
-  - `useMicrophoneAccess` - Device enumeration and permission handling
-    - Returns: `stream`, `devices`, `hasPermission`, `requestAccess()`, `error`
-  - `useMicrophoneLevel` - Real-time audio level monitoring with AnalyserNode
-    - Returns: `level`, `peakLevel`, `resetPeak()`
-
-- **Components:**
-  - Visual: RecordButton, RecordingIndicator (with duration timer), VUMeter
-  - Controls: MicrophoneSelector
+  - `useMicrophoneAccess` - Device enumeration, permission handling, hot-plug detection
+    - Returns: `stream`, `devices`, `hasPermission`, `requestAccess()`, `stopStream()`, `error`
+  - `useMicrophoneLevel` - Real-time per-channel level monitoring via meter-processor worklet
+    - Returns: `level`, `peakLevel`, `levels`, `peakLevels`, `rmsLevels`, `resetPeak()`, `error`
 
 - **Important Patterns:**
-  1. **Refs in Animation Loops** - Use refs for values checked in `requestAnimationFrame`:
-     ```typescript
-     const isRecordingRef = useRef(false);
-     const updateDuration = () => {
-       if (isRecordingRef.current) { // Synchronous check
-         // ... update duration
-         requestAnimationFrame(updateDuration);
-       }
-     };
-     ```
-  2. **AudioWorklet Debugging** - console.log in worklets doesn't appear in browser console
+  1. **AudioWorklet Debugging** - console.log in worklets doesn't appear in browser console
      - Use `postMessage()` to send debug data to main thread
-     - Update UI/document.title to display values
-  3. **Worklet Deployment** - Worklet files bundled automatically via tsup
-     - Build: `pnpm build` (creates `dist/worklet/recording-processor.worklet.js`)
+  2. **Worklet Deployment** - Worklet files live in `@waveform-playlist/worklets`, bundled via tsup
      - Docusaurus webpack aliases handle module resolution
-  4. **Try-Catch for Cleanup** - Wrap disconnect calls in try-catch for microphone switching:
-     ```typescript
-     try {
-       source.disconnect(destination);
-     } catch (e) {
-       // Source may already be disconnected when stream changed
-     }
-     ```
+  3. **Try-Catch for Cleanup** - Wrap disconnect calls in try-catch for microphone switching
 
-- **Peer Dependencies:** React ^18.0.0, styled-components ^6.0.0
-- **Use Cases:** Voice recording, podcast editing, audio capture, live input, microphone testing
-- **Example:** `website/src/components/examples/RecordingExample.tsx`
-- **Debugging:** See `CLAUDE.md` → "Debugging AudioWorklets" section
+- **Peer Dependencies:** React ^18.0.0
+- **Use Cases:** Voice recording, podcast editing, audio capture, overdub recording
+- **Example:** `website/src/components/examples/RecordingExample.tsx` + `RecordingControls.tsx`
+- **Debugging:** See `packages/recording/CLAUDE.md`
+
+#### `@waveform-playlist/worklets`
+
+- **Type:** Internal dependency (auto-installed with recording)
+- **Purpose:** Shared AudioWorklet processors for metering and recording
+- **Structure:**
+  ```
+  src/
+  ├── worklet/
+  │   ├── meter-processor.worklet.ts      # Sample-accurate peak/RMS metering
+  │   └── recording-processor.worklet.ts  # Multi-channel audio capture
+  └── index.ts           # Exports processor URLs and message types
+  ```
+- **Key Architecture:**
+  - Processors loaded via `rawContext.audioWorklet.addModule(url)` — never Tone.js `addAudioWorkletModule` (caches single URL)
+  - `meter-processor` measures every sample — no transients missed between animation frames
+  - `recording-processor` handles buffer boundary crossing at non-48kHz sample rates
+- **Build:** `tsup` (ESM + CJS + worklet IIFE)
 
 #### `@waveform-playlist/spectrogram`
 
