@@ -13,7 +13,7 @@ Multi-track audio editor roadmap for waveform-playlist.
 ### Playback UX
 
 - [ ] **Eager AudioContext resume** — Resume AudioContext on first user interaction (click/keydown) within playlist, before play is pressed. Eliminates ~200-500ms delay on first space bar press. Use `resumeGlobalAudioContext()` (raw context resume), NOT `Tone.start()` which adds ~2s latency on Safari if called redundantly.
-- [ ] **Undo/redo** — Command pattern for reversible operations (clip move, trim, split, delete, volume/pan changes). Expose via `useUndoRedo()` hook with `undo()`, `redo()`, and `canUndo`/`canRedo` state.
+- [ ] **Undo/redo** — Command pattern for reversible operations (clip move, trim, split, delete, volume/pan changes). Expose via `useUndoRedo()` hook with `undo()`, `redo()`, and `canUndo`/`canRedo` state. Consider [`undo-manager`](https://www.npmjs.com/package/undo-manager) as a lightweight foundation.
 - [ ] **Keyboard shortcuts help overlay** — Modal or panel showing all available keyboard shortcuts, triggered by `?` key.
 - [ ] **Accessibility** — ARIA roles and labels for tracks, clips, and transport controls. Focus management for keyboard navigation between tracks and clips.
 - [ ] **Context menus** — Right-click menus on tracks (mute, solo, remove, duplicate) and clips (split, trim, delete, copy).
