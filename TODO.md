@@ -18,37 +18,49 @@ Multi-track audio editor roadmap for waveform-playlist.
 
 ### VU Meter Improvements
 
-- [ ] **IEC-60268 piecewise linear scale** — Current `SegmentedVUMeter` maps dB to segments linearly, so -50 dB to -25 dB gets the same pixel space as -6 dB to 0 dB. IEC-60268 uses a piecewise linear scale that allocates disproportionately more space to quiet signals:
+- [ ] **IEC-60268 piecewise linear scale** — The current `SegmentedVUMeter` maps dB to segments linearly, giving the same pixel space to -50 dB through -25 dB as to -6 dB through 0 dB. In practice, the quiet end of the meter is where you need the most detail (setting recording levels, checking noise floor). IEC-60268 defines a piecewise linear scale that gives more room to quiet signals:
   - 50% of the meter width for the quietest 1/3 of the dB range
   - 20% for the next 1/6
   - 15% for the next 1/6
   - 15% for the remainder
-  - This makes low-level signals ~3x more readable without changing the dB range.
+  - This makes low-level signals ~3x more readable without changing the dB range. Useful when setting mic gain or monitoring quiet ambient recordings.
   - Add as a `scale` prop: `'linear'` (current default) | `'iec-60268'`. The scale function converts a dB value to a 0–1 position on the meter.
 
-- [ ] **Recent peak indicator** — A second peak marker that shows the highest level in a configurable rolling window (default ~600ms), distinct from the existing max-ever held peak. Useful for seeing "how loud was it just now" vs "how loud was it ever."
+- [ ] **Recent peak indicator** — A second peak marker showing the highest level in a configurable rolling window, distinct from the existing max-ever held peak. The held peak tells you "the loudest it's ever been since reset" — useful for clipping checks. The recent peak tells you "the loudest it was in the last half second" — useful for monitoring dynamics while recording or mixing.
   - Add `recentPeakWindow` prop (milliseconds, default 600). Set to `0` to disable.
-  - Store timestamped level readings in a circular buffer. On each render, discard entries older than the window and take the max of what remains.
+  - Store level readings in a circular buffer. On each render, discard entries older than the window and take the max of what remains.
   - Render as a thin marker line in a distinct color from the held peak marker.
+  - Example: during a vocal recording, the held peak stays at -2 dB from a loud phrase 30 seconds ago, while the recent peak bounces around -12 dB showing current performance dynamics.
 
-- [ ] **Clickable clipping indicator** — A dedicated element (e.g. small square or dot) at the top/right end of the meter that turns red when any channel hits 0 dB. Clicking it resets the clipping state. Currently clipping is only visible through segment color — there's no persistent, reset-able indicator.
+- [ ] **Clickable clipping indicator** — A dedicated element (e.g. small square or dot) at the top/right end of the meter that turns red when any channel hits 0 dB. Clicking it resets the clipping state. Currently clipping is only visible through segment color — there's no persistent, reset-able indicator. Standard in pro audio hardware and software — lets you see at a glance whether clipping occurred at any point during a take, then reset before the next take.
   - Add `showClipIndicator` prop (boolean, default `false`).
   - Add `onClipReset` callback prop.
   - Clipping triggers when level >= `dBRange[1]` (the max end of the scale).
 
-- [ ] **Formal decay ballistics** — Replace ad-hoc smoothing with configurable attack/release behavior:
-  - `decayRate` prop (dB per second, default 36). Controls how fast the bar falls after the signal drops.
-  - `holdTime` prop (milliseconds, default 0). The bar holds at peak level for this duration before starting to decay ("hangover"). Prevents the meter from falling during brief pauses between transients.
-  - Attack is instantaneous (bar jumps to new peak immediately).
-  - Decay is computed per frame: `level = max(newLevel, previousLevel - decayRate * deltaTime)`.
-
-- [ ] **Preset dB range options** — Offer named presets alongside the existing `dBRange` prop for common use cases:
-  - `'broadcast'` → [-60, 0], `'recording'` → [-50, 5], `'mastering'` → [-96, 0], `'speech'` → [-36, 0]
-  - Accept either `dBRange={[-60, 0]}` (tuple) or `dBRange="broadcast"` (preset name).
-
-- [ ] **RMS+Peak dual display mode** — Show both RMS and peak simultaneously on the same meter bar. RMS renders as the main solid bar, peak renders as a semi-transparent overlay extending beyond the RMS level.
+- [ ] **RMS+Peak dual display mode** — Show both RMS and peak simultaneously on the same meter bar. Peak shows instantaneous loudest samples (important for clipping). RMS shows average signal power over time (closer to perceived loudness). Seeing both together helps with mixing decisions — a large gap between peak and RMS means dynamic audio, a small gap means heavily compressed.
   - Add `displayMode` prop: `'peak'` (current default) | `'rms'` | `'peak+rms'`.
   - In `'peak+rms'` mode, the component expects both `levels` (peak) and `rmsLevels` props. RMS bar uses the primary color, peak overlay uses the same color at ~30% opacity.
+  - Example: a snare drum shows RMS at -18 dB with peak spikes to -6 dB. A pad synth shows RMS at -12 dB with peaks at -10 dB.
+
+- [ ] **Worklet ballistic filters with configurable decay** — Move metering ballistics into the `meter-processor` AudioWorklet where every sample is already available. This guarantees sample-accurate behavior regardless of UI frame rate — the worklet processes at the audio rate (e.g. 48kHz) while the UI renders at 60fps.
+  - Add a `ballistics` option to `useMicrophoneLevel` and `useOutputMeter`: `'peak'` (default) | `'vu'` | `'ppm'`. Sets the worklet's filter mode via `postMessage`.
+  - **Peak mode** (current): Raw peak + RMS per buffer, no filtering. Attack is instantaneous. Best for recording level checks and clipping detection.
+  - **VU mode**: Two-stage cascade filter with attack coefficient `w = 11.1 / sampleRate` and gain `g ≈ 2.357`. Produces the smooth, weighted rise/fall of an analog needle. Better for gauging perceived loudness during mixing — the meter's inertia naturally averages out transients.
+  - **PPM mode**: Asymmetric attack/release — fast attack (~5ms integration), slow release (~1.7s to -24dB). Three filter coefficients: `w1`, `w2` (attack), `w3` (release). Catches transients more aggressively than VU while still smoothing the display. Used in broadcast for ensuring peaks don't exceed transmission limits.
+  - The worklet also handles **decay and hold**: configurable via `decayRate` (dB/s, default 36) and `holdTime` (ms, default 0). Hold keeps the level at peak for the specified duration before decay begins. Decay formula per frame: `level = max(newLevel, previousLevel - decayRate * deltaTime)`.
+  - The worklet posts the filtered level values; the UI renders them directly without additional smoothing.
+
+- [ ] **LED stripe overlay** — Optional visual effect that draws thin horizontal lines across the meter at regular intervals, simulating the look of physical LED segment meters found on mixing consoles and outboard gear.
+  - Add `ledStripe` prop (boolean, default `false`).
+  - Render as semi-transparent dark lines (e.g. 1px at 40% opacity) at 2–3px intervals over the filled bar area.
+  - Purely cosmetic — does not affect segment count or dB mapping. Works with any `displayMode` or `scale`.
+
+- [ ] **K-system color zones and dB range presets** — Target-relative color coding for loudness-aware metering, plus named presets for the existing `dBRange` prop.
+  - **K-system colors**: Three zones relative to a configurable target level. Green: below target (normal operating range). Yellow: target to target+2 dB (approaching loud). Red: above target+2 dB (too loud). Unlike the standard green→yellow→red gradient which is fixed to absolute dB values, K-system zones shift with the target — a K-20 meter (cinema/classical) has more green headroom than a K-12 meter (broadcast).
+  - Add `colorMode` prop: `'standard'` (current gradient) | `'k-system'`.
+  - Add `kTarget` prop (dB, default -20 for K-20). Common values: -20 (cinema/classical), -14 (pop/rock), -12 (broadcast).
+  - K-system meters typically pair with RMS levels, so `colorMode='k-system'` should default `displayMode` to `'peak+rms'` if not explicitly set.
+  - **dB range presets**: Accept either `dBRange={[-60, 0]}` (tuple, current) or a named preset string. Presets: `'broadcast'` → [-60, 0], `'recording'` → [-50, 5], `'mastering'` → [-96, 0], `'speech'` → [-36, 0].
 
 ### Nice to Have
 
