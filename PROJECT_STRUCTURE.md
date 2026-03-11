@@ -64,10 +64,14 @@ waveform-playlist/
 
 #### `@waveform-playlist/core`
 
-- **Purpose:** Core TypeScript interfaces and types
-- **Exports:** AudioClip, ClipTrack, Timeline interfaces, factory functions
-- **Dependencies:** None (pure types)
+- **Purpose:** Core TypeScript interfaces, types, and utilities
+- **Exports:** AudioClip, ClipTrack, Timeline interfaces, factory functions, clip time helpers, dB/beats utilities
+- **Dependencies:** None (pure types and math)
 - **Used by:** All other packages
+- **Utilities:**
+  - `clipTimeHelpers.ts` — `clipStartTime`, `clipEndTime`, `clipOffsetTime`, `clipDurationTime`, `clipPixelWidth` (sample-to-seconds/pixel conversions)
+  - `dBUtils.ts` — `dBToNormalized`, `normalizedToDb`, `gainToNormalized` (dB ↔ 0-1 conversions for VU meters)
+  - `beatsAndBars.ts` — `PPQN` (192), `ticksPerBeat`, `ticksPerBar`, `ticksToSamples`, `samplesToTicks`, `snapToGrid`, `ticksToBarBeatLabel`
 
 **Important Architectural Decision: Sample-Based Representation**
 
@@ -121,7 +125,7 @@ const clip = createClipFromSeconds({
   - `PlaylistEngine.ts` — Composes operations with state + events
 - **Build:** tsup (not vite) — `pnpm typecheck && tsup`. Outputs ESM + CJS + DTS.
 - **Testing:** vitest unit tests in `src/__tests__/`. Run with `npx vitest run` from `packages/engine/`.
-- **Key Types:** `PlayoutAdapter` (pluggable audio backend), `EngineState` (state snapshot), `EngineEvents` (statechange, timeupdate, play/pause/stop)
+- **Key Types:** `PlayoutAdapter` (pluggable audio backend, optional `addTrack()` for incremental additions), `EngineState` (state snapshot incl. `tracksVersion`), `EngineEvents` (statechange, timeupdate, play/pause/stop)
 - **State Ownership:** Engine owns selection, loop, selectedTrackId, zoom, masterVolume, and tracks (for clip mutations). React subscribes to `statechange` events.
 - **Clip Mutations:** `moveClip()`, `trimClip()`, `splitClip()` update internal tracks, sync adapter via `adapter.setTracks()`, and emit `statechange`. The browser package's provider mirrors updated tracks back to the parent via `onTracksChange`.
 - **Dependencies:** Only peer dependency is `@waveform-playlist/core`
@@ -150,6 +154,7 @@ const clip = createClipFromSeconds({
   ├── contexts/          # React contexts
   │   ├── ScrollViewport.tsx    # Virtual scrolling: viewport state, chunk visibility
   │   ├── ClipViewportOrigin.tsx # Clip pixel offset for correct chunk culling
+  │   ├── BeatsAndBars.tsx      # BPM, time signature, snap config, scale mode
   │   └── ...                   # Theme, playlist info, playout contexts
   ├── utils/             # Utilities (time formatting, conversions)
   ├── styled/            # Shared styled components
@@ -197,12 +202,15 @@ const clip = createClipFromSeconds({
   - `ClipHeader` - Draggable title bar for clips (uses theme)
   - `ClipBoundary` - Trim handles (left/right edges)
   - `Channel` / `SmartChannel` - Waveform rendering with device pixel ratio
+  - `PianoRollChannel` - MIDI piano roll canvas rendering (chunked)
   - `SpectrogramChannel` - Spectrogram canvas rendering (chunked)
   - `SpectrogramLabels` - Frequency axis labels
   - `FadeOverlay` - Fade in/out visualization
   - `LoopRegion` - Loop region overlay
+  - `SegmentedVUMeter` - LED-style VU meter (horizontal/vertical, multi-channel, configurable dB range/color stops/peak hold)
+  - `PlaylistErrorBoundary` - Error boundary with plain CSS (no ThemeProvider dependency)
   - `TimeInput` / `SelectionTimeInputs` - Time value inputs
-  - `TimeScale` / `SmartScale` - Timeline ruler
+  - `TimeScale` / `SmartScale` - Timeline ruler (`getScaleInfo()` exported for grid calculations)
   - `TimeFormatSelect` - Time format dropdown
   - `Playhead` - Playback position indicator
   - `Selection` - Selection overlay
@@ -211,6 +219,7 @@ const clip = createClipFromSeconds({
   - `AutomaticScrollCheckbox` - Auto-scroll toggle
   - `TrackMenu` - Per-track dropdown menu
   - `TrackControls/` - Mute, solo, volume, pan controls
+  - `BeatsAndBarsProvider` - Context for BPM, time signature, snap-to-grid config. Drives `SmartScale` beats/bars mode and `SnapToGridModifier`. `useBeatsAndBars()` hook for consumers.
 - **Virtual Scrolling:**
   - `ScrollViewportProvider` wraps the scrollable container, tracks scroll position via `useSyncExternalStore` with RAF-throttled listener + ResizeObserver
   - `useScrollViewport()` returns full viewport state; `useScrollViewportSelector()` for fine-grained subscriptions
@@ -245,6 +254,7 @@ const clip = createClipFromSeconds({
   │   ├── useKeyboardShortcuts.ts       # Flexible keyboard shortcut system
   │   ├── useLoopState.ts               # Loop state (engine delegation + onEngineState)
   │   ├── useMasterVolume.ts            # Master volume (engine delegation + onEngineState)
+  │   ├── useOutputMeter.ts             # Master bus output VU metering via worklet
   │   ├── usePlaybackShortcuts.ts       # Default playback shortcuts
   │   ├── useSelectedTrack.ts           # Selected track ID (engine delegation + onEngineState)
   │   ├── useSelectionState.ts          # Selection state (engine delegation + onEngineState)
@@ -255,10 +265,19 @@ const clip = createClipFromSeconds({
   ├── components/                       # React components
   │   ├── PlaylistVisualization.tsx      # Main waveform + track rendering
   │   ├── Waveform.tsx                  # Public waveform component
-  │   ├── PlaybackControls.tsx          # Play/Pause/Stop buttons
+  │   ├── ClipInteractionProvider.tsx   # Declarative clip drag/trim/snap/collision
+  │   ├── KeyboardShortcuts.tsx         # Declarative keyboard shortcut component
+  │   ├── PlaybackControls.tsx          # Play/Pause/Stop/Rewind/FastForward buttons
   │   ├── ZoomControls.tsx              # Zoom in/out buttons
+  │   ├── ClearAllButton.tsx            # Stop + clear tracks (safe ordering)
+  │   ├── ChannelWithProgress.tsx       # Waveform channel with playback progress overlay
   │   ├── ContextualControls.tsx        # Context-aware wrappers
   │   └── index.tsx                     # Component exports
+  ├── modifiers/                        # @dnd-kit drag modifiers
+  │   ├── ClipCollisionModifier.ts      # Prevents overlapping clips during drag
+  │   └── SnapToGridModifier.ts         # Snap-to-grid (beats or timescale mode)
+  ├── plugins/                          # @dnd-kit plugins
+  │   └── noDropAnimationPlugins.ts     # Disables Feedback plugin drop animation
   ├── effects/                          # Audio effects system
   │   ├── effectDefinitions.ts          # 20 Tone.js effect definitions
   │   ├── effectFactory.ts              # Effect instance creation
@@ -279,9 +298,9 @@ const clip = createClipFromSeconds({
   - Single AudioContext shared across the entire application
   - Created on first use, never closed during app lifetime
   - Used by Tone.js (configured via `Tone.setContext()`)
-  - Used by recording (`useRecording` hook)
-  - Used by monitoring (`useMicrophoneLevel` hook)
-  - Exports: `getGlobalAudioContext()`, `resumeGlobalAudioContext()`, `getGlobalAudioContextState()`, `closeGlobalAudioContext()`
+  - Used by recording and metering hooks
+  - Exports: `getGlobalContext()` (Tone.js Context), `getGlobalAudioContext()` (native AudioContext), `resumeGlobalAudioContext()`, `getGlobalAudioContextState()`, `closeGlobalAudioContext()`
+  - **Rule:** Always use `getGlobalContext()` — never `new AudioContext()` or Tone.js `getContext()`
 - **Features:**
   - Play/pause/stop control
   - Seeking
