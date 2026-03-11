@@ -2,19 +2,27 @@
 
 Multi-track audio editor roadmap for waveform-playlist.
 
-**Branch:** `main` | **Last Updated:** 2026-03-07
+**Branch:** `main` | **Last Updated:** 2026-03-10
 
 ---
 
-## 🎯 TODO
-
 ### Testing & CI
 
-- [ ] **CI/CD pipeline** - Automated builds, tests, publishing
+- [ ] **CI/CD pipeline** — Automated builds, tests, publishing
 
 ### Playback UX
 
 - [ ] **Eager AudioContext resume** — Resume AudioContext on first user interaction (click/keydown) within playlist, before play is pressed. Eliminates ~200-500ms delay on first space bar press. Use `resumeGlobalAudioContext()` (raw context resume), NOT `Tone.start()` which adds ~2s latency on Safari if called redundantly.
+- [ ] **Undo/redo** — Command pattern for reversible operations (clip move, trim, split, delete, volume/pan changes). Expose via `useUndoRedo()` hook with `undo()`, `redo()`, and `canUndo`/`canRedo` state.
+- [ ] **Keyboard shortcuts help overlay** — Modal or panel showing all available keyboard shortcuts, triggered by `?` key.
+- [ ] **Accessibility** — ARIA roles and labels for tracks, clips, and transport controls. Focus management for keyboard navigation between tracks and clips.
+- [ ] **Context menus** — Right-click menus on tracks (mute, solo, remove, duplicate) and clips (split, trim, delete, copy).
+
+### Editing
+
+- [ ] **Clipboard operations** — Cut (Cmd+X), copy (Cmd+C), and paste (Cmd+V) for clips. Paste inserts at the current cursor position on the selected track.
+- [ ] **Multi-select** — Select multiple clips with Cmd+Click (toggle individual) and Shift+Click (range). Visual indicator for selected clips.
+- [ ] **Bulk operations** — Drag, delete, and apply effects to multiple selected clips at once. Selection toolbar with common actions.
 
 ### VU Meter Improvements
 
@@ -62,45 +70,23 @@ Multi-track audio editor roadmap for waveform-playlist.
   - K-system meters typically pair with RMS levels, so `colorMode='k-system'` should default `displayMode` to `'peak+rms'` if not explicitly set.
   - **dB range presets**: Accept either `dBRange={[-60, 0]}` (tuple, current) or a named preset string. Presets: `'broadcast'` → [-60, 0], `'recording'` → [-50, 5], `'mastering'` → [-96, 0], `'speech'` → [-36, 0].
 
-### Nice to Have
+### Performance
 
-- [ ] Contributing guidelines
-- [ ] Bundle size monitoring
-- [ ] Performance benchmarks
-- [ ] Memory leak testing
+- [ ] **Vertical virtual scrolling** — Only render tracks visible in the viewport when the project has 20+ tracks. Recycle DOM nodes as the user scrolls.
+- [ ] **RAF batching** — Batch `requestAnimationFrame` updates to reduce layout thrashing during playback and scrubbing.
+- [ ] **Re-render spectrograms on tab visibility** — OffscreenCanvas buffers can be cleared by the browser when a tab is backgrounded. Detect visibility change and re-render.
+- [ ] **Bundle size monitoring** — Track bundle size in CI to catch regressions.
+- [ ] **Performance benchmarks** — Automated benchmarks for waveform rendering, peak generation, and playback startup.
+- [ ] **Memory leak testing** — Automated checks for leaked AudioNodes, detached canvases, and orphaned event listeners.
 
----
+### Timeline
 
-## 🔮 Future Phases
+- [ ] **Tempo automation / tempo maps** — Support multiple BPMs across the timeline for projects with tempo changes.
+- [ ] **Time signature changes** — Allow time signature to change mid-timeline (e.g., 4/4 → 3/4 → 6/8).
+- [ ] **Sub-beat snap granularities** — Snap to 1/8, 1/16, triplets, and other subdivisions when editing clips.
+- [ ] **Metronome / click track** — Built-in click track that follows tempo and time signature settings.
 
-### Phase 3.4-3.5: Copy/Paste & Multi-Select
-
-- Clipboard operations (Cmd+C/X/V)
-- Multi-select with Cmd+Click, Shift+Click
-- Bulk drag/delete
-- Selection toolbar
-
-### Phase 4: Performance & Virtual Scrolling
-
-- [ ] Vertical virtual scrolling (20+ tracks)
-- [ ] RAF batching
-
-### Phase 5: Polish & Usability
-
-- Undo/redo (command pattern)
-- Keyboard shortcuts help overlay
-- Re-render spectrograms on tab visibility change (OffscreenCanvas buffers can be cleared by browser when tab is backgrounded)
-- Accessibility (ARIA, focus management)
-- Context menus
-
-### Beats & Bars — Future Extensions
-
-- Tempo automation / tempo maps (multiple BPMs)
-- Time signature changes mid-timeline
-- Sub-beat snap granularities (1/8, 1/16, triplets)
-- Metronome / click track
-
-### Web Audio Modules (WAM) Plugin Support
+### WAM Plugin Support
 
 WAM 2.0 is an open plugin standard for the Web Audio API — the browser equivalent of VST/AU. Plugins are loaded at runtime, expose AudioNodes for graph insertion, and provide their own UIs. Supporting WAM opens the door to a growing ecosystem of third-party effects, instruments, and DSP tools without bundling them.
 
@@ -155,12 +141,13 @@ WAM 2.0 is an open plugin standard for the Web Audio API — the browser equival
   - Auto-extract parameters from Faust's `hslider`/`vslider`/`checkbox` declarations — the compiled plugin's GUI renders controls automatically.
   - Example: a user writes `process = fi.lowpass(2, hslider("cutoff", 1000, 20, 20000, 1));` in the editor, compiles it, and applies a custom 2nd-order lowpass filter to a track with a cutoff knob.
 
-### Future Considerations
+### Project
 
-- Clip grouping
-- Automation lanes
-- Markers and regions
-- MIDI/video sync
-- Sticky clip header text (Intersection Observer to keep track name visible when scrolling)
-- Revamp GitHub Sponsors tiers (via GitHub UI)
+- [ ] **Clip grouping** — Group multiple clips so they move, delete, and copy as a unit.
+- [ ] **Automation lanes** — Per-track automation curves for volume, pan, and effect parameters over time.
+- [ ] **Markers and regions** — Named time markers and regions for navigation and export.
+- [ ] **MIDI/video sync** — Synchronize playback with external MIDI timecode or video players.
+- [ ] **Sticky clip header text** — Keep track/clip name visible when scrolling horizontally using Intersection Observer.
+- [ ] **Contributing guidelines** — Document contribution workflow, code standards, and PR process.
+- [ ] **Revamp GitHub Sponsors tiers** — Update sponsorship tiers and perks via GitHub UI.
 
