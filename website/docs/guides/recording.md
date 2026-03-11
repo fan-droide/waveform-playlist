@@ -25,17 +25,16 @@ import {
   useAudioTracks,
 } from '@waveform-playlist/browser';
 import {
-  RecordingProvider,
   useRecording,
   useMicrophoneAccess,
 } from '@waveform-playlist/recording';
 
 function RecordButton() {
-  const { requestAccess, hasAccess, stream } = useMicrophoneAccess();
+  const { requestAccess, hasPermission, stream } = useMicrophoneAccess();
   const { isRecording, startRecording, stopRecording } = useRecording(stream);
 
   const handleRecord = async () => {
-    if (!hasAccess) {
+    if (!hasPermission) {
       await requestAccess();
     }
 
@@ -58,10 +57,8 @@ function RecordingExample() {
 
   return (
     <WaveformPlaylistProvider tracks={tracks} timescale>
-      <RecordingProvider>
-        <RecordButton />
-        <Waveform />
-      </RecordingProvider>
+      <RecordButton />
+      <Waveform />
     </WaveformPlaylistProvider>
   );
 }
@@ -78,28 +75,28 @@ import { useMicrophoneAccess } from '@waveform-playlist/recording';
 
 function MicrophoneSetup() {
   const {
-    hasAccess,
-    isRequesting,
+    hasPermission,
+    isLoading,
     error,
     requestAccess,
-    revokeAccess,
+    stopStream,
   } = useMicrophoneAccess();
 
-  if (isRequesting) {
+  if (isLoading) {
     return <div>Requesting microphone access...</div>;
   }
 
   if (error) {
-    return <div>Microphone error: {error}</div>;
+    return <div>Microphone error: {error.message}</div>;
   }
 
   return (
     <div>
-      <p>Microphone access: {hasAccess ? 'Granted' : 'Not granted'}</p>
-      {!hasAccess ? (
-        <button onClick={requestAccess}>Grant Microphone Access</button>
+      <p>Microphone access: {hasPermission ? 'Granted' : 'Not granted'}</p>
+      {!hasPermission ? (
+        <button onClick={() => requestAccess()}>Grant Microphone Access</button>
       ) : (
-        <button onClick={revokeAccess}>Revoke Access</button>
+        <button onClick={stopStream}>Revoke Access</button>
       )}
     </div>
   );
@@ -111,13 +108,14 @@ function MicrophoneSetup() {
 Customize microphone settings:
 
 ```tsx
-const { requestAccess } = useMicrophoneAccess({
-  audioConstraints: {
-    echoCancellation: false,     // Preserve raw audio
-    noiseSuppression: false,     // No processing
-    autoGainControl: false,      // Manual gain control
-    sampleRate: 48000,           // Higher sample rate
-  },
+const { requestAccess } = useMicrophoneAccess();
+
+// Pass audio constraints when requesting access:
+await requestAccess(undefined, {
+  echoCancellation: false,     // Preserve raw audio
+  noiseSuppression: false,     // No processing
+  autoGainControl: false,      // Manual gain control
+  sampleRate: 48000,           // Higher sample rate
 });
 ```
 

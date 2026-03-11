@@ -41,6 +41,7 @@ The library is organized into focused packages:
 | `@waveform-playlist/midi` | MIDI file parsing, piano roll visualization, and SoundFont playback |
 | `@waveform-playlist/annotations` | Time-synced text annotations with drag editing |
 | `@waveform-playlist/recording` | AudioWorklet recording with live waveform preview |
+| `@waveform-playlist/worklets` | AudioWorklet processors for recording and VU metering (auto-installed with recording) |
 | `@waveform-playlist/spectrogram` | Spectrogram visualization with FFT worker |
 | `@waveform-playlist/media-element-playout` | HTMLMediaElement-based playout with pitch-preserving playback rate |
 

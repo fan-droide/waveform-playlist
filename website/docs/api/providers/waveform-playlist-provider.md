@@ -225,6 +225,8 @@ interface PlaybackAnimationContextValue {
   currentTimeRef: RefObject<number>;
   playbackStartTimeRef: RefObject<number>;
   audioStartPositionRef: RefObject<number>;
+  /** Returns current playback time from engine (auto-wraps at loop boundaries). */
+  getPlaybackTime: () => number;
 }
 ```
 
@@ -244,6 +246,8 @@ interface PlaylistStateContextValue {
   selectedTrackId: string | null;
   loopStart: number;
   loopEnd: number;
+  /** Whether playback continues past the end of loaded audio */
+  indefinitePlayback: boolean;
 }
 ```
 
@@ -268,7 +272,13 @@ interface PlaylistControlsContextValue {
   zoomOut: () => void;
   setMasterVolume: (volume: number) => void;
   setAutomaticScroll: (enabled: boolean) => void;
+  setScrollContainer: (element: HTMLDivElement | null) => void;
+  scrollContainerRef: RefObject<HTMLDivElement | null>;
   setContinuousPlay: (enabled: boolean) => void;
+  setLinkEndpoints: (enabled: boolean) => void;
+  setAnnotationsEditable: (enabled: boolean) => void;
+  setAnnotations: Dispatch<SetStateAction<AnnotationData[]>>;
+  setActiveAnnotationId: (id: string | null) => void;
   setLoopEnabled: (enabled: boolean) => void;
   setLoopRegion: (start: number, end: number) => void;
   setLoopRegionFromSelection: () => void;
@@ -287,15 +297,22 @@ interface PlaylistDataContextValue {
   tracks: ClipTrack[];
   sampleRate: number;
   waveHeight: number;
+  timeScaleHeight: number;
+  minimumPlaylistHeight: number;
+  controls: { show: boolean; width: number };
   samplesPerPixel: number;
   timeFormat: TimeFormat;
   masterVolume: number;
   canZoomIn: boolean;
   canZoomOut: boolean;
+  barWidth: number;
+  barGap: number;
+  progressBarWidth: number;
   isReady: boolean;
   mono: boolean;
   playoutRef: RefObject<PlaylistEngine | null>;  // from @waveform-playlist/engine
   isDraggingRef: MutableRefObject<boolean>;       // true during boundary trim drags
+  onTracksChange: ((tracks: ClipTrack[]) => void) | undefined;
 }
 ```
 
@@ -372,6 +389,14 @@ interface WaveformPlaylistProviderProps {
   barWidth?: number;
   barGap?: number;
   progressBarWidth?: number;
+
+  // Advanced
+  /** SoundFont cache for sample-based MIDI playback */
+  soundFontCache?: SoundFontCache;
+  /** Defer engine build during progressive loading */
+  deferEngineRebuild?: boolean;
+  /** Disable automatic stop when cursor reaches end of longest track */
+  indefinitePlayback?: boolean;
 }
 ```
 

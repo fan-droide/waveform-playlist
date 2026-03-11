@@ -63,11 +63,11 @@ import {
 import { SegmentedVUMeter } from '@waveform-playlist/ui-components';
 
 function InputMeter() {
-  const { stream, hasAccess, requestAccess } = useMicrophoneAccess();
+  const { stream, hasPermission, requestAccess } = useMicrophoneAccess();
   const { levels, peakLevels } = useMicrophoneLevel(stream, { channelCount: 2 });
 
-  if (!hasAccess) {
-    return <button onClick={requestAccess}>Enable Microphone</button>;
+  if (!hasPermission) {
+    return <button onClick={() => requestAccess()}>Enable Microphone</button>;
   }
 
   return <SegmentedVUMeter levels={levels} peakLevels={peakLevels} />;

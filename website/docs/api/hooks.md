@@ -79,15 +79,22 @@ function usePlaylistData(): {
   audioBuffers: AudioBuffer[];
   tracks: ClipTrack[];
   trackStates: TrackState[];
+  peaksDataArray: TrackClipPeaks[];
 
   // Display settings
   samplesPerPixel: number;
   waveHeight: number;
+  timeScaleHeight: number;
+  minimumPlaylistHeight: number;
   mono: boolean;
   masterVolume: number;
   canZoomIn: boolean;
   canZoomOut: boolean;
   controls: { show: boolean; width: number };
+  timeFormat: TimeFormat;
+  barWidth: number;
+  barGap: number;
+  progressBarWidth: number;
 
   // Refs for direct access
   playoutRef: RefObject<PlaylistEngine | null>;  // from @waveform-playlist/engine
@@ -95,6 +102,9 @@ function usePlaylistData(): {
 
   // Loading state
   isReady: boolean;  // True when all tracks are loaded
+
+  // Callback
+  onTracksChange: ((tracks: ClipTrack[]) => void) | undefined;
 };
 ```
 
@@ -111,6 +121,9 @@ function usePlaybackAnimation(): {
   currentTimeRef: RefObject<number>;
   playbackStartTimeRef: RefObject<number>;
   audioStartPositionRef: RefObject<number>;
+
+  /** Returns current playback time from engine (auto-wraps at loop boundaries). */
+  getPlaybackTime: () => number;
 };
 ```
 
@@ -310,6 +323,8 @@ interface PlaylistStateContextValue {
   selectedTrackId: string | null;
   loopStart: number;
   loopEnd: number;
+  /** Whether playback continues past the end of loaded audio */
+  indefinitePlayback: boolean;
 }
 ```
 
@@ -627,22 +642,30 @@ interface IntegratedRecordingOptions {
 interface UseIntegratedRecordingReturn {
   // Recording state
   isRecording: boolean;
+  isPaused: boolean;
   duration: number;
 
-  // Microphone levels
-  level: number;      // Current peak level (0-1)
-  peakLevel: number;  // Held peak level with decay (0-1)
+  // Microphone levels (scalar — max across channels)
+  level: number;        // Current peak level (0-1)
+  peakLevel: number;    // Held peak level with decay (0-1)
+
+  // Per-channel levels (for multi-channel VU meters)
+  levels: number[];     // Per-channel peak levels (0-1)
+  peakLevels: number[]; // Per-channel held peak levels (0-1)
 
   // Device management
-  devices: MediaDeviceInfo[];
+  stream: MediaStream | null;
+  devices: MicrophoneDevice[];
   hasPermission: boolean;
   selectedDevice: string | null;
 
   // Controls
-  startRecording: () => Promise<void>;
+  startRecording: () => void;
   stopRecording: () => void;
+  pauseRecording: () => void;
+  resumeRecording: () => void;
   requestMicAccess: () => Promise<void>;
-  changeDevice: (deviceId: string) => void;
+  changeDevice: (deviceId: string) => Promise<void>;
 
   // Live waveform data
   recordingPeaks: (Int8Array | Int16Array)[];  // Per-channel live peaks

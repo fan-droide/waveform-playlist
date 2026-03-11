@@ -43,6 +43,10 @@ interface WaveformPlaylistProviderProps {
   progressBarWidth?: number;              // Default: barWidth + barGap
   /** Defer engine build during progressive loading — tracks render but engine isn't built */
   deferEngineRebuild?: boolean;           // Default: false
+  /** SoundFont cache for sample-based MIDI playback */
+  soundFontCache?: SoundFontCache;
+  /** Disable automatic stop when cursor reaches end of longest track */
+  indefinitePlayback?: boolean;           // Default: false
 }
 ```
 
@@ -154,6 +158,8 @@ interface PlaybackAnimationContextValue {
   currentTimeRef: RefObject<number>;
   playbackStartTimeRef: RefObject<number>;
   audioStartPositionRef: RefObject<number>;
+  /** Returns current playback time from engine (auto-wraps at loop boundaries). */
+  getPlaybackTime: () => number;
 }
 ```
 
@@ -173,6 +179,8 @@ interface PlaylistStateContextValue {
   selectedTrackId: string | null;
   loopStart: number;
   loopEnd: number;
+  /** Whether playback continues past the end of loaded audio */
+  indefinitePlayback: boolean;
 }
 ```
 
@@ -255,6 +263,7 @@ interface PlaylistDataContextValue {
   mono: boolean;
   /** Ref toggled during boundary trim drags — when true, loadAudio skips engine rebuild */
   isDraggingRef: MutableRefObject<boolean>;
+  onTracksChange: ((tracks: ClipTrack[]) => void) | undefined;
 }
 ```
 
