@@ -150,4 +150,5 @@ WAM 2.0 is an open plugin standard for the Web Audio API — the browser equival
 - [ ] **Sticky clip header text** — Keep track/clip name visible when scrolling horizontally using Intersection Observer.
 - [ ] **Contributing guidelines** — Document contribution workflow, code standards, and PR process.
 - [ ] **Revamp GitHub Sponsors tiers** — Update sponsorship tiers and perks via GitHub UI.
+- [ ] **Web Components UI layer** — Build a vanilla TypeScript + native Web Components layer on top of `@waveform-playlist/engine` as the primary UI implementation. Custom elements (`<waveform-playlist>`, `<waveform-track>`, `<waveform-transport>`) with Shadow DOM, attribute/property configuration, and custom events. React 19+ has native Web Components interop, so React users could consume these directly — eliminating the need for a separate React-specific UI layer.
 
