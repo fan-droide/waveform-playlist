@@ -10,6 +10,7 @@ import {
   loadWaveformData,
   MediaElementWaveform,
 } from '@waveform-playlist/browser';
+import { getGlobalAudioContext } from '@waveform-playlist/playout';
 import { PlayheadWithMarker } from '@waveform-playlist/ui-components';
 import { useDocusaurusTheme } from '../../hooks/useDocusaurusTheme';
 
@@ -195,10 +196,12 @@ function PlaybackControls() {
  * Child component that wires the MediaElement output into a Tone.js effect chain.
  * Must be rendered inside MediaElementPlaylistProvider to access playoutRef.
  *
+ * Uses the global AudioContext shared with Tone.js — no separate context needed.
  * Bridge pattern: native GainNode → Tone.Gain.input (native→native) → Tone effect chain
  */
-function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
+function EffectWiring() {
   const { playoutRef, duration } = useMediaElementData();
+  const audioContext = getGlobalAudioContext();
 
   // Wire the effect chain after the AudioContext is running (user gesture).
   // Tone.js is dynamically imported to avoid AudioWorklet errors on page load.
@@ -206,7 +209,6 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
     const outputNode = playoutRef.current?.outputNode;
     if (!outputNode) return;
 
-    let toneContext: ToneNs.Context | undefined;
     let bridge: ToneNs.Gain | undefined;
     let crusher: ToneNs.BitCrusher | undefined;
     let disposed = false;
@@ -216,15 +218,8 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
         const Tone = await import('tone');
         if (disposed) return;
 
-        // Create a local Tone.Context for this player's effect chain.
-        // IMPORTANT: Do NOT call Tone.setContext() — that replaces the global
-        // context pointer, breaking other pages (e.g., MIDI/SoundFont playback)
-        // when this component unmounts and closes its AudioContext.
-        toneContext = new Tone.Context(audioContext);
-
-        // Create bridge and effect on the local context (not the global one)
-        bridge = new Tone.Gain({ gain: 1, context: toneContext });
-        crusher = new Tone.BitCrusher({ bits: 4, wet: 1, context: toneContext });
+        bridge = new Tone.Gain(1);
+        crusher = new Tone.BitCrusher({ bits: 4, wet: 1 });
 
         // Disconnect native output from default destination
         outputNode.disconnect();
@@ -232,11 +227,10 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
         // Native → native connection (outputNode → bridge.input)
         outputNode.connect(bridge.input);
 
-        // Tone → Tone chain (bridge → crusher → local context destination)
-        bridge.chain(crusher, toneContext.destination);
+        // Tone → Tone chain (bridge → crusher → destination)
+        bridge.chain(crusher, Tone.getDestination());
       } catch (err) {
         console.warn('[waveform-playlist] EffectWiring: wireEffect() failed: ' + String(err));
-        // Reconnect to default destination so audio isn't lost
         try {
           outputNode.connect(audioContext.destination);
         } catch {
@@ -276,7 +270,6 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
       }
       crusher?.dispose();
       bridge?.dispose();
-      toneContext?.dispose();
     };
   }, [playoutRef, audioContext, duration]);
 
@@ -299,18 +292,6 @@ export function MediaElementExample() {
   const [trackConfigs, setTrackConfigs] = useState<Array<{ source: string; waveformData: any; name: string } | null>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Single AudioContext for the effect-bridged player — always needed since
-  // the third player always renders. useState gives stable identity across renders.
-  // Tone.Context created lazily in EffectWiring (after user gesture) to avoid
-  // "No execution context available" from Tone.js AudioWorklet setup.
-  const [effectAudioContext] = useState(() => new AudioContext());
-
-  useEffect(() => {
-    return () => {
-      effectAudioContext.close();
-    };
-  }, [effectAudioContext]);
 
   // Load BBC peaks files and build track configs
   useEffect(() => {
@@ -399,14 +380,14 @@ export function MediaElementExample() {
           <SectionLabel>Tone.js Effect (BitCrusher via native→Tone bridge)</SectionLabel>
           <MediaElementPlaylistProvider
             track={trackConfigs[0]}
-            audioContext={effectAudioContext}
+            audioContext={getGlobalAudioContext()}
             samplesPerPixel={512}
             waveHeight={120}
             theme={theme}
             barWidth={2}
             barGap={0}
           >
-            <EffectWiring audioContext={effectAudioContext} />
+            <EffectWiring />
             <PlaybackControls />
             <MediaElementWaveform />
           </MediaElementPlaylistProvider>
