@@ -109,15 +109,18 @@ Fade types: `'linear'`, `'logarithmic'`, `'exponential'`, `'sCurve'`. See the [F
 
 ### Tone.js Effects
 
-Bridge the MediaElement output into a Tone.js effect chain using a `Tone.Gain` node. Pass an `AudioContext` to the provider, then tell Tone.js to use the same context with `setContext` so native nodes and Tone.js nodes share the same audio graph:
+Bridge the MediaElement output into a Tone.js effect chain using a `Tone.Gain` node. Pass `getGlobalAudioContext()` to the provider so native nodes and Tone.js nodes share the same audio graph:
 
 ```tsx
-// Pass audioContext to <MediaElementPlaylistProvider audioContext={audioContext}>
-const audioContext = new AudioContext();
+import { getGlobalAudioContext } from '@waveform-playlist/playout';
+
+// Pass the global AudioContext to the provider:
+// <MediaElementPlaylistProvider audioContext={getGlobalAudioContext()}>
 
 // Inside a child component of MediaElementPlaylistProvider:
-function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
+function EffectWiring() {
   const { playoutRef, duration } = useMediaElementData();
+  const audioContext = getGlobalAudioContext();
 
   useEffect(() => {
     const outputNode = playoutRef.current?.outputNode;
@@ -130,9 +133,6 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
       // Tone.js must be imported after a user gesture (AudioContext running).
       const Tone = await import('tone');
       if (disposed) return;
-
-      // Share the same AudioContext between provider and Tone.js
-      Tone.setContext(new Tone.Context(audioContext));
 
       bridge = new Tone.Gain(1);
       crusher = new Tone.BitCrusher({ bits: 4, wet: 1 });
@@ -176,6 +176,8 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
   return null;
 }
 ```
+
+**Important:** Never call `Tone.setContext()` or create a separate `new AudioContext()` — use `getGlobalAudioContext()` which shares the same context Tone.js uses internally. Creating and closing a separate context poisons Tone's global state, breaking other features (e.g., SoundFont/MIDI playback).
 
 The key insight: `Tone.Gain.input` is a native `GainNode`, so `outputNode.connect(bridge.input)` is a standard Web Audio native-to-native connection. From the bridge onward, Tone.js manages the effect chain. Tone.js must be dynamically imported (`await import('tone')`) after the `AudioContext` is running to avoid AudioWorklet errors on suspended contexts. See the [Media Element example](/examples/media-element) for a working demo.
 
