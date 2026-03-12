@@ -206,6 +206,7 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
     const outputNode = playoutRef.current?.outputNode;
     if (!outputNode) return;
 
+    let toneContext: ToneNs.Context | undefined;
     let bridge: ToneNs.Gain | undefined;
     let crusher: ToneNs.BitCrusher | undefined;
     let disposed = false;
@@ -215,12 +216,15 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
         const Tone = await import('tone');
         if (disposed) return;
 
-        // Tell Tone.js to use the same AudioContext as the provider
-        Tone.setContext(new Tone.Context(audioContext));
+        // Create a local Tone.Context for this player's effect chain.
+        // IMPORTANT: Do NOT call Tone.setContext() — that replaces the global
+        // context pointer, breaking other pages (e.g., MIDI/SoundFont playback)
+        // when this component unmounts and closes its AudioContext.
+        toneContext = new Tone.Context(audioContext);
 
-        // Create bridge and effect on the shared context
-        bridge = new Tone.Gain(1);
-        crusher = new Tone.BitCrusher({ bits: 4, wet: 1 });
+        // Create bridge and effect on the local context (not the global one)
+        bridge = new Tone.Gain({ gain: 1, context: toneContext });
+        crusher = new Tone.BitCrusher({ bits: 4, wet: 1, context: toneContext });
 
         // Disconnect native output from default destination
         outputNode.disconnect();
@@ -228,8 +232,8 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
         // Native → native connection (outputNode → bridge.input)
         outputNode.connect(bridge.input);
 
-        // Tone → Tone chain (bridge → crusher → destination)
-        bridge.chain(crusher, Tone.getDestination());
+        // Tone → Tone chain (bridge → crusher → local context destination)
+        bridge.chain(crusher, toneContext.destination);
       } catch (err) {
         console.warn('[waveform-playlist] EffectWiring: wireEffect() failed: ' + String(err));
         // Reconnect to default destination so audio isn't lost
@@ -272,6 +276,7 @@ function EffectWiring({ audioContext }: { audioContext: AudioContext }) {
       }
       crusher?.dispose();
       bridge?.dispose();
+      toneContext?.dispose();
     };
   }, [playoutRef, audioContext, duration]);
 
