@@ -1,0 +1,28 @@
+{
+  "name": "standalone-multi-clip-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@dnd-kit/abstract": "^0.3.0",
+    "@dnd-kit/dom": "^0.3.0",
+    "@dnd-kit/react": "^0.3.0",
+    "@waveform-playlist/browser": "10.1.2",
+    "@waveform-playlist/core": "10.1.2",
+    "@waveform-playlist/playout": "10.1.2",
+    "@waveform-playlist/ui-components": "10.1.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "styled-components": "^6.1.14",
+    "tone": "^15.1.22"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.4.1"
+  }
+}
