@@ -177,7 +177,7 @@ function EffectWiring() {
 }
 ```
 
-**Important:** Never call `Tone.setContext()` or create a separate `new AudioContext()` — use `getGlobalAudioContext()` which shares the same context Tone.js uses internally. Creating and closing a separate context poisons Tone's global state, breaking other features (e.g., SoundFont/MIDI playback).
+**Tip:** If you're also using Tone.js for playback (e.g., MIDI/SoundFont), use `getGlobalAudioContext()` to share the same context. Avoid calling `Tone.setContext()` with a context you close on unmount — that replaces Tone's global state and can break other features.
 
 The key insight: `Tone.Gain.input` is a native `GainNode`, so `outputNode.connect(bridge.input)` is a standard Web Audio native-to-native connection. From the bridge onward, Tone.js manages the effect chain. Tone.js must be dynamically imported (`await import('tone')`) after the `AudioContext` is running to avoid AudioWorklet errors on suspended contexts. See the [Media Element example](/examples/media-element) for a working demo.
 
