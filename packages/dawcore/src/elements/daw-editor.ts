@@ -1,7 +1,8 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ClipTrack, FadeType } from '@waveform-playlist/core';
+import type { ClipTrack, FadeType, Peaks, PeakData } from '@waveform-playlist/core';
 import { createClipFromSeconds, createTrack, clipPixelWidth } from '@waveform-playlist/core';
+import { PeakPipeline } from '../workers/peakPipeline';
 import type { DawTrackElement } from './daw-track';
 import type { DawClipElement } from './daw-clip';
 import type { DawPlayheadElement } from './daw-playhead';
@@ -59,8 +60,7 @@ export class DawEditorElement extends LitElement {
 
   @state() private _tracks: Map<string, TrackDescriptor> = new Map();
   @state() private _engineTracks: Map<string, ClipTrack> = new Map();
-  @state() private _peaksData: Map<string, { peaks: Int16Array; bits: 16; length: number }> =
-    new Map();
+  @state() private _peaksData: Map<string, PeakData> = new Map();
   @state() _isPlaying = false;
   @state() private _duration = 0;
   @state() _selectedTrackId: string | null = null;
@@ -76,6 +76,8 @@ export class DawEditorElement extends LitElement {
   private _enginePromise: Promise<PlaylistEngine> | null = null;
   private _audioInitialized = false;
   private _audioCache = new Map<string, Promise<AudioBuffer>>();
+  private _clipBuffers = new Map<string, AudioBuffer>();
+  private _peakPipeline = new PeakPipeline();
   private _trackElements = new Map<string, DawTrackElement>();
   private _childObserver: MutationObserver | null = null;
   private _pointer = new PointerHandler(this);
@@ -190,11 +192,31 @@ export class DawEditorElement extends LitElement {
     this._childObserver = null;
     this._trackElements.clear();
     this._audioCache.clear();
+    this._clipBuffers.clear();
+    this._peakPipeline.terminate();
 
     try {
       this._disposeEngine();
     } catch (err) {
       console.warn('[dawcore] Error disposing engine: ' + String(err));
+    }
+  }
+
+  willUpdate(changedProperties: Map<string, unknown>) {
+    // Re-extract peaks at new zoom level from cached WaveformData (near-instant)
+    if (changedProperties.has('samplesPerPixel') && this._clipBuffers.size > 0) {
+      const reextracted = this._peakPipeline.reextractPeaks(
+        this._clipBuffers,
+        this.samplesPerPixel,
+        this.mono
+      );
+      if (reextracted.size > 0) {
+        const next = new Map(this._peaksData);
+        for (const [clipId, peakData] of reextracted) {
+          next.set(clipId, peakData);
+        }
+        this._peaksData = next;
+      }
     }
   }
 
@@ -216,15 +238,22 @@ export class DawEditorElement extends LitElement {
 
   private _onTrackRemoved(trackId: string) {
     this._trackElements.delete(trackId);
-
+    // Clean up per-clip data before removing the track (need clip IDs from engine tracks)
+    const removedTrack = this._engineTracks.get(trackId);
+    if (removedTrack) {
+      const nextPeaks = new Map(this._peaksData);
+      for (const clip of removedTrack.clips) {
+        this._clipBuffers.delete(clip.id);
+        nextPeaks.delete(clip.id);
+      }
+      this._peaksData = nextPeaks;
+    }
     const nextTracks = new Map(this._tracks);
     nextTracks.delete(trackId);
     this._tracks = nextTracks;
-
     const nextEngine = new Map(this._engineTracks);
     nextEngine.delete(trackId);
     this._engineTracks = nextEngine;
-
     this._recomputeDuration();
     if (this._engine) {
       this._engine.setTracks([...nextEngine.values()]);
@@ -323,7 +352,13 @@ export class DawEditorElement extends LitElement {
           sourceDuration: audioBuffer.duration,
         });
 
-        this._generatePeaks(clip.id, audioBuffer);
+        this._clipBuffers.set(clip.id, audioBuffer);
+        const peakData = await this._peakPipeline.generatePeaks(
+          audioBuffer,
+          this.samplesPerPixel,
+          this.mono
+        );
+        this._peaksData = new Map(this._peaksData).set(clip.id, peakData);
         clips.push(clip);
       }
 
@@ -350,6 +385,8 @@ export class DawEditorElement extends LitElement {
         })
       );
     } catch (err) {
+      // Guard against dispatching on a disconnected element (CLAUDE.md pattern #36)
+      if (!this.isConnected) return;
       console.warn('[dawcore] Failed to load track "' + trackId + '": ' + String(err));
       this.dispatchEvent(
         new CustomEvent<DawTrackErrorDetail>('daw-track-error', {
@@ -387,40 +424,6 @@ export class DawEditorElement extends LitElement {
       this._audioCache.delete(src);
       throw err;
     }
-  }
-
-  private _generatePeaks(clipId: string, audioBuffer: AudioBuffer) {
-    const numChannels = this.mono ? 1 : audioBuffer.numberOfChannels;
-    const samplesPerPeak = this.samplesPerPixel;
-    const totalSamples = audioBuffer.getChannelData(0).length;
-    const peakCount = Math.ceil(totalSamples / samplesPerPeak);
-    const peaks = new Int16Array(peakCount * 2);
-
-    for (let i = 0; i < peakCount; i++) {
-      const start = i * samplesPerPeak;
-      const end = Math.min(start + samplesPerPeak, totalSamples);
-      let min = 0;
-      let max = 0;
-
-      // Aggregate across channels; channel 0 only when mono=true
-      for (let ch = 0; ch < numChannels; ch++) {
-        const channelData = audioBuffer.getChannelData(ch);
-        for (let j = start; j < end; j++) {
-          const sample = channelData[j];
-          if (sample < min) min = sample;
-          if (sample > max) max = sample;
-        }
-      }
-
-      peaks[i * 2] = Math.round(min * 32767);
-      peaks[i * 2 + 1] = Math.round(max * 32767);
-    }
-
-    this._peaksData = new Map(this._peaksData).set(clipId, {
-      peaks,
-      bits: 16,
-      length: peakCount,
-    });
   }
 
   private _recomputeDuration() {
@@ -563,7 +566,13 @@ export class DawEditorElement extends LitElement {
           sourceDuration: audioBuffer.duration,
         });
 
-        this._generatePeaks(clip.id, audioBuffer);
+        this._clipBuffers.set(clip.id, audioBuffer);
+        const peakData = await this._peakPipeline.generatePeaks(
+          audioBuffer,
+          this.samplesPerPixel,
+          this.mono
+        );
+        this._peaksData = new Map(this._peaksData).set(clip.id, peakData);
 
         const trackId = crypto.randomUUID();
         const track = createTrack({ name, clips: [clip] });
@@ -608,13 +617,15 @@ export class DawEditorElement extends LitElement {
         URL.revokeObjectURL(blobUrl);
         console.warn('[dawcore] Failed to load file: ' + file.name + ' — ' + String(err));
         failed.push({ file, error: err });
-        this.dispatchEvent(
-          new CustomEvent<DawFilesLoadErrorDetail>('daw-files-load-error', {
-            bubbles: true,
-            composed: true,
-            detail: { file, error: err },
-          })
-        );
+        if (this.isConnected) {
+          this.dispatchEvent(
+            new CustomEvent<DawFilesLoadErrorDetail>('daw-files-load-error', {
+              bubbles: true,
+              composed: true,
+              detail: { file, error: err },
+            })
+          );
+        }
       }
     }
 
@@ -731,11 +742,19 @@ export class DawEditorElement extends LitElement {
           : ''}
         <daw-selection .startPx=${selStartPx} .endPx=${selEndPx}></daw-selection>
         <daw-playhead></daw-playhead>
-        ${this._getOrderedTracks().map(
-          ([trackId, track]) => html`
+        ${this._getOrderedTracks().map(([trackId, track]) => {
+          // Determine channel count from peak data of first clip with peaks
+          const firstPeaks = track.clips
+            .map((c) => this._peaksData.get(c.id))
+            .find((p) => p && p.data.length > 0);
+          const numChannels = firstPeaks ? firstPeaks.data.length : 1;
+          const channelHeight = this.waveHeight;
+          const trackHeight = channelHeight * numChannels;
+
+          return html`
             <div
               class="track-row ${trackId === this._selectedTrackId ? 'selected' : ''}"
-              style="height: ${this.waveHeight}px;"
+              style="height: ${trackHeight}px;"
               data-track-id=${trackId}
             >
               ${track.clips.map((clip) => {
@@ -746,21 +765,26 @@ export class DawEditorElement extends LitElement {
                   this.samplesPerPixel
                 );
                 const clipLeft = Math.floor(clip.startSample / this.samplesPerPixel);
-                return html`
-                  <daw-waveform
-                    style="position: absolute; left: ${clipLeft}px;"
-                    .peaks=${peakData?.peaks ?? new Int16Array(0)}
-                    .bits=${16}
-                    .length=${peakData?.length ?? width}
-                    .waveHeight=${this.waveHeight}
-                    .barWidth=${this.barWidth}
-                    .barGap=${this.barGap}
-                  ></daw-waveform>
-                `;
+                const channels: Peaks[] = peakData?.data ?? [new Int16Array(0)];
+
+                return channels.map(
+                  (channelPeaks, chIdx) => html`
+                    <daw-waveform
+                      style="position: absolute; left: ${clipLeft}px; top: ${chIdx *
+                      channelHeight}px;"
+                      .peaks=${channelPeaks}
+                      .bits=${16}
+                      .length=${peakData?.length ?? width}
+                      .waveHeight=${channelHeight}
+                      .barWidth=${this.barWidth}
+                      .barGap=${this.barGap}
+                    ></daw-waveform>
+                  `
+                );
               })}
             </div>
-          `
-        )}
+          `;
+        })}
       </div>
       <slot></slot>
     `;
