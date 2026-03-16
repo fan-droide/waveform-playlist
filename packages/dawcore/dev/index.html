@@ -28,14 +28,6 @@
       display: flex;
       gap: 8px;
     }
-    #log {
-      margin-top: 12px;
-      font-family: monospace;
-      font-size: 0.75rem;
-      color: #888;
-      max-height: 120px;
-      overflow-y: auto;
-    }
   </style>
 </head>
 <body>
@@ -43,12 +35,8 @@
 
   <script type="module" src="/src/index.ts"></script>
 
-  <daw-editor id="editor" samples-per-pixel="1024" wave-height="100" timescale file-drop>
-    <daw-track src="/media/audio/AlbertKader_Whiptails/03_Kick.opus" name="Kick"></daw-track>
-    <daw-track src="/media/audio/AlbertKader_Whiptails/05_Claps.opus" name="Claps"></daw-track>
-    <daw-track src="/media/audio/AlbertKader_Whiptails/06_HiHat.opus" name="HiHat"></daw-track>
-    <daw-track src="/media/audio/AlbertKader_Whiptails/07_Bass1.opus" name="Bass"></daw-track>
-    <daw-track src="/media/audio/AlbertKader_Whiptails/09_Synth1.opus" name="Synth"></daw-track>
+  <daw-editor id="editor" samples-per-pixel="1024" wave-height="128" timescale>
+    <daw-track src="/media/audio/sonnet.mp3" name="Track 1"></daw-track>
   </daw-editor>
 
   <daw-transport for="editor">
@@ -56,23 +44,5 @@
     <daw-pause-button></daw-pause-button>
     <daw-stop-button></daw-stop-button>
   </daw-transport>
-
-  <div id="log"></div>
-
-  <script type="module">
-    const editor = document.getElementById('editor');
-    const log = document.getElementById('log');
-    function addLog(msg) {
-      const line = document.createElement('div');
-      line.textContent = msg;
-      log.prepend(line);
-      while (log.children.length > 20) log.lastChild.remove();
-    }
-    editor.addEventListener('daw-seek', (e) => addLog('seek: ' + e.detail.time.toFixed(3) + 's'));
-    editor.addEventListener('daw-track-select', (e) => addLog('track-select: ' + e.detail.trackId));
-    editor.addEventListener('daw-selection', (e) => addLog('selection: ' + e.detail.start.toFixed(3) + ' - ' + e.detail.end.toFixed(3)));
-    editor.addEventListener('daw-track-ready', (e) => addLog('track-ready: ' + e.detail.trackId));
-    editor.addEventListener('daw-files-load-error', (e) => addLog('load-error: ' + e.detail.file.name));
-  </script>
 </body>
 </html>

@@ -8,7 +8,6 @@ import './elements/daw-pause-button';
 import './elements/daw-stop-button';
 import './elements/daw-editor';
 import './elements/daw-ruler';
-import './elements/daw-selection';
 
 export { DawClipElement } from './elements/daw-clip';
 export { DawTrackElement } from './elements/daw-track';
@@ -21,4 +20,3 @@ export { DawPauseButtonElement } from './elements/daw-pause-button';
 export { DawStopButtonElement } from './elements/daw-stop-button';
 export { DawEditorElement } from './elements/daw-editor';
 export { DawRulerElement } from './elements/daw-ruler';
-export { DawSelectionElement } from './elements/daw-selection';
