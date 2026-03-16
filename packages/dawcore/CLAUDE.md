@@ -30,7 +30,7 @@
 
 - **Event-driven track loading** — `<daw-track>` dispatches `daw-track-connected` (bubbling, composed); `<daw-editor>` listens and loads audio for that track individually. Track removal uses MutationObserver (events from `disconnectedCallback` can't bubble since element is already detached).
 - **Eager audio decode** — Audio fetches and decodes on track connect using `OfflineAudioContext` (no user gesture required, unlike `AudioContext`). Waveforms render immediately without waiting for play.
-- **Engine built eagerly, init deferred** — `PlaylistEngine` + adapter created in `connectedCallback`. `engine.setTracks()` called as tracks load (builds playout structure). `engine.init()` deferred to first `play()` (resumes AudioContext, requires user gesture).
+- **Engine built lazily on first track load** — `PlaylistEngine` + adapter created when the first `_loadTrack` resolves (uses correct `sampleRate` from decoded audio). `engine.setTracks()` called as tracks load (builds playout structure). `engine.init()` deferred to first `play()` (resumes AudioContext, requires user gesture).
 - **Engine API note** — `adapter.addTrack()` throws if no playout exists, so the editor always uses `setTracks()` with all tracks. `addTrack()` is not used in Phase 1.
 - **Immutable state updates** — All `@state()` Maps are replaced with `new Map(old).set(...)`, never mutated in place.
 - **Derived width, not stored state** — `_totalWidth` is a getter derived from `_duration`, `_sampleRate`, and `samplesPerPixel`. Not a `@state()` property — avoids Lit update loops from setting state in `updated()`.
@@ -61,6 +61,16 @@ Custom properties on `<daw-editor>` or any ancestor, inherited through Shadow DO
 - `peak-rendering.ts` — `aggregatePeaks`, `calculateBarRects`, `calculateFirstBarPosition` (from `ui-components`)
 - `smart-scale.ts` — `getScaleInfo`, `computeTemporalTicks` (extracted from `SmartScale.tsx`, temporal mode only)
 - `time-format.ts` — `formatTime` for ruler labels
+
+## Interaction Patterns
+
+- **Seek during playback requires stop+play** — Tone.js `transport.seconds = time` doesn't reschedule audio sources. Must call `engine.stop()` then `engine.play(newTime)` and restart playhead animation.
+- **Stop returns to play start position** — Standard DAW behavior. Engine tracks `_playStartPosition`; read `engine.getCurrentTime()` in the `stop` event handler, not `_currentTime`.
+- **Pointer events, not click** — Use `pointerdown`/`pointermove`/`pointerup` with 3px activation threshold to distinguish click (seek) from drag (selection). Wrap `releasePointerCapture` in try-catch; use `finally` to reset `_isDragging`.
+- **Host scroll for pixel calculations** — `:host` has `overflow-x: auto`, so use `this.scrollLeft` for pointer-to-pixel conversion, not `timeline.scrollLeft` (always 0).
+- **Track hit detection via Y position** — `composedPath()[0].closest('.track-row')` can't cross Shadow DOM boundaries. Use `getBoundingClientRect()` on track rows and compare `e.clientY` instead.
+- **File type detection** — `file.type` can be empty string for valid audio (`.opus` on some browsers). Only reject files with explicitly non-audio MIME types: `if (file.type && !file.type.startsWith('audio/'))`.
+- **`loadFiles()` returns result** — Returns `{ loaded: string[], failed: Array<{ file, error }> }` so callers can detect partial failures. Individual file errors are caught and reported via `daw-files-load-error` events.
 
 ## Lit/TypeScript Requirements
 
