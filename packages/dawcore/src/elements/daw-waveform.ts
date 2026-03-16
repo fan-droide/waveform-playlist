@@ -6,6 +6,7 @@ import {
   calculateBarRects,
   calculateFirstBarPosition,
 } from '../utils/peak-rendering';
+import { getVisibleChunkIndices } from '../utils/viewport';
 
 const MAX_CANVAS_WIDTH = 1000;
 
@@ -17,6 +18,12 @@ export class DawWaveformElement extends LitElement {
   @property({ type: Number, attribute: false }) waveHeight = 128;
   @property({ type: Number, attribute: false }) barWidth = 1;
   @property({ type: Number, attribute: false }) barGap = 0;
+  /** Visible viewport start in pixels (relative to timeline origin). */
+  @property({ type: Number, attribute: false }) visibleStart = -Infinity;
+  /** Visible viewport end in pixels (relative to timeline origin). */
+  @property({ type: Number, attribute: false }) visibleEnd = Infinity;
+  /** This element's left offset on the timeline (for viewport intersection). */
+  @property({ type: Number, attribute: false }) originX = 0;
 
   static styles = css`
     :host {
@@ -32,16 +39,24 @@ export class DawWaveformElement extends LitElement {
     }
   `;
 
+  private _getVisibleChunkIndices(): number[] {
+    return getVisibleChunkIndices(
+      this.length,
+      MAX_CANVAS_WIDTH,
+      this.visibleStart,
+      this.visibleEnd,
+      this.originX
+    );
+  }
+
   render() {
-    const totalChunks = Math.ceil(this.length / MAX_CANVAS_WIDTH);
-    // Renders all chunks — ViewportController integration deferred to future phase.
-    const indices = Array.from({ length: totalChunks }, (_, i) => i);
+    const indices = this._getVisibleChunkIndices();
+    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
 
     return html`
       <div class="container" style="width: ${this.length}px; height: ${this.waveHeight}px;">
         ${indices.map((i) => {
           const width = Math.min(MAX_CANVAS_WIDTH, this.length - i * MAX_CANVAS_WIDTH);
-          const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
           return html`
             <canvas
               data-index=${i}
@@ -57,10 +72,10 @@ export class DawWaveformElement extends LitElement {
   }
 
   updated() {
-    this._drawAllChunks();
+    this._drawVisibleChunks();
   }
 
-  private _drawAllChunks() {
+  private _drawVisibleChunks() {
     if (this.length === 0 || this.peaks.length === 0) return;
 
     const canvases = this.shadowRoot?.querySelectorAll('canvas');
@@ -70,7 +85,6 @@ export class DawWaveformElement extends LitElement {
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
     const halfHeight = this.waveHeight / 2;
 
-    // Read CSS custom property for wave color
     const waveColor =
       getComputedStyle(this).getPropertyValue('--daw-wave-color').trim() || '#c49a6c';
 

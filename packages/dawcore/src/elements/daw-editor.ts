@@ -8,6 +8,7 @@ import type { DawClipElement } from './daw-clip';
 import type { DawPlayheadElement } from './daw-playhead';
 import type { PlaylistEngine } from '@waveform-playlist/engine';
 import { hostStyles } from '../styles/theme';
+import { ViewportController } from '../controllers/viewport-controller';
 import { PointerHandler } from '../interactions/pointer-handler';
 import type {
   DawSelectionDetail,
@@ -81,6 +82,7 @@ export class DawEditorElement extends LitElement {
   private _trackElements = new Map<string, DawTrackElement>();
   private _childObserver: MutationObserver | null = null;
   private _pointer = new PointerHandler(this);
+  private _viewport = new ViewportController(this);
 
   static styles = [
     hostStyles,
@@ -157,7 +159,6 @@ export class DawEditorElement extends LitElement {
   }
 
   // --- Lifecycle ---
-
   connectedCallback() {
     super.connectedCallback();
     this.addEventListener('daw-track-connected', this._onTrackConnected as EventListener);
@@ -221,7 +222,6 @@ export class DawEditorElement extends LitElement {
   }
 
   // --- Track Events ---
-
   private _onTrackConnected = (e: CustomEvent) => {
     const trackId = e.detail?.trackId;
     const trackEl = e.detail?.element;
@@ -329,7 +329,6 @@ export class DawEditorElement extends LitElement {
   }
 
   // --- Audio Loading ---
-
   private async _loadTrack(trackId: string, descriptor: TrackDescriptor) {
     try {
       const clips = [];
@@ -438,7 +437,6 @@ export class DawEditorElement extends LitElement {
   }
 
   // --- Engine ---
-
   private _ensureEngine(): Promise<PlaylistEngine> {
     if (this._engine) return Promise.resolve(this._engine);
     if (this._enginePromise) return this._enginePromise;
@@ -493,7 +491,6 @@ export class DawEditorElement extends LitElement {
   }
 
   // --- File Drop ---
-
   private _onDragOver = (e: DragEvent) => {
     if (!this.fileDrop) return;
     e.preventDefault();
@@ -633,7 +630,6 @@ export class DawEditorElement extends LitElement {
   }
 
   // --- Playback ---
-
   async play() {
     try {
       const engine = await this._ensureEngine();
@@ -677,7 +673,6 @@ export class DawEditorElement extends LitElement {
   }
 
   // --- Playhead ---
-
   _startPlayhead() {
     const playhead = this._getPlayhead();
     if (!playhead || !this._engine) return;
@@ -717,7 +712,6 @@ export class DawEditorElement extends LitElement {
   }
 
   // --- Render ---
-
   render() {
     const sr = this.effectiveSampleRate;
     const selStartPx = (this._selectionStartTime * sr) / this.samplesPerPixel;
@@ -778,6 +772,9 @@ export class DawEditorElement extends LitElement {
                       .waveHeight=${channelHeight}
                       .barWidth=${this.barWidth}
                       .barGap=${this.barGap}
+                      .visibleStart=${this._viewport.visibleStart}
+                      .visibleEnd=${this._viewport.visibleEnd}
+                      .originX=${clipLeft}
                     ></daw-waveform>
                   `
                 );
