@@ -35,6 +35,22 @@
 - `<daw-editor>` — Core orchestrator. Builds engine lazily on first track load, loads audio per-track on `daw-track-connected`, renders waveforms from decoded peaks.
 - `<daw-transport for="editor-id">` — Container that resolves target via `document.getElementById`. Light DOM.
 - `<daw-play-button>`, `<daw-pause-button>`, `<daw-stop-button>` — Walk up to closest `<daw-transport>` for target resolution. Warn when target is null.
+- `<daw-record-button>` — Transport button. Toggles `startRecording()`/`stopRecording()` on target editor. Listens for `daw-recording-start`/`daw-recording-complete` events to update visual state.
+
+## Recording
+
+- **`RecordingController`** — Lit reactive controller on `<daw-editor>`. Manages AudioWorklet lifecycle, per-channel sample accumulation, incremental peak generation via `appendPeaks()` from `@waveform-playlist/recording`, and live preview via `setPeaksQuiet()` + `updatePeaks()` on `<daw-waveform>`.
+- **Session map** — `Map<string, RecordingSession>` keyed by track ID. Single session for now; map structure supports future multi-mic.
+- **Consumer provides stream** — `editor.recordingStream = stream` or pass to `startRecording(stream)`. Mic access/permission is consumer responsibility.
+- **Cancelable clip creation** — `daw-recording-complete` event is cancelable. `preventDefault()` skips automatic clip creation; consumer handles the `AudioBuffer` themselves.
+- **Channel detection** — `stream.getAudioTracks()[0].getSettings().channelCount`, not `source.channelCount` (defaults to 2 per spec).
+- **Worklet loading** — `rawContext.audioWorklet.addModule(recordingProcessorUrl)` (native API, not Tone.js which caches single module).
+- **Use `getGlobalContext()` not `getGlobalAudioContext()`** — Recording audio graph (source, worklet node) must use Tone.js Context methods (`context.createMediaStreamSource()`, `context.createAudioWorkletNode()`). `getGlobalAudioContext()` returns a `standardized-audio-context` wrapper that fails `instanceof BaseAudioContext` in native constructors. Use `rawContext` only for `audioWorklet.addModule()` and `sampleRate`.
+- **Worklet requires `start` command** — `recording-processor` defaults `isRecording=false`. Must `port.postMessage({ command: 'start', channelCount })` after connecting source→worklet. Without it, no data flows. Do NOT send `sampleRate` — the worklet uses its global `sampleRate`.
+- **Handler ordering critical** — Set `workletNode.port.onmessage` BEFORE `source.connect(workletNode)` and `postMessage({ command: 'start' })`. The worklet can flush data immediately; messages before handler is wired are silently dropped.
+- **Use `createClip()` not `createClipFromSeconds()` for recorded clips** — Recording session provides exact integer samples. The seconds round-trip (`samples/rateA → seconds → Math.round(seconds*rateB)`) drifts when `effectiveSampleRate` differs from `audioBuffer.sampleRate`.
+- **`RecordingHost` must declare all host dependencies** — Any property or method the controller accesses on the host must be on the `RecordingHost` interface. No `as any` casts — the editor satisfies the interface directly. `_addRecordedClip?` is optional (runtime check), `shadowRoot` comes from `HTMLElement` intersection.
+- **Always clean up partial sessions on error** — `startRecording` adds the session to `_sessions` before connect/start. The catch block must call `_cleanupSession(trackId)` to prevent stuck `isRecording` state and mic leak.
 
 ## Key Patterns
 
@@ -124,7 +140,7 @@ Custom properties on `<daw-editor>` or any ancestor, inherited through Shadow DO
 - **`getVisibleChunkIndices()`** — Shared pure function in `utils/viewport.ts`, re-exported from `viewport-controller.ts`. Used by `daw-waveform._getVisibleChunkIndices()`.
 - **Permissive defaults** — Controller initializes `visibleStart=-Infinity, visibleEnd=Infinity` so all chunks render before scroll container is attached.
 - **`daw-waveform` props** — `visibleStart`, `visibleEnd`, `originX` control which 1000px canvas chunks are rendered. Defaults to all-visible when not set.
-- **File size budget** — `daw-editor.ts` is at 778 lines (hard max: 800). `loadFiles` extracted to `interactions/file-loader.ts`; `TrackDescriptor`/`ClipDescriptor` extracted to `src/types.ts`.
+- **File size budget** — `daw-editor.ts` hard max 800 lines. `loadFiles` extracted to `interactions/file-loader.ts`; `addRecordedClip` extracted to `interactions/recording-clip.ts`; `TrackDescriptor`/`ClipDescriptor` extracted to `src/types.ts`.
 
 ## Track Controls
 
