@@ -45,6 +45,9 @@ export function useRecording(
   const startTimeRef = useRef<number>(0);
   const isRecordingRef = useRef<boolean>(false);
   const isPausedRef = useRef<boolean>(false);
+  const audioTrackRef = useRef<MediaStreamTrack | null>(null);
+  const onTrackEndedRef = useRef<(() => void) | null>(null);
+  const stopRecordingRef = useRef<(() => Promise<AudioBuffer | null>) | null>(null);
 
   // Shared duration update loop — starts a rAF loop that updates duration
   // from performance.now(). Used by both startRecording and resumeRecording.
@@ -84,6 +87,7 @@ export function useRecording(
 
   // Start recording
   const startRecording = useCallback(async () => {
+    if (isRecordingRef.current) return;
     if (!stream) {
       setError(new Error('No microphone stream available'));
       return;
@@ -179,11 +183,23 @@ export function useRecording(
 
       // Connect and start — after state reset and handler setup
       source.connect(workletNode);
-      workletNode.port.postMessage({
-        command: 'start',
-        sampleRate: context.sampleRate,
-        channelCount: streamChannelCount,
-      });
+      // Do NOT send sampleRate — worklet uses its global sampleRate (always correct)
+      workletNode.port.postMessage({ command: 'start', channelCount: streamChannelCount });
+
+      // Listen on MediaStreamTrack for mic unplug (MediaStream has no 'ended' event)
+      const audioTrack = stream.getAudioTracks()[0] ?? null;
+      audioTrackRef.current = audioTrack;
+      if (audioTrack) {
+        const onEnded = () => {
+          console.warn('[waveform-playlist] Audio track ended (mic unplugged or revoked)');
+          // Stop recording to clean up worklet, rAF loop, and UI state
+          stopRecordingRef.current?.();
+          setError(new Error('Microphone disconnected during recording'));
+        };
+        onTrackEndedRef.current = onEnded;
+        audioTrack.addEventListener('ended', onEnded);
+      }
+
       isRecordingRef.current = true;
       isPausedRef.current = false;
       setIsRecording(true);
@@ -198,11 +214,18 @@ export function useRecording(
 
   // Stop recording
   const stopRecording = useCallback(async (): Promise<AudioBuffer | null> => {
-    if (!isRecording) {
+    if (!isRecordingRef.current) {
       return null;
     }
 
     try {
+      // Remove mic-unplug listener
+      if (audioTrackRef.current && onTrackEndedRef.current) {
+        audioTrackRef.current.removeEventListener('ended', onTrackEndedRef.current);
+        audioTrackRef.current = null;
+        onTrackEndedRef.current = null;
+      }
+
       // Stop the worklet
       if (workletNodeRef.current) {
         workletNodeRef.current.port.postMessage({ command: 'stop' });
@@ -260,7 +283,8 @@ export function useRecording(
       setError(err instanceof Error ? err : new Error('Failed to stop recording'));
       return null;
     }
-  }, [isRecording, channelCount]);
+  }, [channelCount]);
+  stopRecordingRef.current = stopRecording;
 
   // Pause recording
   const pauseRecording = useCallback(() => {
@@ -284,9 +308,15 @@ export function useRecording(
     }
   }, [isRecording, isPaused, duration, startDurationLoop]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — read refs in cleanup, not effect body.
+  // Pattern #16 (copy refs in effect body) doesn't apply to [] deps — refs are
+  // null at mount and only set later during startRecording.
   useEffect(() => {
     return () => {
+      // Remove mic-unplug listener
+      if (audioTrackRef.current && onTrackEndedRef.current) {
+        audioTrackRef.current.removeEventListener('ended', onTrackEndedRef.current);
+      }
       if (workletNodeRef.current) {
         workletNodeRef.current.port.postMessage({ command: 'stop' });
 

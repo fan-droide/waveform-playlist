@@ -184,6 +184,7 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
     devices,
     hasPermission,
     selectedDevice,
+    stream,
     startRecording,
     stopRecording,
     requestMicAccess,
@@ -191,6 +192,11 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
     error,
     recordingPeaks,
   } = useIntegratedRecording(tracks, setTracks, selectedTrackId, { currentTime, channelCount: 2 });
+
+  // Sample rate info — flag potential resampling between mic and AudioContext
+  const micSampleRate = stream?.getAudioTracks()[0]?.getSettings()?.sampleRate ?? null;
+  const ctxSampleRate = sampleRate;
+  const isResampling = micSampleRate != null && ctxSampleRate > 0 && micSampleRate !== ctxSampleRate;
 
   // Output meter for master bus
   const { levels: outputLevels, peakLevels: outputPeaks } = useOutputMeter({ channelCount: 2, isPlaying });
@@ -206,14 +212,12 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
 
   // Start recording and playback together (overdub)
   const startRecordingWithPlayback = useCallback(async () => {
-    recordStartTimeRef.current = currentTime;
+    // Read from ref to avoid stale closure (currentTime updates at 60fps)
+    recordStartTimeRef.current = currentTimeRef.current;
     await startRecording();
-    // Start playback from current position so user hears existing tracks
-    const hasClips = tracks.some(t => t.clips.length > 0);
-    if (hasClips) {
-      await play(currentTime);
-    }
-  }, [startRecording, play, currentTime, tracks]);
+    // Start Transport so playhead advances and user hears existing tracks (overdub)
+    await play(currentTimeRef.current);
+  }, [startRecording, play, currentTimeRef]);
 
   // Auto-start recording when a new track is created and selected
   useEffect(() => {
@@ -471,6 +475,15 @@ const RecordingControlsInner: React.FC<RecordingControlsInnerProps> = ({
               selectedDeviceId={selectedDevice || undefined}
               onDeviceChange={changeDevice}
               disabled={isRecording}
+              hint={
+                micSampleRate != null ? (
+                  <>
+                    <MicrophoneIcon size={10} weight="bold" /> {micSampleRate}Hz &rarr;{' '}
+                    <SpeakerHighIcon size={10} weight="bold" /> {ctxSampleRate}Hz
+                    {isResampling && ' (resampling)'}
+                  </>
+                ) : undefined
+              }
             />
           )}
         </ToolbarSection>

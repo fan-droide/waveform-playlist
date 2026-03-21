@@ -13,11 +13,7 @@ import {
   canSplitAt,
   splitClip as splitClipOp,
 } from './operations/clipOperations';
-import {
-  calculateDuration,
-  clampSeekPosition,
-  findClosestZoomIndex,
-} from './operations/timelineOperations';
+import { calculateDuration, findClosestZoomIndex } from './operations/timelineOperations';
 import type { PlayoutAdapter, EngineState, EngineEvents, PlaylistEngineOptions } from './types';
 
 const DEFAULT_SAMPLE_RATE = 44100;
@@ -300,8 +296,7 @@ export class PlaylistEngine {
     const prevPlayStartPosition = this._playStartPosition;
 
     if (startTime !== undefined) {
-      const duration = calculateDuration(this._tracks);
-      this._currentTime = clampSeekPosition(startTime, duration);
+      this._currentTime = Math.max(0, startTime);
     }
 
     // Remember where playback started (Audacity-style: stop returns here)
@@ -360,8 +355,7 @@ export class PlaylistEngine {
   }
 
   seek(time: number): void {
-    const duration = calculateDuration(this._tracks);
-    this._currentTime = clampSeekPosition(time, duration);
+    this._currentTime = Math.max(0, time);
     this._adapter?.seek(this._currentTime);
     this._emitStateChange();
   }

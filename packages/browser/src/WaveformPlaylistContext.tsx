@@ -11,6 +11,7 @@ import React, {
 import { ThemeProvider } from 'styled-components';
 import {
   createToneAdapter,
+  getGlobalAudioContext,
   type EffectsFunction,
   type TrackEffectsFunction,
   type SoundFontCache,
@@ -368,9 +369,11 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   // Provider-level ref for scroll-position math and animation loop pixel
   // calculation. Distinct from useZoomControls's internal ref (statechange guard).
   const samplesPerPixelRef = useRef<number>(initialSamplesPerPixel);
-  // Effective sample rate for scroll/zoom calculations. Updated each render.
-  // Derived from audioBuffers or first clip's sampleRate (supports MIDI-only playlists).
-  const sampleRateRef = useRef<number>(44100);
+  // AudioContext sample rate — single source of truth. Guarded for SSR where
+  // AudioContext is undefined. Rate never changes after context creation.
+  const sampleRateRef = useRef<number>(
+    typeof AudioContext !== 'undefined' ? getGlobalAudioContext().sampleRate : 48000
+  );
 
   // Custom hooks — engine-owned state delegated to hooks with onEngineState() pattern
   const { timeFormat, setTimeFormat, formatTime } = useTimeFormat();
@@ -1106,7 +1109,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   // Playback controls
   const play = useCallback(
     async (startTime?: number, playDuration?: number) => {
-      if (!engineRef.current || duration === 0) return;
+      if (!engineRef.current) return;
 
       const actualStartTime = startTime ?? currentTimeRef.current;
       playStartPositionRef.current = actualStartTime;
@@ -1158,7 +1161,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       setIsPlaying(true);
       startAnimationLoop();
     },
-    [duration, startAnimationLoop, stopAnimationLoop]
+    [startAnimationLoop, stopAnimationLoop]
   );
 
   const pause = useCallback(() => {
@@ -1320,10 +1323,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     []
   );
 
-  // Derive sampleRate from the first available clip (works for both audio and MIDI clips).
-  // MIDI clips use sampleRate purely for sample-based timeline positioning (default 44100).
-  const sampleRate = audioBuffers[0]?.sampleRate || tracks[0]?.clips[0]?.sampleRate || 44100;
-  sampleRateRef.current = sampleRate;
+  const sampleRate = sampleRateRef.current;
   const timeScaleHeight = timescale ? 30 : 0;
   const minimumPlaylistHeight = tracks.length * waveHeight + timeScaleHeight;
 
