@@ -1,19 +1,64 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import type { Peaks, Bits } from '@waveform-playlist/core';
-import {
-  aggregatePeaks,
-  calculateBarRects,
-  calculateFirstBarPosition,
-} from '../utils/peak-rendering';
+import { aggregatePeaks, calculateBarRects } from '../utils/peak-rendering';
 import { getVisibleChunkIndices } from '../utils/viewport';
 
 const MAX_CANVAS_WIDTH = 1000;
 
+/** Layout/data properties that require a full redraw when changed. */
+const LAYOUT_PROPS = new Set(['length', 'waveHeight', 'barWidth', 'barGap']);
+
+/**
+ * Group dirty peak indices by canvas chunk. Returns bar-pixel-aligned
+ * min/max positions per chunk for correct clearRect coordinates,
+ * including when barWidth > 1 or barGap > 0.
+ */
+function groupDirtyByChunk(
+  dirtyPixels: Set<number>,
+  step: number
+): Map<number, { min: number; max: number }> {
+  const dirtyByChunk = new Map<number, { min: number; max: number }>();
+  for (const peakIdx of dirtyPixels) {
+    // Map peak index to its bar's global pixel position
+    const barPixel = Math.floor(peakIdx / step) * step;
+    const chunkIdx = Math.floor(barPixel / MAX_CANVAS_WIDTH);
+    const existing = dirtyByChunk.get(chunkIdx);
+    if (existing) {
+      dirtyByChunk.set(chunkIdx, {
+        min: Math.min(existing.min, barPixel),
+        max: Math.max(existing.max, barPixel),
+      });
+    } else {
+      dirtyByChunk.set(chunkIdx, { min: barPixel, max: barPixel });
+    }
+  }
+  return dirtyByChunk;
+}
+
 @customElement('daw-waveform')
 export class DawWaveformElement extends LitElement {
-  @property({ type: Object, attribute: false }) peaks: Peaks = new Int16Array(0);
-  @property({ type: Number, attribute: false }) bits: Bits = 16;
+  private _peaks: Peaks = new Int16Array(0);
+  private _dirtyPixels: Set<number> = new Set();
+  private _drawScheduled = false;
+  private _rafId = 0;
+  /** Chunk indices visible in the last draw pass — used to detect new chunks on scroll. */
+  private _drawnChunks: Set<number> = new Set();
+
+  set peaks(value: Peaks) {
+    this._peaks = value;
+    this._markAllDirty();
+    this.requestUpdate();
+  }
+
+  get peaks(): Peaks {
+    return this._peaks;
+  }
+
+  get bits(): Bits {
+    return this._peaks instanceof Int8Array ? 8 : 16;
+  }
+
   @property({ type: Number, attribute: false }) length = 0;
   @property({ type: Number, attribute: false }) waveHeight = 128;
   @property({ type: Number, attribute: false }) barWidth = 1;
@@ -49,6 +94,135 @@ export class DawWaveformElement extends LitElement {
     );
   }
 
+  /**
+   * Mark a range of peak indices as dirty for incremental redraw.
+   * The caller must have already updated the underlying peaks array.
+   * Does NOT trigger a Lit re-render — bypasses Lit entirely.
+   */
+  updatePeaks(startIndex: number, endIndex: number) {
+    const peakCount = Math.floor(this._peaks.length / 2);
+    const clampedStart = Math.max(0, startIndex);
+    const clampedEnd = Math.min(peakCount, endIndex);
+    for (let i = clampedStart; i < clampedEnd; i++) {
+      this._dirtyPixels.add(i);
+    }
+    this._scheduleDraw();
+  }
+
+  private _markAllDirty() {
+    const peakCount = Math.floor(this._peaks.length / 2);
+    for (let i = 0; i < peakCount; i++) {
+      this._dirtyPixels.add(i);
+    }
+    this._scheduleDraw();
+  }
+
+  private _scheduleDraw() {
+    if (!this._drawScheduled) {
+      this._drawScheduled = true;
+      this._rafId = requestAnimationFrame(() => {
+        this._drawScheduled = false;
+        this._drawDirty();
+      });
+    }
+  }
+
+  private _drawDirty() {
+    if (this._dirtyPixels.size === 0 || this.length === 0 || this._peaks.length === 0) {
+      this._dirtyPixels.clear();
+      return;
+    }
+
+    const canvases = this.shadowRoot?.querySelectorAll('canvas');
+    if (!canvases || canvases.length === 0) {
+      // Don't clear _dirtyPixels — canvases may appear after Lit renders.
+      // connectedCallback or updated() will reschedule the draw.
+      return;
+    }
+
+    const step = this.barWidth + this.barGap;
+    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
+    const halfHeight = this.waveHeight / 2;
+    const bits = this.bits;
+    const waveColor =
+      getComputedStyle(this).getPropertyValue('--daw-wave-color').trim() || '#c49a6c';
+
+    const dirtyByChunk = groupDirtyByChunk(this._dirtyPixels, step);
+
+    this._drawnChunks.clear();
+    for (const canvas of canvases) {
+      const chunkIdx = Number(canvas.dataset.index);
+      this._drawnChunks.add(chunkIdx);
+      const range = dirtyByChunk.get(chunkIdx);
+      if (!range) continue;
+      this._drawChunk(canvas, chunkIdx, range, step, dpr, halfHeight, bits, waveColor);
+    }
+
+    this._dirtyPixels.clear();
+  }
+
+  private _drawChunk(
+    canvas: HTMLCanvasElement,
+    chunkIdx: number,
+    range: { min: number; max: number },
+    step: number,
+    dpr: number,
+    halfHeight: number,
+    bits: Bits,
+    waveColor: string
+  ) {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const globalOffset = chunkIdx * MAX_CANVAS_WIDTH;
+    // range.min/max are bar-pixel-aligned global positions from groupDirtyByChunk
+    const clearStart = Math.max(0, range.min - globalOffset);
+    const clearEnd = range.max - globalOffset + this.barWidth;
+    const clearWidth = clearEnd - clearStart;
+    const firstBar = range.min;
+
+    ctx.resetTransform();
+    ctx.clearRect(clearStart * dpr, 0, clearWidth * dpr, canvas.height);
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = waveColor;
+
+    const canvasWidth = Math.min(MAX_CANVAS_WIDTH, this.length - globalOffset);
+    const regionEnd = Math.min(globalOffset + clearEnd, globalOffset + canvasWidth);
+
+    for (let bar = Math.max(0, firstBar); bar < regionEnd; bar += step) {
+      const peak = aggregatePeaks(this._peaks, bits, bar, bar + step);
+      if (!peak) continue;
+      const rects = calculateBarRects(
+        bar - globalOffset,
+        this.barWidth,
+        halfHeight,
+        peak.min,
+        peak.max,
+        'normal'
+      );
+      for (const r of rects) {
+        ctx.fillRect(r.x, r.y, r.width, r.height);
+      }
+    }
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    // Reschedule draw if dirty pixels survived a disconnect/reconnect cycle
+    if (this._dirtyPixels.size > 0) {
+      this._scheduleDraw();
+    }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._drawScheduled) {
+      cancelAnimationFrame(this._rafId);
+      this._drawScheduled = false;
+    }
+    // Keep _dirtyPixels — connectedCallback will reschedule if reconnected
+  }
+
   render() {
     const indices = this._getVisibleChunkIndices();
     const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
@@ -71,54 +245,38 @@ export class DawWaveformElement extends LitElement {
     `;
   }
 
-  updated() {
-    this._drawVisibleChunks();
-  }
-
-  private _drawVisibleChunks() {
-    if (this.length === 0 || this.peaks.length === 0) return;
-
-    const canvases = this.shadowRoot?.querySelectorAll('canvas');
-    if (!canvases) return;
-
-    const step = this.barWidth + this.barGap;
-    const dpr = typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1;
-    const halfHeight = this.waveHeight / 2;
-
-    const waveColor =
-      getComputedStyle(this).getPropertyValue('--daw-wave-color').trim() || '#c49a6c';
-
-    for (const canvas of canvases) {
-      const idx = Number(canvas.dataset.index);
-      const ctx = canvas.getContext('2d');
-      if (!ctx) continue;
-
-      const canvasWidth = Math.min(MAX_CANVAS_WIDTH, this.length - idx * MAX_CANVAS_WIDTH);
-
-      ctx.resetTransform();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.scale(dpr, dpr);
-      ctx.fillStyle = waveColor;
-
-      const globalOffset = idx * MAX_CANVAS_WIDTH;
-      const canvasEnd = globalOffset + canvasWidth;
-      const firstBar = calculateFirstBarPosition(globalOffset, this.barWidth, step);
-
-      for (let bar = Math.max(0, firstBar); bar < canvasEnd; bar += step) {
-        const peak = aggregatePeaks(this.peaks, this.bits, bar, bar + step);
-        if (!peak) continue;
-        const rects = calculateBarRects(
-          bar - globalOffset,
-          this.barWidth,
-          halfHeight,
-          peak.min,
-          peak.max,
-          'normal'
-        );
-        for (const r of rects) {
-          ctx.fillRect(r.x, r.y, r.width, r.height);
+  /** Mark peaks dirty only for chunks that weren't drawn in the previous frame. */
+  private _markNewChunksDirty() {
+    const currentIndices = this._getVisibleChunkIndices();
+    const peakCount = Math.floor(this._peaks.length / 2);
+    for (const chunkIdx of currentIndices) {
+      if (!this._drawnChunks.has(chunkIdx)) {
+        const start = chunkIdx * MAX_CANVAS_WIDTH;
+        const end = Math.min(start + MAX_CANVAS_WIDTH, peakCount);
+        for (let i = start; i < end; i++) {
+          this._dirtyPixels.add(i);
         }
       }
+    }
+    if (this._dirtyPixels.size > 0) {
+      this._scheduleDraw();
+    }
+  }
+
+  updated(changedProperties: Map<string, unknown>) {
+    // Layout/data changes require full redraw of all peaks
+    const needsFullDirty = [...changedProperties.keys()].some((key) => LAYOUT_PROPS.has(key));
+    if (needsFullDirty) {
+      this._markAllDirty();
+      return;
+    }
+    // Viewport-only changes: only draw newly visible chunks, skip already-drawn ones
+    if (
+      changedProperties.has('visibleStart') ||
+      changedProperties.has('visibleEnd') ||
+      changedProperties.has('originX')
+    ) {
+      this._markNewChunksDirty();
     }
   }
 }

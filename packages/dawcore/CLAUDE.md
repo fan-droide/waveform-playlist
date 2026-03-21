@@ -11,6 +11,7 @@
 **Testing gotchas:**
 - `isConnected` is a readonly getter in happy-dom — cannot be set via `Object.assign` on elements. Append the element to `document.body` instead.
 - Mocks for async functions (e.g., `resumeGlobalAudioContext`) must return `Promise.resolve()`, not `undefined`. Calling `.catch()` on `undefined` crashes.
+- `canvas.getContext('2d')` returns `null` in happy-dom. Tests must mock it: `vi.spyOn(canvas, 'getContext').mockReturnValue(mockCtx as any)` where `mockCtx` has `clearRect`, `resetTransform`, `scale`, `fillStyle`, `fillRect` as `vi.fn()`.
 
 **Dev page:** `pnpm dev:page` starts Vite at `http://localhost:5173/dev/index.html`. Uses `website/static/` as publicDir for audio files.
 
@@ -26,7 +27,7 @@
 - `<daw-track>` — Track data (name, volume, pan, muted, soloed). Dispatches `daw-track-connected` on mount, `daw-track-update` on property change. Track removal detected by editor's MutationObserver (not events — detached elements can't bubble).
 
 **Visual elements (Shadow DOM):**
-- `<daw-waveform>` — Chunked canvas rendering (1000px chunks). Receives peaks as JS properties.
+- `<daw-waveform>` — Chunked canvas rendering (1000px chunks). Receives peaks as JS properties. Uses dirty pixel tracking for incremental rendering — `updatePeaks(startIndex, endIndex)` marks a range dirty without full redraw. Bits derived from typed array (Int8Array→8, Int16Array→16). Drawing batched via `requestAnimationFrame`.
 - `<daw-playhead>` — RAF-animated vertical line via `AnimationController`.
 - `<daw-ruler>` — Temporal time scale with tick marks. Ported from `SmartScale` (temporal mode only, beats & bars deferred). Computes ticks once in `willUpdate()`, reused by both `render()` and `updated()`.
 
@@ -123,7 +124,7 @@ Custom properties on `<daw-editor>` or any ancestor, inherited through Shadow DO
 - **`getVisibleChunkIndices()`** — Shared pure function in `utils/viewport.ts`, re-exported from `viewport-controller.ts`. Used by `daw-waveform._getVisibleChunkIndices()`.
 - **Permissive defaults** — Controller initializes `visibleStart=-Infinity, visibleEnd=Infinity` so all chunks render before scroll container is attached.
 - **`daw-waveform` props** — `visibleStart`, `visibleEnd`, `originX` control which 1000px canvas chunks are rendered. Defaults to all-visible when not set.
-- **File size budget** — `daw-editor.ts` is at exactly 800 lines (the hard max). Any new code in this file requires extracting something else first. `loadFiles` was already extracted to `interactions/file-loader.ts`.
+- **File size budget** — `daw-editor.ts` is at 778 lines (hard max: 800). `loadFiles` extracted to `interactions/file-loader.ts`; `TrackDescriptor`/`ClipDescriptor` extracted to `src/types.ts`.
 
 ## Track Controls
 
@@ -135,6 +136,7 @@ Custom properties on `<daw-editor>` or any ancestor, inherited through Shadow DO
 ## File Loader Extraction
 
 - **`interactions/file-loader.ts`** — `loadFiles()` extracted via `FileLoaderHost` interface to keep editor under 800 lines.
+- **`src/types.ts`** — `TrackDescriptor` and `ClipDescriptor` interfaces, shared by `daw-editor.ts` and `file-loader.ts`. Re-exported from `index.ts`.
 - **Non-private fields** — Fields accessed by the loader (`_tracks`, `_engineTracks`, `_peaksData`, `_clipBuffers`, `_audioCache`, `_peakPipeline`, `_resolvedSampleRate`, `_fetchAndDecode`, `_recomputeDuration`, `_ensureEngine`) are non-private (no `private` keyword, `_` prefix convention only).
 
 ## Empty State
