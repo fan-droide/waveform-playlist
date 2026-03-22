@@ -9,7 +9,7 @@ import type { DawClipElement } from './daw-clip';
 import type { DawPlayheadElement } from './daw-playhead';
 import type { PlaylistEngine } from '@waveform-playlist/engine';
 import '../elements/daw-track-controls';
-import { hostStyles } from '../styles/theme';
+import { hostStyles, clipStyles } from '../styles/theme';
 import { ViewportController } from '../controllers/viewport-controller';
 import { AudioResumeController } from '../controllers/audio-resume-controller';
 import { RecordingController } from '../controllers/recording-controller';
@@ -34,6 +34,7 @@ export class DawEditorElement extends LitElement {
   @property({ type: Number, attribute: 'bar-width' }) barWidth = 1;
   @property({ type: Number, attribute: 'bar-gap' }) barGap = 0;
   @property({ type: Boolean, attribute: 'file-drop' }) fileDrop = false;
+  @property({ type: Boolean, attribute: 'clip-headers' }) clipHeaders = false;
   /** Initial sample rate hint. Overridden by decoded audio buffer's actual rate. */
   @property({ type: Number, attribute: 'sample-rate' }) sampleRate = 48000;
   /** Resolved sample rate — falls back to sampleRate property until first audio decode. */
@@ -53,6 +54,7 @@ export class DawEditorElement extends LitElement {
   private _enginePromise: Promise<PlaylistEngine> | null = null;
   _audioCache = new Map<string, Promise<AudioBuffer>>();
   _clipBuffers = new Map<string, AudioBuffer>();
+  _clipOffsets = new Map<string, { offsetSamples: number; durationSamples: number }>();
   _peakPipeline = new PeakPipeline();
   private _trackElements = new Map<string, DawTrackElement>();
   private _childObserver: MutationObserver | null = null;
@@ -104,6 +106,7 @@ export class DawEditorElement extends LitElement {
         outline-offset: -2px;
       }
     `,
+    clipStyles,
   ];
 
   get effectiveSampleRate(): number {
@@ -181,6 +184,7 @@ export class DawEditorElement extends LitElement {
     this._trackElements.clear();
     this._audioCache.clear();
     this._clipBuffers.clear();
+    this._clipOffsets.clear();
     this._peakPipeline.terminate();
     try {
       this._disposeEngine();
@@ -192,18 +196,22 @@ export class DawEditorElement extends LitElement {
     if (changedProperties.has('eagerResume')) {
       this._audioResume.target = this.eagerResume;
     }
-    // Re-extract peaks at new zoom level from cached WaveformData (near-instant)
+    // Restart playhead animation with new samplesPerPixel if playing
+    if (changedProperties.has('samplesPerPixel') && this._isPlaying) {
+      this._startPlayhead();
+    }
+    // Re-extract peaks at new zoom level from cached WaveformData (near-instant).
+    // Always works because the worker generates at baseScale (128), the finest level.
     if (changedProperties.has('samplesPerPixel') && this._clipBuffers.size > 0) {
-      const reextracted = this._peakPipeline.reextractPeaks(
+      const re = this._peakPipeline.reextractPeaks(
         this._clipBuffers,
         this.samplesPerPixel,
-        this.mono
+        this.mono,
+        this._clipOffsets
       );
-      if (reextracted.size > 0) {
+      if (re.size > 0) {
         const next = new Map(this._peaksData);
-        for (const [clipId, peakData] of reextracted) {
-          next.set(clipId, peakData);
-        }
+        for (const [id, pd] of re) next.set(id, pd);
         this._peaksData = next;
       }
     }
@@ -229,6 +237,7 @@ export class DawEditorElement extends LitElement {
       const nextPeaks = new Map(this._peaksData);
       for (const clip of removedTrack.clips) {
         this._clipBuffers.delete(clip.id);
+        this._clipOffsets.delete(clip.id);
         nextPeaks.delete(clip.id);
       }
       this._peaksData = nextPeaks;
@@ -363,10 +372,16 @@ export class DawEditorElement extends LitElement {
         });
 
         this._clipBuffers = new Map(this._clipBuffers).set(clip.id, audioBuffer);
+        this._clipOffsets.set(clip.id, {
+          offsetSamples: clip.offsetSamples,
+          durationSamples: clip.durationSamples,
+        });
         const peakData = await this._peakPipeline.generatePeaks(
           audioBuffer,
           this.samplesPerPixel,
-          this.mono
+          this.mono,
+          clip.offsetSamples,
+          clip.durationSamples
         );
         this._peaksData = new Map(this._peaksData).set(clip.id, peakData);
         clips.push(clip);
@@ -629,7 +644,6 @@ export class DawEditorElement extends LitElement {
       `;
     });
   }
-
   // --- Playhead ---
   _startPlayhead() {
     const playhead = this._getPlayhead();
@@ -689,7 +703,7 @@ export class DawEditorElement extends LitElement {
         track,
         descriptor,
         numChannels,
-        trackHeight: this.waveHeight * numChannels,
+        trackHeight: this.waveHeight * numChannels + (this.clipHeaders ? 20 : 0),
       };
     });
 
@@ -750,22 +764,33 @@ export class DawEditorElement extends LitElement {
                   );
                   const clipLeft = Math.floor(clip.startSample / this.samplesPerPixel);
                   const channels: Peaks[] = peakData?.data ?? [new Int16Array(0)];
-                  return channels.map(
-                    (channelPeaks, chIdx) => html`
-                      <daw-waveform
-                        style="position: absolute; left: ${clipLeft}px; top: ${chIdx *
-                        channelHeight}px;"
-                        .peaks=${channelPeaks}
-                        .length=${peakData?.length ?? width}
-                        .waveHeight=${channelHeight}
-                        .barWidth=${this.barWidth}
-                        .barGap=${this.barGap}
-                        .visibleStart=${this._viewport.visibleStart}
-                        .visibleEnd=${this._viewport.visibleEnd}
-                        .originX=${clipLeft}
-                      ></daw-waveform>
-                    `
-                  );
+                  const hdrH = this.clipHeaders ? 20 : 0;
+                  const chH = this.waveHeight;
+                  return html` <div
+                    class="clip-container"
+                    style="left:${clipLeft}px;top:0;width:${width}px;height:${t.trackHeight}px;"
+                    data-clip-id=${clip.id}
+                  >
+                    ${hdrH > 0
+                      ? html`<div class="clip-header">
+                          <span>${clip.name || t.descriptor?.name || ''}</span>
+                        </div>`
+                      : ''}
+                    ${channels.map(
+                      (chPeaks, chIdx) =>
+                        html` <daw-waveform
+                          style="position:absolute;left:0;top:${hdrH + chIdx * chH}px;"
+                          .peaks=${chPeaks}
+                          .length=${peakData?.length ?? width}
+                          .waveHeight=${chH}
+                          .barWidth=${this.barWidth}
+                          .barGap=${this.barGap}
+                          .visibleStart=${this._viewport.visibleStart}
+                          .visibleEnd=${this._viewport.visibleEnd}
+                          .originX=${clipLeft}
+                        ></daw-waveform>`
+                    )}
+                  </div>`;
                 })}
                 ${this._renderRecordingPreview(t.trackId, channelHeight)}
               </div>

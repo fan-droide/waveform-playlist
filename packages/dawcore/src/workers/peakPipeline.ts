@@ -19,20 +19,29 @@ export class PeakPipeline {
   private _worker: PeaksWorkerApi | null = null;
   private _cache = new WeakMap<AudioBuffer, WaveformData>();
   private _inflight = new WeakMap<AudioBuffer, Promise<WaveformData>>();
+  private _baseScale: number;
+  private _bits: 8 | 16;
+
+  constructor(baseScale = 128, bits: 8 | 16 = 16) {
+    this._baseScale = baseScale;
+    this._bits = bits;
+  }
 
   /**
    * Generate PeakData for a clip from its AudioBuffer.
    * Uses cached WaveformData when available; otherwise generates via worker.
-   * The worker generates at `scale` (= samplesPerPixel) for exact rendering.
+   * Worker generates at baseScale (default 128); extractPeaks resamples to the requested zoom.
    */
   async generatePeaks(
     audioBuffer: AudioBuffer,
     samplesPerPixel: number,
-    isMono: boolean
+    isMono: boolean,
+    offsetSamples?: number,
+    durationSamples?: number
   ): Promise<PeakData> {
-    const waveformData = await this._getWaveformData(audioBuffer, samplesPerPixel);
+    const waveformData = await this._getWaveformData(audioBuffer);
     try {
-      return extractPeaks(waveformData, samplesPerPixel, isMono);
+      return extractPeaks(waveformData, samplesPerPixel, isMono, offsetSamples, durationSamples);
     } catch (err) {
       console.warn('[dawcore] extractPeaks failed: ' + String(err));
       throw err;
@@ -48,7 +57,8 @@ export class PeakPipeline {
   reextractPeaks(
     clipBuffers: ReadonlyMap<string, AudioBuffer>,
     samplesPerPixel: number,
-    isMono: boolean
+    isMono: boolean,
+    clipOffsets?: ReadonlyMap<string, { offsetSamples: number; durationSamples: number }>
   ): Map<string, PeakData> {
     const result = new Map<string, PeakData>();
     for (const [clipId, audioBuffer] of clipBuffers) {
@@ -57,7 +67,17 @@ export class PeakPipeline {
         // Skip if target scale is finer than cached — resample can't downsample
         if (samplesPerPixel < cached.scale) continue;
         try {
-          result.set(clipId, extractPeaks(cached, samplesPerPixel, isMono));
+          const offsets = clipOffsets?.get(clipId);
+          result.set(
+            clipId,
+            extractPeaks(
+              cached,
+              samplesPerPixel,
+              isMono,
+              offsets?.offsetSamples,
+              offsets?.durationSamples
+            )
+          );
         } catch (err) {
           console.warn('[dawcore] reextractPeaks failed for clip ' + clipId + ': ' + String(err));
         }
@@ -71,13 +91,9 @@ export class PeakPipeline {
     this._worker = null;
   }
 
-  private async _getWaveformData(
-    audioBuffer: AudioBuffer,
-    samplesPerPixel: number
-  ): Promise<WaveformData> {
+  private async _getWaveformData(audioBuffer: AudioBuffer): Promise<WaveformData> {
     const cached = this._cache.get(audioBuffer);
-    // Use cache if it's at a scale fine enough for the requested zoom
-    if (cached && cached.scale <= samplesPerPixel) return cached;
+    if (cached) return cached;
 
     const inflight = this._inflight.get(audioBuffer);
     if (inflight) return inflight;
@@ -86,7 +102,7 @@ export class PeakPipeline {
       this._worker = createPeaksWorker();
     }
 
-    // Generate at the requested scale — this is the finest zoom we can resample from
+    // Generate at baseScale — the finest zoom we can resample from
     // .slice() channel buffers to avoid detaching the original AudioBuffer views
     const channels: ArrayBuffer[] = [];
     for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
@@ -98,8 +114,8 @@ export class PeakPipeline {
         channels,
         length: audioBuffer.length,
         sampleRate: audioBuffer.sampleRate,
-        scale: samplesPerPixel,
-        bits: 16,
+        scale: this._baseScale,
+        bits: this._bits,
         splitChannels: true,
       })
       .then((waveformData) => {
