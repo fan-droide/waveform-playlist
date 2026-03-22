@@ -1,6 +1,6 @@
 {
   "name": "waveform-playlist-monorepo",
-  "version": "10.3.0",
+  "version": "10.4.0",
   "private": true,
   "description": "Multiple track web audio editor and player with waveform preview",
   "author": "Naomi Aro",
