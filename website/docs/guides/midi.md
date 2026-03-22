@@ -56,7 +56,7 @@ interface MidiTrackConfig {
   color?: string;
   startTime?: number;         // Clip position in seconds (default: 0)
   duration?: number;          // Override clip duration in seconds
-  sampleRate?: number;        // For sample-based positioning (defaults to AudioContext.sampleRate)
+  sampleRate: number;          // Required — pass AudioContext.sampleRate
   flatten?: boolean;          // Merge all MIDI tracks into one (default: false)
 }
 ```

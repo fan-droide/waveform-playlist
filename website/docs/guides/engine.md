@@ -78,7 +78,7 @@ const engine = new PlaylistEngine(options?: PlaylistEngineOptions);
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `adapter` | `PlayoutAdapter` | `null` | Audio playback backend |
-| `sampleRate` | `number` | `44100` | Audio sample rate (use `AudioContext.sampleRate` for hardware rate) |
+| `sampleRate` | `number` | `48000` | Audio sample rate (use `AudioContext.sampleRate` for hardware rate) |
 | `samplesPerPixel` | `number` | `1000` | Initial zoom level |
 | `zoomLevels` | `number[]` | `[256, 512, 1024, 2048, 4096, 8192]` | Available zoom steps (samples per pixel) |
 
