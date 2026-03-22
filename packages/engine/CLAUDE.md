@@ -21,6 +21,7 @@
 ## Patterns
 
 - **`play()` and `seek()` do not clamp to duration** — The Transport runs at any non-negative position, playing silence where there's no audio. This enables recording from cursor positions beyond existing clips. Only negative values are clamped to 0.
+- **Default sampleRate is 48000** — Changed from 44100 to match modern hardware. Consumers should still pass `AudioContext.sampleRate` explicitly when creating the engine.
 - All mutating methods (moveClip, trimClip, removeTrack, setZoomLevel) guard against no-op statechange emissions — bail early when constrained delta is 0, track not found, or zoom unchanged
 - `setTracks()` copies input array; `getState()` copies output tracks — defensive at both boundaries
 - `PlayoutAdapter.isPlaying()` is defined but not called by engine (engine tracks own `_isPlaying`). Known design gap.
@@ -34,5 +35,7 @@
 - **Console warn diagnostics** — `moveClip`, `trimClip`, `splitClip` log `console.warn('[waveform-playlist/engine] methodName: ...')` on invalid track/clip IDs. Tests exercising these paths must mock `console.warn`.
 - **`tracksVersion` counter** — Monotonic counter in `EngineState` that increments only on track mutations (setTracks, addTrack, removeTrack, moveClip, trimClip, splitClip). Does NOT increment on selection/zoom/volume/loop changes. Used by the provider to detect track-specific statechange events and skip `loadAudio` rebuilds.
 - **Testing animation-frame code** — `_startTimeUpdateLoop` uses `requestAnimationFrame`, unavailable in Node.js. Use `vi.stubGlobal('requestAnimationFrame', vi.fn((cb) => { rafCallbacks.push(cb); return rafCallbacks.length; }))` and `vi.unstubAllGlobals()` in cleanup. Fire ticks manually via `rafCallbacks[rafCallbacks.length - 1](performance.now())`.
-- **Track audio state persistence** — `setTrackVolume/setTrackMute/setTrackSolo/setTrackPan` must update `this._tracks[]` in addition to forwarding to the adapter. Clip operations (`moveClip`, `trimClip`, `splitClip`) call `adapter.setTracks(this._tracks)`, which triggers `buildPlayout()` — if `_tracks` doesn't reflect current audio state, the rebuild loses solo/mute/volume/pan settings.
-- **`addTrack()` uses incremental adapter path** — When `adapter.addTrack` is defined, `PlaylistEngine.addTrack()` calls it instead of `adapter.setTracks()`. This avoids a full playout rebuild. The `PlayoutAdapter.addTrack` method is optional (`addTrack?`) for backwards compatibility.
+- **Track audio state persistence** — `setTrackVolume/setTrackMute/setTrackSolo/setTrackPan` must update `this._tracks[]` in addition to forwarding to the adapter.
+- **Clip operations use `updateTrack`, not `setTracks`** — `moveClip`, `trimClip`, `splitClip` call `_updateTrackOnAdapter(trackId)` which uses `adapter.updateTrack()` when available, falling back to `adapter.setTracks()`. This rebuilds only the affected track's clips on the adapter — other tracks keep playing uninterrupted.
+- **`addTrack()` uses incremental adapter path** — When `adapter.addTrack` is defined, `PlaylistEngine.addTrack()` calls it instead of `adapter.setTracks()`. The `PlayoutAdapter.addTrack` method is optional (`addTrack?`) for backwards compatibility.
+- **`updateTrack(trackId, track?)`** — Public method. Updates a single track on the adapter. When called with a `track` argument, also replaces it in `this._tracks` and emits statechange. Used by external callers (e.g., dawcore `addRecordedClip`).

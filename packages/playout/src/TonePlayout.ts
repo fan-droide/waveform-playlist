@@ -8,7 +8,7 @@ import {
   getContext,
   BaseContext,
 } from 'tone';
-import { ToneTrack, ToneTrackOptions } from './ToneTrack';
+import { ToneTrack, ToneTrackOptions, type ClipInfo } from './ToneTrack';
 import { MidiToneTrack, MidiToneTrackOptions } from './MidiToneTrack';
 import type { PlayableTrack } from './MidiToneTrack';
 import { SoundFontToneTrack, SoundFontToneTrackOptions } from './SoundFontToneTrack';
@@ -145,6 +145,39 @@ export class TonePlayout {
 
   getTrack(trackId: string): PlayableTrack | undefined {
     return this.tracks.get(trackId);
+  }
+
+  getTrackIds(): string[] {
+    return [...this.tracks.keys()];
+  }
+
+  /**
+   * Replace clips on a track, preserving the track's audio graph.
+   * Only works for ToneTrack (audio clips), not MidiToneTrack.
+   */
+  replaceTrackClips(trackId: string, newClips: ClipInfo[], newStartTime?: number): boolean {
+    const track = this.tracks.get(trackId);
+    if (!track || !('replaceClips' in track)) return false;
+    (track as ToneTrack).replaceClips(newClips, newStartTime);
+    return true;
+  }
+
+  /**
+   * Start mid-clip sources for a specific track at the current Transport position.
+   * Call after adding/updating a track during active playback so clips that span
+   * the current position produce audio immediately.
+   */
+  resumeTrackMidPlayback(trackId: string): void {
+    const track = this.tracks.get(trackId);
+    if (!track) return;
+    const transport = getTransport();
+    if (transport.state !== 'started') return;
+    const context = getContext();
+    // Use audible position (transportOffset - lookAhead) so new sources
+    // overlap with remaining buffered audio for a seamless transition
+    const lookAhead = context.lookAhead ?? 0;
+    const audibleOffset = Math.max(0, transport.seconds - lookAhead);
+    track.startMidClipSources(audibleOffset, context.currentTime);
   }
 
   play(when?: number, offset?: number, duration?: number): void {
