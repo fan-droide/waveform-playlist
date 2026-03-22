@@ -45,7 +45,7 @@ The `loadedTracksMap` stores `ClipTrack[]` per config index (not single `ClipTra
 
 ### MIDI Has No Native Sample Rate
 
-MIDI is event-based, not sample-based. The `sampleRate` config option is **required** on `MidiTrackConfig` — pass `AudioContext.sampleRate` (or `getGlobalAudioContext().sampleRate` from playout). Used for sample-based timeline positioning in `createClipFromSeconds()`. The actual audio synthesis sample rate is determined by the `AudioContext` in the playout layer.
+MIDI is event-based, not sample-based. `sampleRate` is **required** on `UseMidiTracksOptions` (second arg to `useMidiTracks()`) — pass `getGlobalAudioContext().sampleRate` from playout. Used for sample-based timeline positioning in `createClipFromSeconds()`. The actual audio synthesis sample rate is determined by the `AudioContext` in the playout layer. Never hardcode a default (e.g., 48000) — the real AudioContext rate varies by hardware.
 
 ## @tonejs/midi Gotchas
 
@@ -93,10 +93,10 @@ MIDI velocity is a 0-127 integer. `@tonejs/midi` normalizes to 0-1 float, but ro
 ```typescript
 // ✅ Stable reference
 const configs: MidiTrackConfig[] = [{ midiNotes: notes, name: 'Test' }];
-const { result } = renderHook(() => useMidiTracks(configs));
+const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
 // ❌ New reference each render — infinite effect loop
-const { result } = renderHook(() => useMidiTracks([{ midiNotes: notes }]));
+const { result } = renderHook(() => useMidiTracks([{ midiNotes: notes }], { sampleRate: 48000 }));
 ```
 
 ### Flatten Is Visual-Only (Planned)

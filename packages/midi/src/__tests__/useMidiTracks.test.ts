@@ -59,9 +59,9 @@ describe('useMidiTracks', () => {
       ];
 
       // Stable config reference to avoid useEffect infinite loop
-      const configs: MidiTrackConfig[] = [{ midiNotes: notes, name: 'Test', sampleRate: 48000 }];
+      const configs: MidiTrackConfig[] = [{ midiNotes: notes, name: 'Test' }];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -89,11 +89,10 @@ describe('useMidiTracks', () => {
           muted: true,
           soloed: true,
           color: '#ff0000',
-          sampleRate: 48000,
         },
       ];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -118,11 +117,10 @@ describe('useMidiTracks', () => {
           name: 'Positioned',
           startTime: 5.0,
           duration: 10.0,
-          sampleRate: 48000,
         },
       ];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -155,9 +153,9 @@ describe('useMidiTracks', () => {
         arrayBuffer: () => Promise.resolve(midiBuffer),
       });
 
-      const configs: MidiTrackConfig[] = [{ src: '/test.mid', name: 'Song', sampleRate: 48000 }];
+      const configs: MidiTrackConfig[] = [{ src: '/test.mid', name: 'Song' }];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -191,9 +189,9 @@ describe('useMidiTracks', () => {
         arrayBuffer: () => Promise.resolve(midiBuffer),
       });
 
-      const configs: MidiTrackConfig[] = [{ src: '/multi.mid', sampleRate: 48000 }];
+      const configs: MidiTrackConfig[] = [{ src: '/multi.mid' }];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -223,9 +221,9 @@ describe('useMidiTracks', () => {
         arrayBuffer: () => Promise.resolve(midiBuffer),
       });
 
-      const configs: MidiTrackConfig[] = [{ src: '/multi.mid', flatten: true, sampleRate: 48000 }];
+      const configs: MidiTrackConfig[] = [{ src: '/multi.mid', flatten: true }];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -240,9 +238,9 @@ describe('useMidiTracks', () => {
     it('starts in loading state', () => {
       mockFetch.mockReturnValue(new Promise(() => {})); // never resolves
 
-      const configs: MidiTrackConfig[] = [{ src: '/test.mid', sampleRate: 48000 }];
+      const configs: MidiTrackConfig[] = [{ src: '/test.mid' }];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       expect(result.current.loading).toBe(true);
       expect(result.current.loadedCount).toBe(0);
@@ -252,7 +250,7 @@ describe('useMidiTracks', () => {
     it('handles empty configs', async () => {
       const configs: MidiTrackConfig[] = [];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -275,9 +273,9 @@ describe('useMidiTracks', () => {
         statusText: 'Not Found',
       });
 
-      const configs: MidiTrackConfig[] = [{ src: '/missing.mid', sampleRate: 48000 }];
+      const configs: MidiTrackConfig[] = [{ src: '/missing.mid' }];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -288,9 +286,9 @@ describe('useMidiTracks', () => {
     });
 
     it('sets error when neither src nor midiNotes provided', async () => {
-      const configs: MidiTrackConfig[] = [{ name: 'Invalid', sampleRate: 48000 }];
+      const configs: MidiTrackConfig[] = [{ name: 'Invalid' }];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
@@ -308,9 +306,9 @@ describe('useMidiTracks', () => {
         return new Promise(() => {}); // never resolves
       });
 
-      const configs: MidiTrackConfig[] = [{ src: '/test.mid', sampleRate: 48000 }];
+      const configs: MidiTrackConfig[] = [{ src: '/test.mid' }];
 
-      const { unmount } = renderHook(() => useMidiTracks(configs));
+      const { unmount } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       // Wait for fetch to be called
       await waitFor(() => {
@@ -333,11 +331,11 @@ describe('useMidiTracks', () => {
       ];
 
       const configs: MidiTrackConfig[] = [
-        { midiNotes: notes1, name: 'Track 1', sampleRate: 48000 },
-        { midiNotes: notes2, name: 'Track 2', sampleRate: 48000 },
+        { midiNotes: notes1, name: 'Track 1' },
+        { midiNotes: notes2, name: 'Track 2' },
       ];
 
-      const { result } = renderHook(() => useMidiTracks(configs));
+      const { result } = renderHook(() => useMidiTracks(configs, { sampleRate: 48000 }));
 
       await waitFor(() => {
         expect(result.current.loading).toBe(false);
