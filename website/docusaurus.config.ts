@@ -222,9 +222,9 @@ const config: Config = {
 
   themeConfig: {
     announcementBar: {
-      id: 'v10_release',
+      id: 'v11_release',
       content:
-        '🎉 <strong>v10 Released!</strong> — Multi-channel VU meters, AudioWorklet metering, overdub recording with latency compensation. See the <a href="https://github.com/naomiaro/waveform-playlist/releases/tag/v10.0.0">release notes</a>.',
+        '🎉 <strong>v11 Released!</strong> — Hooks read sampleRate from context automatically, dawcore multiclip support with clip headers &amp; zoom. See the <a href="https://github.com/naomiaro/waveform-playlist/releases/tag/v11.0.0">release notes</a>.',
       isCloseable: true,
     },
     // Social card image for Open Graph and Twitter
