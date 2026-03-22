@@ -51,7 +51,6 @@ export class DawEditorElement extends LitElement {
   _currentTime = 0;
   _engine: PlaylistEngine | null = null;
   private _enginePromise: Promise<PlaylistEngine> | null = null;
-  private _audioInitialized = false;
   _audioCache = new Map<string, Promise<AudioBuffer>>();
   _clipBuffers = new Map<string, AudioBuffer>();
   _peakPipeline = new PeakPipeline();
@@ -527,14 +526,13 @@ export class DawEditorElement extends LitElement {
     return loadFilesImpl(this, files);
   }
   // --- Playback ---
-  async play() {
+  async play(startTime?: number) {
     try {
       const engine = await this._ensureEngine();
-      if (!this._audioInitialized) {
-        await engine.init();
-        this._audioInitialized = true;
-      }
-      engine.play();
+      // Always init — adapter awaits pending rebuild init if needed,
+      // and Tone.start() is a no-op if already running.
+      await engine.init();
+      engine.play(startTime);
       this._startPlayhead();
       this.dispatchEvent(new CustomEvent('daw-play', { bubbles: true, composed: true }));
     } catch (err) {
@@ -568,14 +566,29 @@ export class DawEditorElement extends LitElement {
 
   // --- Recording ---
   recordingStream: MediaStream | null = null;
+  get currentTime(): number {
+    return this._currentTime;
+  }
   get isRecording(): boolean {
     return this._recordingController.isRecording;
+  }
+  pauseRecording(): void {
+    this._recordingController.pauseRecording();
+  }
+  resumeRecording(): void {
+    this._recordingController.resumeRecording();
   }
   stopRecording(): void {
     this._recordingController.stopRecording();
   }
-  _addRecordedClip(trackId: string, buf: AudioBuffer, startSample: number, durSamples: number) {
-    addRecordedClip(this, trackId, buf, startSample, durSamples);
+  _addRecordedClip(
+    trackId: string,
+    buf: AudioBuffer,
+    startSample: number,
+    durSamples: number,
+    offsetSamples = 0
+  ) {
+    addRecordedClip(this, trackId, buf, startSample, durSamples, offsetSamples);
   }
   async startRecording(stream?: MediaStream, options?: RecordingOptions): Promise<void> {
     const s = stream ?? this.recordingStream;
@@ -589,15 +602,22 @@ export class DawEditorElement extends LitElement {
   private _renderRecordingPreview(trackId: string, chH: number) {
     const rs = this._recordingController.getSession(trackId);
     if (!rs) return '';
+    // Skip latency samples in the preview — they'll be sliced on finalization.
+    // Position stays at startSample (same as finalized clip).
+    const audibleSamples = Math.max(0, rs.totalSamples - rs.latencySamples);
+    if (audibleSamples === 0) return '';
+    const latencyPixels = Math.floor(rs.latencySamples / this.samplesPerPixel);
     const left = Math.floor(rs.startSample / this.samplesPerPixel);
-    const w = Math.floor(rs.totalSamples / this.samplesPerPixel);
-    return rs.peaks.map(
-      (chPeaks, ch) => html`
+    const w = Math.floor(audibleSamples / this.samplesPerPixel);
+    return rs.peaks.map((chPeaks, ch) => {
+      // Slice peaks to skip latency prefix (2 entries per pixel: min/max)
+      const slicedPeaks = latencyPixels > 0 ? chPeaks.slice(latencyPixels * 2) : chPeaks;
+      return html`
         <daw-waveform
           data-recording-track=${trackId}
           data-recording-channel=${ch}
           style="position:absolute;left:${left}px;top:${ch * chH}px;"
-          .peaks=${chPeaks}
+          .peaks=${slicedPeaks}
           .length=${w}
           .waveHeight=${chH}
           .barWidth=${this.barWidth}
@@ -606,8 +626,8 @@ export class DawEditorElement extends LitElement {
           .visibleEnd=${this._viewport.visibleEnd}
           .originX=${left}
         ></daw-waveform>
-      `
-    );
+      `;
+    });
   }
 
   // --- Playhead ---
@@ -657,7 +677,13 @@ export class DawEditorElement extends LitElement {
       const firstPeaks = track.clips
         .map((c) => this._peaksData.get(c.id))
         .find((p) => p && p.data.length > 0);
-      const numChannels = firstPeaks ? firstPeaks.data.length : 1;
+      // Use recording session channel count if no finalized clips yet
+      const recSession = this._recordingController.getSession(trackId);
+      const numChannels = firstPeaks
+        ? firstPeaks.data.length
+        : recSession
+          ? recSession.channelCount
+          : 1;
       return {
         trackId,
         track,

@@ -22,13 +22,15 @@ export class DawRecordButtonElement extends DawTransportButton {
       button[data-recording] {
         color: #d08070;
         border-color: #d08070;
+        background: rgba(208, 128, 112, 0.15);
       }
     `,
   ];
 
   connectedCallback() {
     super.connectedCallback();
-    this._listenToTarget();
+    // Defer so <daw-transport for="..."> and the target editor are resolved
+    requestAnimationFrame(() => this._listenToTarget());
   }
 
   disconnectedCallback() {
@@ -57,12 +59,14 @@ export class DawRecordButtonElement extends DawTransportButton {
   render() {
     return html`
       <button part="button" ?data-recording=${this._isRecording} @click=${this._onClick}>
-        <slot>${this._isRecording ? 'Stop Rec' : 'Record'}</slot>
+        <slot>Record</slot>
       </button>
     `;
   }
 
   private _onClick() {
+    // Start-only — stop is handled by the stop button
+    if (this._isRecording) return;
     const target = this.target;
     if (!target) {
       console.warn(
@@ -70,11 +74,7 @@ export class DawRecordButtonElement extends DawTransportButton {
       );
       return;
     }
-    if (this._isRecording) {
-      target.stopRecording();
-    } else {
-      target.startRecording(target.recordingStream);
-    }
+    target.startRecording(target.recordingStream);
   }
 }
 

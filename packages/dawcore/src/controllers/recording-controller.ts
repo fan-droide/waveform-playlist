@@ -1,6 +1,7 @@
 import type { ReactiveController, ReactiveControllerHost } from 'lit';
 import type { Bits } from '@waveform-playlist/core';
 import { getGlobalContext } from '@waveform-playlist/playout';
+import type { DawWaveformElement } from '../elements/daw-waveform';
 import { recordingProcessorUrl } from '@waveform-playlist/worklets';
 import { appendPeaks, concatenateAudioData, createAudioBuffer } from '@waveform-playlist/recording';
 import type {
@@ -13,6 +14,8 @@ export interface RecordingOptions {
   trackId?: string;
   bits?: 8 | 16;
   startSample?: number;
+  /** Start playback during recording so user hears existing tracks. */
+  overdub?: boolean;
 }
 
 export interface RecordingSession {
@@ -27,6 +30,9 @@ export interface RecordingSession {
   readonly channelCount: number;
   readonly bits: Bits;
   isFirstMessage: boolean;
+  /** Latency samples to skip in live preview (outputLatency + lookAhead). */
+  readonly latencySamples: number;
+  readonly wasOverdub: boolean;
   /** Stored so it can be removed on stop/cleanup — not just when stream ends. */
   readonly _onTrackEnded: (() => void) | null;
   readonly _audioTrack: MediaStreamTrack | null;
@@ -34,8 +40,9 @@ export interface RecordingSession {
 
 /** Readonly view of a recording session for external consumers. */
 export type ReadonlyRecordingSession = Readonly<
-  Omit<RecordingSession, 'chunks' | 'peaks' | '_onTrackEnded' | '_audioTrack'>
+  Omit<RecordingSession, 'chunks' | 'peaks' | '_onTrackEnded' | '_audioTrack' | 'latencySamples'>
 > & {
+  readonly latencySamples: number;
   readonly chunks: ReadonlyArray<ReadonlyArray<Float32Array>>;
   readonly peaks: ReadonlyArray<Int8Array | Int16Array>;
 };
@@ -52,8 +59,11 @@ export interface RecordingHost extends ReactiveControllerHost {
     trackId: string,
     buf: AudioBuffer,
     startSample: number,
-    durSamples: number
+    durSamples: number,
+    offsetSamples?: number
   ): void;
+  play?(startTime?: number): Promise<void>;
+  stop?(): void;
   dispatchEvent(event: Event): boolean;
 }
 
@@ -114,6 +124,11 @@ export class RecordingController implements ReactiveController {
       const startSample =
         options.startSample ?? Math.floor(this._host._currentTime * this._host.effectiveSampleRate);
 
+      // Compute latency offset once at start (doesn't change during session)
+      const outputLatency = rawCtx.outputLatency ?? 0;
+      const lookAhead = context.lookAhead ?? 0;
+      const latencySamples = Math.floor((outputLatency + lookAhead) * rawCtx.sampleRate);
+
       // Use Tone.js Context methods — avoids standardized-audio-context identity issues
       const source = context.createMediaStreamSource(stream);
       const workletNode = context.createAudioWorkletNode('recording-processor', {
@@ -145,6 +160,8 @@ export class RecordingController implements ReactiveController {
         channelCount,
         bits,
         isFirstMessage: true,
+        latencySamples,
+        wasOverdub: options.overdub ?? false,
         _onTrackEnded: onTrackEnded,
         _audioTrack: audioTrack,
       };
@@ -171,6 +188,11 @@ export class RecordingController implements ReactiveController {
       );
 
       this._host.requestUpdate();
+
+      // Overdub: start playback so user hears existing tracks and playhead advances
+      if (options.overdub && typeof this._host.play === 'function') {
+        await this._host.play(this._host._currentTime);
+      }
     } catch (err) {
       // Clean up partially-created session to prevent stuck isRecording state
       this._cleanupSession(trackId);
@@ -185,6 +207,22 @@ export class RecordingController implements ReactiveController {
     }
   }
 
+  pauseRecording(trackId?: string): void {
+    const id = trackId ?? [...this._sessions.keys()][0];
+    if (!id) return;
+    const session = this._sessions.get(id);
+    if (!session) return;
+    session.workletNode.port.postMessage({ command: 'pause' });
+  }
+
+  resumeRecording(trackId?: string): void {
+    const id = trackId ?? [...this._sessions.keys()][0];
+    if (!id) return;
+    const session = this._sessions.get(id);
+    if (!session) return;
+    session.workletNode.port.postMessage({ command: 'resume' });
+  }
+
   stopRecording(trackId?: string): void {
     const id = trackId ?? [...this._sessions.keys()][0];
     if (!id) return;
@@ -192,12 +230,17 @@ export class RecordingController implements ReactiveController {
     const session = this._sessions.get(id);
     if (!session) return;
 
+    // Stop playback only if this was an overdub session
+    if (session.wasOverdub && typeof this._host.stop === 'function') {
+      this._host.stop();
+    }
+
     // Send stop BEFORE disconnect so worklet can flush remaining buffered samples
     session.workletNode.port.postMessage({ command: 'stop' });
     session.source.disconnect();
     session.workletNode.disconnect();
 
-    // Remove mic-unplug listener (fix #4: prevent leak on normal stop path)
+    // Remove mic-unplug listener
     this._removeTrackEndedListener(session);
 
     // Build AudioBuffer from accumulated chunks
@@ -215,7 +258,8 @@ export class RecordingController implements ReactiveController {
       );
       return;
     }
-    const stopCtx = getGlobalContext().rawContext as AudioContext;
+    const context = getGlobalContext();
+    const stopCtx = context.rawContext as AudioContext;
     const channelData = session.chunks.map((chunkArr) => concatenateAudioData(chunkArr));
     const audioBuffer = createAudioBuffer(
       stopCtx,
@@ -223,7 +267,24 @@ export class RecordingController implements ReactiveController {
       this._host.effectiveSampleRate,
       session.channelCount
     );
-    const durationSamples = audioBuffer.length;
+
+    // Latency compensation: use the offset computed at start time
+    const latencyOffsetSamples = session.latencySamples;
+    const effectiveDuration = Math.max(0, audioBuffer.length - latencyOffsetSamples);
+
+    if (effectiveDuration === 0) {
+      console.warn('[dawcore] RecordingController: Recording too short for latency compensation');
+      this._sessions.delete(id);
+      this._host.requestUpdate();
+      this._host.dispatchEvent(
+        new CustomEvent<DawRecordingErrorDetail>('daw-recording-error', {
+          bubbles: true,
+          composed: true,
+          detail: { trackId: id, error: new Error('Recording too short to save') },
+        })
+      );
+      return;
+    }
 
     // Dispatch cancelable event
     const event = new CustomEvent<DawRecordingCompleteDetail>('daw-recording-complete', {
@@ -234,7 +295,8 @@ export class RecordingController implements ReactiveController {
         trackId: id,
         audioBuffer,
         startSample: session.startSample,
-        durationSamples,
+        durationSamples: effectiveDuration,
+        offsetSamples: latencyOffsetSamples,
       },
     });
     const notPrevented = this._host.dispatchEvent(event);
@@ -244,7 +306,13 @@ export class RecordingController implements ReactiveController {
     this._host.requestUpdate();
 
     if (notPrevented) {
-      this._createClipFromRecording(id, audioBuffer, session.startSample, durationSamples);
+      this._createClipFromRecording(
+        id,
+        audioBuffer,
+        session.startSample,
+        effectiveDuration,
+        latencyOffsetSamples
+      );
     }
   }
 
@@ -285,7 +353,9 @@ export class RecordingController implements ReactiveController {
 
       // Update live preview waveform — host is already & HTMLElement so shadowRoot is typed
       const waveformSelector = `daw-waveform[data-recording-track="${trackId}"][data-recording-channel="${ch}"]`;
-      const waveformEl = this._host.shadowRoot?.querySelector(waveformSelector) as any;
+      const waveformEl = this._host.shadowRoot?.querySelector(
+        waveformSelector
+      ) as DawWaveformElement | null;
       if (waveformEl) {
         if (session.isFirstMessage) {
           waveformEl.peaks = session.peaks[ch];
@@ -312,10 +382,17 @@ export class RecordingController implements ReactiveController {
     trackId: string,
     audioBuffer: AudioBuffer,
     startSample: number,
-    durationSamples: number
+    durationSamples: number,
+    offsetSamples = 0
   ) {
     if (typeof this._host._addRecordedClip === 'function') {
-      this._host._addRecordedClip(trackId, audioBuffer, startSample, durationSamples);
+      this._host._addRecordedClip(
+        trackId,
+        audioBuffer,
+        startSample,
+        durationSamples,
+        offsetSamples
+      );
     } else {
       console.warn(
         '[dawcore] RecordingController: host does not implement _addRecordedClip — clip not created for track "' +
