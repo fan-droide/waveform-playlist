@@ -1,6 +1,6 @@
 {
   "name": "@waveform-playlist/loaders",
-  "version": "10.4.0",
+  "version": "11.0.0",
   "description": "Audio loaders for waveform-playlist",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
