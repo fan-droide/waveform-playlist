@@ -224,7 +224,7 @@ const config: Config = {
     announcementBar: {
       id: 'v11_release',
       content:
-        '🎉 <strong>v11 Released!</strong> — Hooks read sampleRate from context automatically, dawcore multiclip support with clip headers &amp; zoom. See the <a href="https://github.com/naomiaro/waveform-playlist/releases/tag/v11.0.0">release notes</a>.',
+        '🎉 <strong>v11 Released!</strong> — Hooks read sampleRate from context automatically, simplified useMidiTracks API. See the <a href="https://github.com/naomiaro/waveform-playlist/releases/tag/v11.0.0">release notes</a>.',
       isCloseable: true,
     },
     // Social card image for Open Graph and Twitter
