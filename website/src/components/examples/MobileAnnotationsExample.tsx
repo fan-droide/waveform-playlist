@@ -410,6 +410,7 @@ export function MobileAnnotationsExample() {
   return (
     <WaveformPlaylistProvider
       tracks={tracks}
+      sampleRate={48000}
       samplesPerPixel={1024}
       mono
       waveHeight={100}

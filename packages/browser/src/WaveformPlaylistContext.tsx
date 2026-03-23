@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { ThemeProvider } from 'styled-components';
 import {
+  configureGlobalContext,
   createToneAdapter,
   getGlobalAudioContext,
   type EffectsFunction,
@@ -253,6 +254,10 @@ export interface WaveformPlaylistProviderProps {
   /** Disable automatic stop when the cursor reaches the end of the longest
    *  track. Useful for DAW-style recording beyond existing audio. */
   indefinitePlayback?: boolean;
+  /** Desired AudioContext sample rate. Creates a cross-browser AudioContext at
+   *  this rate via standardized-audio-context. Pre-computed peaks (.dat files)
+   *  render instantly when they match. On mismatch, falls back to worker. */
+  sampleRate?: number;
   children: ReactNode;
 }
 
@@ -278,6 +283,7 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   soundFontCache,
   deferEngineRebuild = false,
   indefinitePlayback = false,
+  sampleRate: sampleRateProp,
   children,
 }) => {
   // Default progressBarWidth to barWidth + barGap (fills gaps)
@@ -380,9 +386,26 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   const samplesPerPixelRef = useRef<number>(initialSamplesPerPixel);
   // AudioContext sample rate — single source of truth. Guarded for SSR where
   // AudioContext is undefined. Rate never changes after context creation.
-  const sampleRateRef = useRef<number>(
-    typeof AudioContext !== 'undefined' ? getGlobalAudioContext().sampleRate : 48000
-  );
+  // If sampleRateHint is provided, configure the context before reading the rate.
+  const [initialSampleRate] = useState<number>(() => {
+    if (typeof AudioContext === 'undefined') return sampleRateProp ?? 48000;
+    try {
+      if (sampleRateProp !== undefined) {
+        return configureGlobalContext({ sampleRate: sampleRateProp });
+      }
+      return getGlobalAudioContext().sampleRate;
+    } catch (err) {
+      console.warn(
+        '[waveform-playlist] Failed to configure AudioContext: ' +
+          String(err) +
+          ' — falling back to ' +
+          (sampleRateProp ?? 48000) +
+          ' Hz'
+      );
+      return sampleRateProp ?? 48000;
+    }
+  });
+  const sampleRateRef = useRef<number>(initialSampleRate);
 
   // Custom hooks — engine-owned state delegated to hooks with onEngineState() pattern
   const { timeFormat, setTimeFormat, formatTime } = useTimeFormat();
@@ -868,17 +891,35 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         let peaks: PeakData | undefined;
 
         // Path A: External pre-computed waveform data (e.g. from audiowaveform .dat file)
+        // When sample rates match, use clip offsets directly.
+        // When rates mismatch (e.g., waveformData at 48000 Hz, clip rebuilt at 44100 Hz
+        // after audio decode), convert offsets to the waveformData's sample space and
+        // adjust samplesPerPixel so peaks fill the correct container width.
+        // Path B (worker) replaces these on next render once cache is populated.
         if (clip.waveformData) {
           try {
+            const wdRate = clip.waveformData.sample_rate;
+            const clipRate = clip.sampleRate;
+            let peakOffset = clip.offsetSamples;
+            let peakDuration = clip.durationSamples;
+            let peakSpp = samplesPerPixel;
+            if (wdRate !== clipRate && clipRate > 0 && wdRate > 0) {
+              const ratio = wdRate / clipRate;
+              peakOffset = Math.round(clip.offsetSamples * ratio);
+              peakDuration = Math.round(clip.durationSamples * ratio);
+              peakSpp = Math.max(1, Math.round(samplesPerPixel * ratio));
+            }
             peaks = extractPeaksFromWaveformDataFull(
               clip.waveformData as WaveformData,
-              samplesPerPixel,
+              peakSpp,
               mono,
-              clip.offsetSamples,
-              clip.durationSamples
+              peakOffset,
+              peakDuration
             );
           } catch (err) {
-            console.warn('[waveform-playlist] Failed to extract peaks from waveformData:', err);
+            console.warn(
+              '[waveform-playlist] Failed to extract peaks from waveformData: ' + String(err)
+            );
           }
         }
 
@@ -895,7 +936,9 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
                 clip.durationSamples
               );
             } catch (err) {
-              console.warn('[waveform-playlist] Failed to extract peaks from cache:', err);
+              console.warn(
+                '[waveform-playlist] Failed to extract peaks from cache: ' + String(err)
+              );
             }
           }
         }

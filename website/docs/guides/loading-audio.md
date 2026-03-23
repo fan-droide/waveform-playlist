@@ -91,14 +91,41 @@ cmake .. && make && sudo make install
 Generate waveform data:
 
 ```bash
-# Generate JSON format (recommended)
-audiowaveform -i audio.mp3 -o audio.json --pixels-per-second 20
+# Generate from Opus (recommended — always 48000 Hz)
+audiowaveform -i audio.opus -o audio.dat -z 256 -b 8
 
-# Generate binary format (smaller file size)
-audiowaveform -i audio.mp3 -o audio.dat --pixels-per-second 20
+# Generate from MP3 or WAV
+audiowaveform -i audio.mp3 -o audio.dat -z 256 -b 8
+
+# Generate 16-bit for higher precision
+audiowaveform -i audio.opus -o audio.dat -z 256 -b 16
 ```
 
-The `--pixels-per-second` option controls resolution. Higher values = more detail but larger files.
+The `-z` option sets samples per pixel (zoom level). Lower values = more detail but larger files.
+
+:::caution Sample Rate Matching
+Pre-computed peaks embed the source audio's sample rate (e.g., 48000 Hz). The browser's `AudioContext` decodes audio at its **hardware** sample rate — typically 48000 Hz on most systems, but 44100 Hz on some devices.
+
+**If the rates don't match**, the peaks will be slightly wider or narrower than the decoded audio, causing misaligned waveforms during trim, split, and zoom. When a mismatch is detected, waveform-playlist logs a warning and falls back to generating peaks from the decoded audio (slower initial load, but correct).
+
+**Recommendations:**
+- **Serve audio at 48000 Hz** to match most browser AudioContext hardware rates:
+  - **Opus** — best compressed option. Always encodes at 48000 Hz (per spec), excellent quality at low bitrates, broad browser support. `ffmpeg -i audio.wav -c:a libopus audio.opus`
+  - **WAV at 48000 Hz** — uncompressed, lossless. `ffmpeg -i audio.wav -ar 48000 audio-48k.wav`
+  - **FLAC at 48000 Hz** — lossless compression (~50-60% of WAV). `ffmpeg -i audio.wav -ar 48000 audio-48k.flac`
+- Generate `.dat` files from your 48000 Hz audio so peaks match the hardware rate
+- **Set the `sampleRate` prop** to get an early warning when the hardware rate doesn't match:
+
+```tsx
+// React
+<WaveformPlaylistProvider sampleRate={48000} tracks={tracks} />
+
+// Web Components
+<daw-editor sample-rate="48000">
+```
+
+When the hardware rate matches, pre-computed peaks render instantly. On mismatch, peaks fall back to worker generation from decoded audio (slower but correct).
+:::
 
 ### Using Pre-computed Waveforms
 
@@ -148,13 +175,15 @@ BBC audiowaveform outputs JSON in this format:
 {
   "version": 2,
   "channels": 2,
-  "sample_rate": 44100,
+  "sample_rate": 48000,
   "samples_per_pixel": 256,
   "bits": 8,
   "length": 1000,
   "data": [0, 10, -5, 15, ...]
 }
 ```
+
+The `sample_rate` field must match the browser's `AudioContext.sampleRate` for pre-computed peaks to be used. See the [sample rate matching](#generating-waveform-data) note above.
 
 ## Loading from Different Sources
 
@@ -369,8 +398,8 @@ const { tracks, loading, loadedCount, totalCount } = useAudioTracks(configs, { i
 ## Performance Tips
 
 1. **Use pre-computed waveforms** for files over 5 minutes
-2. **Load tracks lazily** - Only load what's visible
-3. **Use appropriate sample rates** - 44.1kHz is usually sufficient
+2. **Generate peaks at 48000 Hz** to match most hardware — mismatched rates fall back to browser decoding
+3. **Load tracks lazily** - Only load what's visible
 4. **Compress audio** - MP3 loads faster than WAV
 5. **Consider streaming** for very long files
 

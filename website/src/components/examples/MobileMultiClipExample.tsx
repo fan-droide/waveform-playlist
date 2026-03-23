@@ -265,6 +265,7 @@ export function MobileMultiClipExample() {
 
       <WaveformPlaylistProvider
         tracks={tracks}
+        sampleRate={48000}
         onTracksChange={setTracks}
         samplesPerPixel={1024}
         mono

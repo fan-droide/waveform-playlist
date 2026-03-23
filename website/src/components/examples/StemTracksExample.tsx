@@ -118,6 +118,7 @@ export function StemTracksExample() {
     <Container>
       <WaveformPlaylistProvider
         tracks={tracks}
+        sampleRate={48000}
         samplesPerPixel={512}
         mono
         waveHeight={100}

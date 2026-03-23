@@ -2,7 +2,12 @@ import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import type { ClipTrack, FadeType, Peaks, PeakData } from '@waveform-playlist/core';
 import type { TrackDescriptor, ClipDescriptor } from '../types';
-import { createClipFromSeconds, createTrack, clipPixelWidth } from '@waveform-playlist/core';
+import {
+  createClip,
+  createClipFromSeconds,
+  createTrack,
+  clipPixelWidth,
+} from '@waveform-playlist/core';
 import { PeakPipeline } from '../workers/peakPipeline';
 import type { DawTrackElement } from './daw-track';
 import type { DawClipElement } from './daw-clip';
@@ -65,7 +70,8 @@ export class DawEditorElement extends LitElement {
   @property({ type: Boolean, attribute: 'clip-headers' }) clipHeaders = false;
   @property({ type: Number, attribute: 'clip-header-height' }) clipHeaderHeight = 20;
   @property({ type: Boolean, attribute: 'interactive-clips' }) interactiveClips = false;
-  /** Initial sample rate hint. Overridden by decoded audio buffer's actual rate. */
+  /** Desired sample rate. Creates a cross-browser AudioContext at this rate.
+   *  Pre-computed .dat peaks render instantly when they match. */
   @property({ type: Number, attribute: 'sample-rate' }) sampleRate = 48000;
   /** Resolved sample rate — falls back to sampleRate property until first audio decode. */
   _resolvedSampleRate: number | null = null;
@@ -244,6 +250,7 @@ export class DawEditorElement extends LitElement {
     this._clipOffsets.clear();
     this._peakPipeline.terminate();
     this._minSamplesPerPixel = 0;
+    this._contextConfigurePromise = null;
     try {
       this._disposeEngine();
     } catch (err) {
@@ -260,7 +267,7 @@ export class DawEditorElement extends LitElement {
     }
     // Re-extract peaks at new zoom level from cached WaveformData (near-instant).
     // For worker-generated peaks, baseScale (128) is finest; for pre-computed .dat
-    // peaks, the file's scale is the limit — _clampScale handles either case.
+    // peaks (only cached when rates match), the file's scale is the limit.
     if (changedProperties.has('samplesPerPixel') && this._clipBuffers.size > 0) {
       const re = this._peakPipeline.reextractPeaks(
         this._clipBuffers,
@@ -440,11 +447,31 @@ export class DawEditorElement extends LitElement {
         const audioPromise = this._fetchAndDecode(clipDesc.src);
 
         // --- Peaks-first path: render waveform before audio decode completes ---
-        // Separate try/catch for peaks so audio errors aren't misattributed
+        // Separate try/catch for peaks so audio errors aren't misattributed.
+        // If the .dat sample rate doesn't match the AudioContext rate, skip the
+        // pre-computed peaks entirely — rate conversion creates subtle mismatches
+        // in trim/split/zoom. The worker generates correct peaks from decoded audio.
         let waveformData: any = null;
         if (waveformDataPromise) {
           try {
-            waveformData = await waveformDataPromise;
+            const wd = await waveformDataPromise;
+            // Ensure context is configured so we can compare rates
+            await this._ensureContextConfigured();
+            const { getGlobalAudioContext } = await import('@waveform-playlist/playout');
+            const contextRate = getGlobalAudioContext().sampleRate;
+            if (wd.sample_rate === contextRate) {
+              waveformData = wd;
+            } else {
+              console.warn(
+                '[dawcore] Pre-computed peaks at ' +
+                  wd.sample_rate +
+                  ' Hz do not match AudioContext at ' +
+                  contextRate +
+                  ' Hz — ignoring ' +
+                  clipDesc.peaksSrc +
+                  ', generating from audio'
+              );
+            }
           } catch (err) {
             console.warn(
               '[dawcore] Failed to load peaks from ' +
@@ -456,16 +483,18 @@ export class DawEditorElement extends LitElement {
           }
         }
         if (waveformData) {
-          // Create clip from WaveformData metadata (no audioBuffer yet)
-          const clip = createClipFromSeconds({
+          // Create clip with integer samples to avoid float round-trip drift
+          // (CLAUDE.md pattern #40: prefer createClip when samples known)
+          const wdRate = waveformData.sample_rate;
+          const clip = createClip({
             waveformData,
-            startTime: clipDesc.start,
-            duration: clipDesc.duration || waveformData.duration,
-            offset: clipDesc.offset,
+            startSample: Math.round(clipDesc.start * wdRate),
+            durationSamples: Math.round((clipDesc.duration || waveformData.duration) * wdRate),
+            offsetSamples: Math.round(clipDesc.offset * wdRate),
             gain: clipDesc.gain,
             name: clipDesc.name,
-            sampleRate: waveformData.sample_rate,
-            sourceDuration: waveformData.duration,
+            sampleRate: wdRate,
+            sourceDurationSamples: Math.ceil(waveformData.duration * wdRate),
           });
           const effectiveScale = Math.max(this.samplesPerPixel, waveformData.scale);
           const peakData = extractPeaks(
@@ -584,6 +613,35 @@ export class DawEditorElement extends LitElement {
       );
     }
   }
+  private _contextConfigurePromise: Promise<void> | null = null;
+  /**
+   * Ensure the global AudioContext is configured with the editor's sample-rate hint
+   * before the first audio operation. Idempotent — concurrent callers await the
+   * same promise so no one proceeds to getGlobalAudioContext() before configuration.
+   */
+  private _ensureContextConfigured(): Promise<void> {
+    if (!this._contextConfigurePromise) {
+      this._contextConfigurePromise = (async () => {
+        const { configureGlobalContext } = await import('@waveform-playlist/playout');
+        const actualRate = configureGlobalContext({
+          sampleRate: this.sampleRate,
+        });
+        if (actualRate !== this.sampleRate) {
+          console.warn(
+            '[dawcore] Requested sampleRate ' +
+              this.sampleRate +
+              ' but AudioContext is running at ' +
+              actualRate
+          );
+        }
+      })().catch((err) => {
+        // Clear on rejection so next call can retry (same pattern as _enginePromise)
+        this._contextConfigurePromise = null;
+        throw err;
+      });
+    }
+    return this._contextConfigurePromise;
+  }
   async _fetchAndDecode(src: string): Promise<AudioBuffer> {
     if (this._audioCache.has(src)) {
       return this._audioCache.get(src)!;
@@ -596,7 +654,8 @@ export class DawEditorElement extends LitElement {
         );
       }
       const arrayBuffer = await response.arrayBuffer();
-      // decodeAudioData works while context is suspended (pre-gesture)
+      // Configure context with sample-rate hint before first decode
+      await this._ensureContextConfigured();
       const { getGlobalAudioContext } = await import('@waveform-playlist/playout');
       return getGlobalAudioContext().decodeAudioData(arrayBuffer);
     })();

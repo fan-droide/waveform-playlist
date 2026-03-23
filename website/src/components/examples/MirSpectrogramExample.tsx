@@ -156,6 +156,7 @@ export function MirSpectrogramExample() {
       {allTracks.length > 0 && (
         <WaveformPlaylistProvider
           tracks={allTracks}
+          sampleRate={48000}
           theme={theme}
           timescale
           automaticScroll

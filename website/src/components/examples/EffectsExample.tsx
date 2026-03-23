@@ -765,6 +765,7 @@ export function EffectsExample() {
 
       <WaveformPlaylistProvider
         tracks={tracksWithEffects}
+        sampleRate={48000}
         samplesPerPixel={512}
         zoomLevels={[256, 512, 1024, 2048, 4096]}
         waveHeight={100}

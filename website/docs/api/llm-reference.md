@@ -47,6 +47,8 @@ interface WaveformPlaylistProviderProps {
   soundFontCache?: SoundFontCache;
   /** Disable automatic stop when cursor reaches end of longest track */
   indefinitePlayback?: boolean;           // Default: false
+  /** Desired AudioContext sample rate for pre-computed peaks matching */
+  sampleRate?: number;
 }
 ```
 

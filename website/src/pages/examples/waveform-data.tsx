@@ -56,6 +56,12 @@ export default function WaveformDataExamplePage(): React.ReactElement {
             <li><strong>Consistent rendering</strong> - same peaks regardless of browser/platform</li>
             <li><strong>Progressive loading</strong> - show waveforms while audio loads in background</li>
           </ul>
+          <p>
+            <strong>Sample rate note:</strong> Pre-computed peaks embed the source audio's sample rate.
+            The browser's AudioContext typically runs at 48000 Hz. If the rates don't match (e.g., peaks
+            generated from 44100 Hz audio on a 48000 Hz device), waveform-playlist falls back to generating
+            peaks from the decoded audio. For best results, generate peaks from 48000 Hz audio or resample first.
+          </p>
 
           <h3>Generating BBC Peaks Files</h3>
           <pre style={{
@@ -67,14 +73,15 @@ export default function WaveformDataExamplePage(): React.ReactElement {
 {`# Install audiowaveform (macOS)
 brew install audiowaveform
 
-# Generate binary .dat file at 256 samples per pixel
+# Generate from Opus (recommended — always 48000 Hz, matching most hardware)
+audiowaveform -i audio.opus -o peaks.dat -z 256 -b 8
+
+# Generate from MP3 or WAV
 audiowaveform -i audio.mp3 -o peaks.dat -z 256 -b 8
 
-# Generate with different zoom levels
-audiowaveform -i audio.mp3 -o peaks-30.dat -z 30 -b 8  # ~30 SPP
-
-# Generate 16-bit for higher precision
-audiowaveform -i audio.mp3 -o peaks-16bit.dat -z 256 -b 16`}
+# If source is 44100 Hz, encode to Opus first (resamples to 48000 Hz)
+ffmpeg -i audio.wav -c:a libopus audio.opus
+audiowaveform -i audio.opus -o peaks.dat -z 256 -b 8`}
           </pre>
 
           <p>

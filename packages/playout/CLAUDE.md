@@ -223,6 +223,10 @@ const analyser = context.createAnalyser();
 
 **Fix:** `new Panner({ pan, channelCount: 2 })` for `ToneTrack` (audio playback). MidiToneTrack/SoundFontToneTrack use mono synth sources, so `channelCount: 1` is correct there.
 
+## Native AudioContext for sampleRate Control
+
+**Critical:** `new Context({ sampleRate })` does NOT pass `sampleRate` through to `standardized-audio-context`. The option is silently ignored. Native `AudioContext({ sampleRate, latencyHint: 0 })` wrapped with `new Context(rawContext)` also causes Tone.js internal issues (reverted). `configureGlobalContext()` currently creates a standard `new Context()` and only compares the requested rate against the actual rate — it warns but cannot force the rate. The rate comparison + worker fallback handles mismatches. Revisit when Tone.js or standardized-audio-context supports sampleRate passthrough.
+
 ## Context Singleton Warning
 
 **`getGlobalContext()` replaces Tone's default context.** Any Tone.js node created via `getContext()` BEFORE `getGlobalContext()` first runs will be on a different (orphaned) audio graph. This affects hooks that run on mount (useEffect with `[]` deps) — they may capture the default context before audio init. Always import and use `getGlobalContext()` for nodes that must be in the playback signal path.

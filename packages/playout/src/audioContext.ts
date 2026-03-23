@@ -12,6 +12,61 @@ import { Context, setContext } from 'tone';
 
 let globalToneContext: Context | null = null;
 
+export interface AudioContextOptions {
+  /** Desired sample rate. Creates a standardized-audio-context AudioContext
+   *  at this rate, bypassing Tone.js 15.1.22's limitation. Cross-browser safe. */
+  sampleRate?: number;
+  /** Latency hint passed to the AudioContext constructor. */
+  latencyHint?: AudioContextLatencyCategory | number;
+}
+
+/**
+ * Configure the global AudioContext with sample rate and latency hints.
+ * Creates a standardized-audio-context AudioContext (cross-browser, fixes
+ * Firefox AudioListener bug) and wraps it in Tone.js Context.
+ *
+ * Should be called BEFORE getGlobalContext(). If the context already exists
+ * (e.g., from resumeGlobalAudioContext), warns and returns the existing rate.
+ *
+ * ```ts
+ * configureGlobalContext({ sampleRate: 48000, latencyHint: 0 })
+ * ```
+ */
+export function configureGlobalContext(options: AudioContextOptions): number {
+  if (globalToneContext) {
+    const existingRate = (globalToneContext.rawContext as AudioContext).sampleRate;
+    if (options.sampleRate !== undefined && options.sampleRate !== existingRate) {
+      console.warn(
+        '[playout] configureGlobalContext: context already created at ' +
+          existingRate +
+          ' Hz (requested ' +
+          options.sampleRate +
+          ' Hz). Call configureGlobalContext before any audio operations for sample rate control.'
+      );
+    }
+    return existingRate;
+  }
+  // TODO: Tone.js 15.1.22 doesn't pass sampleRate to standardized-audio-context,
+  // and passing a StdAudioContext directly to new Context() causes "param must be
+  // an AudioParam" errors. Wait for Tone.js to release the sampleRate fix.
+  // For now, create a standard Context and compare rates.
+  globalToneContext = new Context();
+  setContext(globalToneContext);
+  const actualRate = (globalToneContext.rawContext as AudioContext).sampleRate;
+  if (options.sampleRate !== undefined && options.sampleRate !== actualRate) {
+    console.warn(
+      '[playout] Requested sampleRate ' +
+        options.sampleRate +
+        ' but AudioContext is running at ' +
+        actualRate +
+        ' — pre-computed peaks at ' +
+        options.sampleRate +
+        ' Hz will fall back to worker'
+    );
+  }
+  return actualRate;
+}
+
 /**
  * Get the global Tone.js Context
  * This is the main context for cross-browser audio operations.

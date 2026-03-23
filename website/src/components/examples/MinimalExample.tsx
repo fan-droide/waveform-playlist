@@ -115,7 +115,7 @@ export function MinimalExample() {
   }
 
   return (
-    <WaveformPlaylistProvider tracks={tracks} samplesPerPixel={2048} mono theme={{ ...theme, ...gradientTheme }} progressBarWidth={2}>
+    <WaveformPlaylistProvider tracks={tracks} sampleRate={48000} samplesPerPixel={2048} mono theme={{ ...theme, ...gradientTheme }} progressBarWidth={2}>
       <Controls>
         <PlayButton />
         <PauseButton />

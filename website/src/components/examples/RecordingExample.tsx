@@ -604,6 +604,7 @@ export function RecordingExample() {
       <Container>
         <WaveformPlaylistProvider
           tracks={tracks}
+          sampleRate={48000}
           onTracksChange={setTracks}
           samplesPerPixel={1024}
           zoomLevels={[256, 512, 1024, 2048, 4096]}

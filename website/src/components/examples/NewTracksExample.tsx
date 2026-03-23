@@ -125,6 +125,7 @@ export function NewTracksExample() {
       {tracks.length > 0 && (
         <WaveformPlaylistProvider
           tracks={tracks}
+          sampleRate={48000}
           samplesPerPixel={8192}
           zoomLevels={[512, 1024, 2048, 4096, 8192, 16384, 32768]}
           mono
