@@ -27,10 +27,35 @@ import { loadFiles as loadFilesImpl } from '../interactions/file-loader';
 import { addRecordedClip } from '../interactions/recording-clip';
 import { splitAtPlayhead as performSplitAtPlayhead } from '../interactions/split-handler';
 import { syncPeaksForChangedClips } from '../interactions/clip-peak-sync';
+import { loadWaveformDataFromUrl } from '../interactions/peaks-loader';
+import { extractPeaks } from '../workers/waveformDataUtils';
 
 @customElement('daw-editor')
 export class DawEditorElement extends LitElement {
-  @property({ type: Number, attribute: 'samples-per-pixel' }) samplesPerPixel = 1024;
+  @property({ type: Number, attribute: 'samples-per-pixel', noAccessor: true })
+  get samplesPerPixel(): number {
+    return this._samplesPerPixel;
+  }
+  set samplesPerPixel(value: number) {
+    const old = this._samplesPerPixel;
+    if (!Number.isFinite(value) || value <= 0) return;
+    const clamped =
+      this._minSamplesPerPixel > 0 && value < this._minSamplesPerPixel
+        ? this._minSamplesPerPixel
+        : value;
+    if (clamped !== value) {
+      console.warn(
+        '[dawcore] Zoom ' +
+          value +
+          ' spp rejected — pre-computed peaks limit is ' +
+          this._minSamplesPerPixel +
+          ' spp'
+      );
+    }
+    this._samplesPerPixel = clamped;
+    this.requestUpdate('samplesPerPixel', old);
+  }
+  private _samplesPerPixel = 1024;
   @property({ type: Number, attribute: 'wave-height' }) waveHeight = 128;
   @property({ type: Boolean }) timescale = false;
   @property({ type: Boolean }) mono = false;
@@ -58,9 +83,12 @@ export class DawEditorElement extends LitElement {
   _engine: PlaylistEngine | null = null;
   private _enginePromise: Promise<PlaylistEngine> | null = null;
   _audioCache = new Map<string, Promise<AudioBuffer>>();
+  private _peaksCache = new Map<string, Promise<import('waveform-data').default>>();
   _clipBuffers = new Map<string, AudioBuffer>();
   _clipOffsets = new Map<string, { offsetSamples: number; durationSamples: number }>();
   _peakPipeline = new PeakPipeline();
+  /** Coarsest scale from pre-computed peaks — zoom cannot go finer than this. 0 = no limit. */
+  private _minSamplesPerPixel = 0;
   private _trackElements = new Map<string, DawTrackElement>();
   private _childObserver: MutationObserver | null = null;
   private _audioResume = new AudioResumeController(this);
@@ -211,9 +239,11 @@ export class DawEditorElement extends LitElement {
     this._childObserver = null;
     this._trackElements.clear();
     this._audioCache.clear();
+    this._peaksCache.clear();
     this._clipBuffers.clear();
     this._clipOffsets.clear();
     this._peakPipeline.terminate();
+    this._minSamplesPerPixel = 0;
     try {
       this._disposeEngine();
     } catch (err) {
@@ -229,7 +259,8 @@ export class DawEditorElement extends LitElement {
       this._startPlayhead();
     }
     // Re-extract peaks at new zoom level from cached WaveformData (near-instant).
-    // Always works because the worker generates at baseScale (128), the finest level.
+    // For worker-generated peaks, baseScale (128) is finest; for pre-computed .dat
+    // peaks, the file's scale is the limit — _clampScale handles either case.
     if (changedProperties.has('samplesPerPixel') && this._clipBuffers.size > 0) {
       const re = this._peakPipeline.reextractPeaks(
         this._clipBuffers,
@@ -281,6 +312,8 @@ export class DawEditorElement extends LitElement {
       // Incremental removal preserves playback (no playout rebuild)
       this._engine.removeTrack(trackId);
     }
+    // Recompute zoom floor from remaining cached WaveformData scales
+    this._minSamplesPerPixel = this._peakPipeline.getMaxCachedScale(this._clipBuffers);
     if (nextEngine.size === 0) {
       this._currentTime = 0;
       this._stopPlayhead();
@@ -359,6 +392,7 @@ export class DawEditorElement extends LitElement {
     if (clipEls.length === 0 && trackEl.src) {
       clips.push({
         src: trackEl.src,
+        peaksSrc: '',
         start: 0,
         duration: 0,
         offset: 0,
@@ -372,6 +406,7 @@ export class DawEditorElement extends LitElement {
       for (const clipEl of clipEls) {
         clips.push({
           src: clipEl.src,
+          peaksSrc: clipEl.peaksSrc,
           start: clipEl.start,
           duration: clipEl.duration,
           offset: clipEl.offset,
@@ -399,8 +434,98 @@ export class DawEditorElement extends LitElement {
       const clips = [];
       for (const clipDesc of descriptor.clips) {
         if (!clipDesc.src) continue;
-        const audioBuffer = await this._fetchAndDecode(clipDesc.src);
-        // Use the buffer's actual sample rate (hardware rate may differ from initial hint)
+
+        // Start both fetches concurrently — await peaks first to render preview before audio decode
+        const waveformDataPromise = clipDesc.peaksSrc
+          ? this._fetchPeaks(clipDesc.peaksSrc)
+          : null;
+        const audioPromise = this._fetchAndDecode(clipDesc.src);
+
+        // --- Peaks-first path: render waveform before audio decode completes ---
+        // Separate try/catch for peaks so audio errors aren't misattributed
+        let waveformData: any = null;
+        if (waveformDataPromise) {
+          try {
+            waveformData = await waveformDataPromise;
+          } catch (err) {
+            console.warn(
+              '[dawcore] Failed to load peaks from ' +
+                clipDesc.peaksSrc +
+                ': ' +
+                String(err) +
+                ' — falling back to AudioBuffer generation'
+            );
+          }
+        }
+        if (waveformData) {
+          // Create clip from WaveformData metadata (no audioBuffer yet)
+          const clip = createClipFromSeconds({
+            waveformData,
+            startTime: clipDesc.start,
+            duration: clipDesc.duration || waveformData.duration,
+            offset: clipDesc.offset,
+            gain: clipDesc.gain,
+            name: clipDesc.name,
+            sampleRate: waveformData.sample_rate,
+            sourceDuration: waveformData.duration,
+          });
+          const effectiveScale = Math.max(this.samplesPerPixel, waveformData.scale);
+          const peakData = extractPeaks(
+            waveformData,
+            effectiveScale,
+            this.mono,
+            clip.offsetSamples,
+            clip.durationSamples
+          );
+          this._clipOffsets.set(clip.id, {
+            offsetSamples: clip.offsetSamples,
+            durationSamples: clip.durationSamples,
+          });
+          this._peaksData = new Map(this._peaksData).set(clip.id, peakData);
+          this._minSamplesPerPixel = Math.max(this._minSamplesPerPixel, waveformData.scale);
+
+          // Render preview track immediately with peaks (render-only until audio
+          // completes and engine.setTracks() runs at end of _loadTrack)
+          const previewTrack = createTrack({
+            name: descriptor.name,
+            clips: [clip],
+            volume: descriptor.volume,
+            pan: descriptor.pan,
+            muted: descriptor.muted,
+            soloed: descriptor.soloed,
+          });
+          previewTrack.id = trackId;
+          this._engineTracks = new Map(this._engineTracks).set(trackId, previewTrack);
+          this._recomputeDuration();
+
+          // Wait for audio decode — clean up preview state if it fails
+          let audioBuffer: AudioBuffer;
+          try {
+            audioBuffer = await audioPromise;
+          } catch (audioErr) {
+            // Remove ghost preview so the user doesn't see a waveform with no audio
+            const nextPeaks = new Map(this._peaksData);
+            nextPeaks.delete(clip.id);
+            this._peaksData = nextPeaks;
+            this._clipOffsets.delete(clip.id);
+            const nextEngine = new Map(this._engineTracks);
+            nextEngine.delete(trackId);
+            this._engineTracks = nextEngine;
+            this._minSamplesPerPixel = this._peakPipeline.getMaxCachedScale(this._clipBuffers);
+            this._recomputeDuration();
+            throw audioErr; // Propagate to outer catch for daw-track-error event
+          }
+          this._resolvedSampleRate = audioBuffer.sampleRate;
+          // Backfill audioBuffer immutably: new clip replaces the preview clip
+          const updatedClip = { ...clip, audioBuffer };
+          this._clipBuffers = new Map(this._clipBuffers).set(clip.id, audioBuffer);
+          this._peakPipeline.cacheWaveformData(audioBuffer, waveformData);
+          clips.push(updatedClip);
+          continue;
+        }
+
+        // --- Standard path: decode audio first, then generate peaks ---
+        const audioBuffer = await audioPromise;
         this._resolvedSampleRate = audioBuffer.sampleRate;
         const clip = createClipFromSeconds({
           audioBuffer,
@@ -412,7 +537,6 @@ export class DawEditorElement extends LitElement {
           sampleRate: audioBuffer.sampleRate,
           sourceDuration: audioBuffer.duration,
         });
-
         this._clipBuffers = new Map(this._clipBuffers).set(clip.id, audioBuffer);
         this._clipOffsets.set(clip.id, {
           offsetSamples: clip.offsetSamples,
@@ -485,6 +609,16 @@ export class DawEditorElement extends LitElement {
       this._audioCache.delete(src);
       throw err;
     }
+  }
+  private _fetchPeaks(src: string): Promise<import('waveform-data').default> {
+    const cached = this._peaksCache.get(src);
+    if (cached) return cached;
+    const promise = loadWaveformDataFromUrl(src).catch((err) => {
+      this._peaksCache.delete(src);
+      throw err;
+    });
+    this._peaksCache.set(src, promise);
+    return promise;
   }
   _recomputeDuration() {
     let maxSample = 0;
