@@ -15,8 +15,11 @@ export interface SplitEngineContract {
 export interface SplitHost {
   readonly effectiveSampleRate: number;
   readonly currentTime: number;
+  readonly isPlaying: boolean;
   readonly engine: SplitEngineContract | null;
   dispatchEvent(event: Event): boolean;
+  stop(): void;
+  play(time: number): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -24,12 +27,61 @@ export interface SplitHost {
 // ---------------------------------------------------------------------------
 
 /**
- * Splits the clip under the playhead on the selected track.
+ * Split the clip under the playhead on the selected track.
+ * Stops playback before split and resumes after to avoid duplicate audio
+ * from Transport rescheduling during playback.
  *
  * Returns true if the split occurred and dispatched a daw-clip-split event.
  * Returns false for any guard failure or engine no-op.
  */
 export function splitAtPlayhead(host: SplitHost): boolean {
+  const wasPlaying = host.isPlaying;
+  const time = host.currentTime;
+
+  // Check guards before stopping playback — don't interrupt audio for a no-op
+  if (!canSplitAtTime(host, time)) return false;
+
+  if (wasPlaying) {
+    host.stop();
+  }
+
+  let result: boolean;
+  try {
+    result = performSplit(host, time);
+  } catch (err) {
+    console.warn('[dawcore] splitAtPlayhead failed: ' + String(err));
+    result = false;
+  }
+
+  // Always resume if was playing — even on failed split, don't leave audio stopped
+  if (wasPlaying) {
+    host.play(time);
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Internal
+// ---------------------------------------------------------------------------
+
+/** Pre-flight check — can a split happen at this time without touching playback? */
+function canSplitAtTime(host: SplitHost, time: number): boolean {
+  const { engine } = host;
+  if (!engine) return false;
+
+  const state = engine.getState();
+  if (!state.selectedTrackId) return false;
+
+  const track = state.tracks.find((t) => t.id === state.selectedTrackId);
+  if (!track) return false;
+
+  const atSample = Math.round(time * host.effectiveSampleRate);
+  return !!findClipAtSample(track.clips, atSample);
+}
+
+/** Core split logic — finds clip at position, calls engine, diffs state for new IDs. */
+function performSplit(host: SplitHost, time: number): boolean {
   const { engine } = host;
   if (!engine) return false;
 
@@ -41,7 +93,7 @@ export function splitAtPlayhead(host: SplitHost): boolean {
   const track = tracks.find((t) => t.id === selectedTrackId);
   if (!track) return false;
 
-  const atSample = Math.round(host.currentTime * host.effectiveSampleRate);
+  const atSample = Math.round(time * host.effectiveSampleRate);
 
   const clip = findClipAtSample(track.clips, atSample);
   if (!clip) return false;
@@ -91,10 +143,6 @@ export function splitAtPlayhead(host: SplitHost): boolean {
 
   return true;
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Finds a clip that strictly contains the given sample position.

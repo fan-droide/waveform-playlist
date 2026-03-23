@@ -26,6 +26,8 @@ import type {
 import { loadFiles as loadFilesImpl } from '../interactions/file-loader';
 import { addRecordedClip } from '../interactions/recording-clip';
 import { splitAtPlayhead as performSplitAtPlayhead } from '../interactions/split-handler';
+import { handleKeyboardEvent } from '@waveform-playlist/core';
+import type { KeyboardShortcut } from '@waveform-playlist/core';
 import { syncPeaksForChangedClips } from '../interactions/clip-peak-sync';
 
 @customElement('daw-editor')
@@ -40,6 +42,10 @@ export class DawEditorElement extends LitElement {
   @property({ type: Boolean, attribute: 'clip-headers' }) clipHeaders = false;
   @property({ type: Number, attribute: 'clip-header-height' }) clipHeaderHeight = 20;
   @property({ type: Boolean, attribute: 'interactive-clips' }) interactiveClips = false;
+  /** Enable default keyboard shortcuts (Space, Escape, 0, and S when interactive-clips). */
+  @property({ type: Boolean, attribute: 'keyboard-shortcuts' }) keyboardShortcuts = false;
+  /** Custom keyboard shortcuts. Set via JS property. Overrides defaults when non-null. */
+  shortcuts: KeyboardShortcut[] | null = null;
   /** Initial sample rate hint. Overridden by decoded audio buffer's actual rate. */
   @property({ type: Number, attribute: 'sample-rate' }) sampleRate = 48000;
   /** Resolved sample rate — falls back to sampleRate property until first audio decode. */
@@ -177,10 +183,7 @@ export class DawEditorElement extends LitElement {
   // --- Lifecycle ---
   connectedCallback() {
     super.connectedCallback();
-    if (!this.hasAttribute('tabindex')) {
-      this.setAttribute('tabindex', '0');
-    }
-    this.addEventListener('keydown', this._onKeyDown);
+    document.addEventListener('keydown', this._onKeyDown);
     this.addEventListener('daw-track-connected', this._onTrackConnected as EventListener);
     this.addEventListener('daw-track-update', this._onTrackUpdate as EventListener);
     this.addEventListener('daw-track-control', this._onTrackControl as EventListener);
@@ -207,7 +210,7 @@ export class DawEditorElement extends LitElement {
   }
   disconnectedCallback() {
     super.disconnectedCallback();
-    this.removeEventListener('keydown', this._onKeyDown);
+    document.removeEventListener('keydown', this._onKeyDown);
     this.removeEventListener('daw-track-connected', this._onTrackConnected as EventListener);
     this.removeEventListener('daw-track-update', this._onTrackUpdate as EventListener);
     this.removeEventListener('daw-track-control', this._onTrackControl as EventListener);
@@ -316,6 +319,20 @@ export class DawEditorElement extends LitElement {
   private _onTrackControl = (e: CustomEvent) => {
     const { trackId, prop, value } = e.detail ?? {};
     if (!trackId || !prop || !DawEditorElement._CONTROL_PROPS.has(prop)) return;
+    // Select the track when interacting with its controls
+    if (this._selectedTrackId !== trackId) {
+      this._setSelectedTrackId(trackId);
+      if (this._engine) {
+        this._engine.selectTrack(trackId);
+      }
+      this.dispatchEvent(
+        new CustomEvent('daw-track-select', {
+          bubbles: true,
+          composed: true,
+          detail: { trackId },
+        })
+      );
+    }
     const oldDescriptor = this._tracks.get(trackId);
     if (oldDescriptor) {
       const descriptor = { ...oldDescriptor, [prop]: value };
@@ -618,10 +635,28 @@ export class DawEditorElement extends LitElement {
     this._stopPlayhead();
     this.dispatchEvent(new CustomEvent('daw-stop', { bubbles: true, composed: true }));
   }
+  /** Toggle between play and pause. */
+  togglePlayPause() {
+    if (this._isPlaying) {
+      this.pause();
+    } else {
+      this.play();
+    }
+  }
   seekTo(time: number) {
-    if (!this._engine) return;
-    this._engine.seek(time);
-    this._currentTime = time;
+    if (!this._engine) {
+      console.warn('[dawcore] seekTo: engine not ready, call ignored');
+      return;
+    }
+    if (this._isPlaying) {
+      // Tone.js needs stop+play to reschedule audio sources at new position
+      this.stop();
+      this.play(time);
+    } else {
+      this._engine.seek(time);
+      this._currentTime = time;
+      this._stopPlayhead();
+    }
   }
 
   /** Split the clip under the playhead on the selected track. */
@@ -629,22 +664,61 @@ export class DawEditorElement extends LitElement {
     return performSplitAtPlayhead({
       effectiveSampleRate: this.effectiveSampleRate,
       currentTime: this._currentTime,
+      isPlaying: this._isPlaying,
       engine: this._engine,
       dispatchEvent: (e: Event) => this.dispatchEvent(e),
+      stop: () => {
+        this._engine?.stop();
+        this._stopPlayhead();
+      },
+      // Call engine.play directly (synchronous) — not the async editor play()
+      // which yields to microtask queue via await engine.init(). Engine is
+      // already initialized at split time; the async gap causes audio desync.
+      play: (time: number) => {
+        this._engine?.play(time);
+        this._startPlayhead();
+      },
     });
   }
 
+  /** Get the active shortcuts — custom overrides defaults when non-null. */
+  private _getActiveShortcuts(): KeyboardShortcut[] {
+    // Custom shortcuts override everything (including empty array = no shortcuts)
+    if (this.shortcuts !== null) return this.shortcuts;
+    // Defaults only when keyboard-shortcuts attribute is set
+    if (!this.keyboardShortcuts) return [];
+    const defaults: KeyboardShortcut[] = [
+      { key: ' ', action: () => this.togglePlayPause(), description: 'Play/Pause' },
+      { key: 'Escape', action: () => this.stop(), description: 'Stop' },
+      { key: '0', action: () => this.seekTo(0), description: 'Rewind to start' },
+    ];
+    if (this.interactiveClips) {
+      defaults.push({
+        key: 's',
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        action: () => this.splitAtPlayhead(),
+        description: 'Split at playhead',
+      });
+    }
+    return defaults;
+  }
+
   private _onKeyDown = (e: KeyboardEvent) => {
-    if (!this.interactiveClips) return;
-    if (e.key === 's' || e.key === 'S') {
-      // Don't intercept Ctrl+S/Cmd+S (save) or other modifier combos
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      // Don't split when user is typing in a form element
-      const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if ((e.target as HTMLElement)?.isContentEditable) return;
-      e.preventDefault();
-      this.splitAtPlayhead();
+    const shortcuts = this._getActiveShortcuts();
+    if (shortcuts.length === 0) return;
+    try {
+      handleKeyboardEvent(e, shortcuts, true);
+    } catch (err) {
+      console.warn('[dawcore] Keyboard shortcut failed: ' + String(err));
+      this.dispatchEvent(
+        new CustomEvent('daw-error', {
+          bubbles: true,
+          composed: true,
+          detail: { operation: 'keyboard-shortcut', error: err },
+        })
+      );
     }
   };
 
