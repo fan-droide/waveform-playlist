@@ -106,6 +106,43 @@ function App() {
 | `@waveform-playlist/spectrogram` | Spectrogram visualization with FFT worker |
 | `@waveform-playlist/media-element-playout` | HTMLMediaElement-based playout with pitch-preserving playback rate |
 
+## Web Components (Experimental)
+
+`@dawcore/components` provides framework-agnostic Web Components for multi-track audio editing — no React required. Built with Lit, wrapping the same engine and Tone.js adapter.
+
+```bash
+npm install @dawcore/components
+```
+
+```html
+<script type="module">
+  import '@dawcore/components';
+</script>
+
+<daw-editor clip-headers interactive-clips timescale file-drop>
+  <daw-track name="Vocals">
+    <daw-clip src="/audio/vocals.mp3" start="0" duration="10"></daw-clip>
+  </daw-track>
+</daw-editor>
+
+<daw-transport for="editor">
+  <daw-play-button></daw-play-button>
+  <daw-stop-button></daw-stop-button>
+</daw-transport>
+```
+
+Run the examples locally:
+
+```bash
+cd packages/dawcore && pnpm dev:page
+```
+
+Then open `http://localhost:5173/dev/` — example pages:
+
+- [`index.html`](packages/dawcore/dev/index.html) — Basic playback with timescale and file drop
+- [`multiclip.html`](packages/dawcore/dev/multiclip.html) — Multi-clip editing with move, trim, and split
+- [`record.html`](packages/dawcore/dev/record.html) — Recording with overdub
+
 ## Key Hooks
 
 ```tsx
