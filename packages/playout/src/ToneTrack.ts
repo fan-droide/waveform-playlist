@@ -243,13 +243,23 @@ export class ToneTrack {
 
     try {
       transport.clear(scheduled.scheduleId);
-    } catch {
-      /* already cleared */
+    } catch (err) {
+      console.warn(
+        '[waveform-playlist] removeScheduledClip: clear failed on track "' +
+          this.id +
+          '": ' +
+          String(err)
+      );
     }
     try {
       scheduled.fadeGainNode.disconnect();
-    } catch {
-      /* already disconnected */
+    } catch (err) {
+      console.warn(
+        '[waveform-playlist] removeScheduledClip: disconnect failed on track "' +
+          this.id +
+          '": ' +
+          String(err)
+      );
     }
 
     this.scheduledClips.splice(index, 1);
@@ -263,6 +273,11 @@ export class ToneTrack {
    * needing to explicitly stop it.
    */
   replaceClips(newClips: ClipInfo[], newStartTime?: number): void {
+    // When track.startTime changes, all Transport events must be rescheduled
+    // because absolute times (track.startTime + clip.startTime) shift even if
+    // relative clip.startTime values stay the same.
+    const startTimeChanged = newStartTime !== undefined && newStartTime !== this.track.startTime;
+
     // Update track startTime if the minimum clip position changed (e.g., moveClip)
     if (newStartTime !== undefined) {
       this.track.startTime = newStartTime;
@@ -270,20 +285,26 @@ export class ToneTrack {
     const tp = getTransport();
 
     // Diff old vs new clips — a clip is "unchanged" if buffer reference and
-    // all timing properties match exactly
+    // all timing properties match exactly. Skip diff if startTime changed
+    // (all clips need rescheduling for new absolute positions).
     const kept: ScheduledClip[] = [];
     const toAdd: ClipInfo[] = [];
     const matched = new Set<number>(); // indices into this.scheduledClips
 
-    for (const clipInfo of newClips) {
-      const idx = this.scheduledClips.findIndex(
-        (s, i) => !matched.has(i) && this._clipsEqual(s.clipInfo, clipInfo)
-      );
-      if (idx !== -1) {
-        kept.push(this.scheduledClips[idx]);
-        matched.add(idx);
-      } else {
-        toAdd.push(clipInfo);
+    if (startTimeChanged) {
+      // Force full reschedule — all new clips are "toAdd", none kept
+      toAdd.push(...newClips);
+    } else {
+      for (const clipInfo of newClips) {
+        const idx = this.scheduledClips.findIndex(
+          (s, i) => !matched.has(i) && this._clipsEqual(s.clipInfo, clipInfo)
+        );
+        if (idx !== -1) {
+          kept.push(this.scheduledClips[idx]);
+          matched.add(idx);
+        } else {
+          toAdd.push(clipInfo);
+        }
       }
     }
 
@@ -294,13 +315,23 @@ export class ToneTrack {
         const scheduled = this.scheduledClips[i];
         try {
           tp.clear(scheduled.scheduleId);
-        } catch {
-          /* */
+        } catch (err) {
+          console.warn(
+            '[waveform-playlist] replaceClips: clear failed on track "' +
+              this.id +
+              '": ' +
+              String(err)
+          );
         }
         try {
           scheduled.fadeGainNode.disconnect();
-        } catch {
-          /* */
+        } catch (err) {
+          console.warn(
+            '[waveform-playlist] replaceClips: disconnect failed on track "' +
+              this.id +
+              '": ' +
+              String(err)
+          );
         }
       }
     }

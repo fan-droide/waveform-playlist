@@ -111,6 +111,23 @@ Custom properties on `<daw-editor>` or any ancestor, inherited through Shadow DO
 - **Use `getGlobalAudioContext()` for decode** — Import from `@waveform-playlist/playout`. Same context Tone.js uses. `decodeAudioData` works while suspended (pre-gesture). Never create a separate AudioContext for decoding.
 - **Pointer interactions extracted** — `interactions/pointer-handler.ts` handles pointerdown/move/up, caches timeline ref and rect, distinguishes click vs drag. The host implements `PointerHandlerHost` interface.
 - **Peak pipeline extracted** — `workers/peakPipeline.ts` manages worker lifecycle, WaveformData cache, inflight dedup.
+- **Prevent native drag on interactive elements** — `<daw-editor>` has `@dragover`/`@drop` for file drops, which activates the browser's drag-and-drop system. Clip headers and boundaries need `e.preventDefault()` on `pointerdown` (in pointer-handler delegation), `-webkit-user-drag: none` and `user-select: none` in CSS to prevent the browser from stealing pointer events during custom drag operations.
+
+## Clip Interactions
+
+- **`ClipPointerHandler`** in `interactions/clip-pointer-handler.ts` — handles move/trim drag. `ClipEngineContract` is a narrow interface (`moveClip`, `trimClip`, `updateTrack`). `ClipPointerHost` interface satisfied by `<daw-editor>` via getters.
+- **Hit detection uses `closest()`** — `composedPath()[0]` returns the deepest element (e.g., `<span>` inside `.clip-header`). Always use `target.closest('.clip-header')` / `target.closest('.clip-boundary')` to walk up.
+- **Move: incremental deltas with `skipAdapter`** — `engine.moveClip(id, clipId, delta, true)` skips adapter during drag (60fps). Call `engine.updateTrack(trackId)` once on `pointerup` to sync Tone.js.
+- **Trim: cumulative delta on drop only** — Engine's `constrainBoundaryTrim` checks constraints against current clip state, so incremental deltas compound incorrectly. Accumulate total delta during drag, call `engine.trimClip()` once on `pointerup`.
+- **Trim visual feedback** — Imperatively update `.clip-container` CSS (`left`/`width`) during drag. Restore original CSS before engine applies.
+- **`splitAtPlayhead()`** in `interactions/split-handler.ts` — discovers new clip IDs by diffing `engine.getState().tracks` before/after `engine.splitClip()` (returns void). Requires exactly 2 new IDs.
+- **`_syncPeaksForChangedClips`** — Called in statechange handler when `tracksVersion` changes. Regenerates peaks for clips with new IDs (split) or changed `offsetSamples`/`durationSamples` (trim). Without this, split clips have no waveform and trimmed clips show wrong audio portion.
+- **`cleanupOrphanedClipData`** — Called by `syncPeaksForChangedClips` to remove entries from `_clipBuffers`, `_clipOffsets`, `_peaksData` for clip IDs no longer in any track. Prevents memory leaks after split (original clip ID becomes orphaned).
+- **Trim peak re-extraction** — During trim drag, call `host.reextractClipPeaks()` to synchronously re-slice peaks from cached WaveformData at the new offset/duration. When peaks are available, set waveforms to `left:0` (peaks cover full new bounds). Fall back to `-deltaPx` shift only when cache unavailable.
+- **Statechange syncs `_engineTracks`** — When `tracksVersion` changes, rebuild `_engineTracks` Map from engine state. This is how `moveClip`/`trimClip`/`splitClip` trigger Lit re-renders.
+- **`DRAG_THRESHOLD`** — Shared constant in `interactions/constants.ts` (3px, click vs drag). Boundary width (8px) is CSS-only in `styles/theme.ts` (CSS can't import JS constants).
+- **Keyboard shortcut modifier guard** — `_onKeyDown` must check `e.ctrlKey || e.metaKey || e.altKey` before handling `S` key. Without this, Ctrl+S (save) triggers split.
+- **`engine.constrainTrimDelta()`** — Wraps the engine's `constrainBoundaryTrim` pure function. Call during trim drag for per-frame collision detection (timeline bounds, audio bounds, neighbor overlap, min duration). Don't manually clamp — use the engine's constraints so visual preview matches what's applied on drop.
 
 ## Typed Events
 

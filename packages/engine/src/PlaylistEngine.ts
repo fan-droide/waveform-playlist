@@ -163,10 +163,64 @@ export class PlaylistEngine {
   }
 
   // ---------------------------------------------------------------------------
+  // Clip Queries
+  // ---------------------------------------------------------------------------
+
+  /** Get a clip's full bounds for trim constraint computation. Returns null if not found. */
+  getClipBounds(
+    trackId: string,
+    clipId: string
+  ): {
+    offsetSamples: number;
+    durationSamples: number;
+    startSample: number;
+    sourceDurationSamples: number;
+  } | null {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (!track) return null;
+    const clip = track.clips.find((c: AudioClip) => c.id === clipId);
+    if (!clip) return null;
+    return {
+      offsetSamples: clip.offsetSamples,
+      durationSamples: clip.durationSamples,
+      startSample: clip.startSample,
+      sourceDurationSamples: clip.sourceDurationSamples,
+    };
+  }
+
+  /** Constrain a trim delta using the engine's collision/bounds logic.
+   *  Uses the clip's current state and neighboring clips for constraints. */
+  constrainTrimDelta(
+    trackId: string,
+    clipId: string,
+    boundary: 'left' | 'right',
+    deltaSamples: number
+  ): number {
+    const track = this._tracks.find((t) => t.id === trackId);
+    if (!track) return 0;
+    const clipIndex = track.clips.findIndex((c: AudioClip) => c.id === clipId);
+    if (clipIndex === -1) return 0;
+
+    const clip = track.clips[clipIndex];
+    const sortedClips = sortClipsByTime(track.clips);
+    const sortedIndex = sortedClips.findIndex((c: AudioClip) => c.id === clipId);
+    const minDuration = Math.floor(DEFAULT_MIN_DURATION_SECONDS * this._sampleRate);
+
+    return constrainBoundaryTrim(
+      clip,
+      deltaSamples,
+      boundary,
+      sortedClips,
+      sortedIndex,
+      minDuration
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // Clip Editing (delegates to operations/)
   // ---------------------------------------------------------------------------
 
-  moveClip(trackId: string, clipId: string, deltaSamples: number): void {
+  moveClip(trackId: string, clipId: string, deltaSamples: number, skipAdapter = false): void {
     const track = this._tracks.find((t) => t.id === trackId);
     if (!track) {
       console.warn(`[waveform-playlist/engine] moveClip: track "${trackId}" not found`);
@@ -203,7 +257,9 @@ export class PlaylistEngine {
     });
 
     this._tracksVersion++;
-    this._updateTrackOnAdapter(trackId);
+    if (!skipAdapter) {
+      this._updateTrackOnAdapter(trackId);
+    }
     this._emitStateChange();
   }
 
@@ -251,7 +307,8 @@ export class PlaylistEngine {
     trackId: string,
     clipId: string,
     boundary: 'left' | 'right',
-    deltaSamples: number
+    deltaSamples: number,
+    skipAdapter = false
   ): void {
     const track = this._tracks.find((t) => t.id === trackId);
     if (!track) {
@@ -302,7 +359,9 @@ export class PlaylistEngine {
     });
 
     this._tracksVersion++;
-    this._updateTrackOnAdapter(trackId);
+    if (!skipAdapter) {
+      this._updateTrackOnAdapter(trackId);
+    }
     this._emitStateChange();
   }
 

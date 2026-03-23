@@ -69,6 +69,30 @@ export interface DawRecordingErrorDetail {
   error: unknown;
 }
 
+export interface DawClipMoveDetail {
+  readonly trackId: string;
+  readonly clipId: string;
+  /** Requested cumulative delta. May exceed actual applied movement due to
+   *  collision constraints. Query engine state for actual clip positions. */
+  readonly deltaSamples: number;
+}
+
+export interface DawClipTrimDetail {
+  readonly trackId: string;
+  readonly clipId: string;
+  readonly boundary: 'left' | 'right';
+  /** Constrained cumulative delta applied by the engine. Already clamped
+   *  by collision and boundary constraints during drag. */
+  readonly deltaSamples: number;
+}
+
+export interface DawClipSplitDetail {
+  readonly trackId: string;
+  readonly originalClipId: string;
+  readonly leftClipId: string;
+  readonly rightClipId: string;
+}
+
 // ---------------------------------------------------------------------------
 // Event map — augments HTMLElementEventMap for typed addEventListener
 // ---------------------------------------------------------------------------
@@ -91,6 +115,9 @@ export interface DawEventMap {
   'daw-recording-start': CustomEvent<DawRecordingStartDetail>;
   'daw-recording-complete': CustomEvent<DawRecordingCompleteDetail>;
   'daw-recording-error': CustomEvent<DawRecordingErrorDetail>;
+  'daw-clip-move': CustomEvent<DawClipMoveDetail>;
+  'daw-clip-trim': CustomEvent<DawClipTrimDetail>;
+  'daw-clip-split': CustomEvent<DawClipSplitDetail>;
 }
 
 // Helper type for creating typed custom events
