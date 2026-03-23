@@ -659,6 +659,34 @@ export class DawEditorElement extends LitElement {
     }
   }
 
+  /** Undo the last structural edit. */
+  undo(): void {
+    if (!this._engine) {
+      console.warn('[dawcore] undo: engine not ready, call ignored');
+      return;
+    }
+    this._engine.undo();
+  }
+
+  /** Redo the last undone edit. */
+  redo(): void {
+    if (!this._engine) {
+      console.warn('[dawcore] redo: engine not ready, call ignored');
+      return;
+    }
+    this._engine.redo();
+  }
+
+  /** Whether undo is available. */
+  get canUndo(): boolean {
+    return this._engine?.canUndo ?? false;
+  }
+
+  /** Whether redo is available. */
+  get canRedo(): boolean {
+    return this._engine?.canRedo ?? false;
+  }
+
   /** Split the clip under the playhead on the selected track. */
   splitAtPlayhead(): boolean {
     return performSplitAtPlayhead({
@@ -691,6 +719,22 @@ export class DawEditorElement extends LitElement {
       { key: ' ', action: () => this.togglePlayPause(), description: 'Play/Pause' },
       { key: 'Escape', action: () => this.stop(), description: 'Stop' },
       { key: '0', action: () => this.seekTo(0), description: 'Rewind to start' },
+      { key: 'z', ctrlKey: true, shiftKey: false, action: () => this.undo(), description: 'Undo' },
+      {
+        key: 'z',
+        ctrlKey: true,
+        shiftKey: true,
+        action: () => this.redo(),
+        description: 'Redo',
+      },
+      { key: 'z', metaKey: true, shiftKey: false, action: () => this.undo(), description: 'Undo' },
+      {
+        key: 'z',
+        metaKey: true,
+        shiftKey: true,
+        action: () => this.redo(),
+        description: 'Redo',
+      },
     ];
     if (this.interactiveClips) {
       defaults.push({

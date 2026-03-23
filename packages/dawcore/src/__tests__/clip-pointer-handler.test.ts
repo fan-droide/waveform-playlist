@@ -8,7 +8,7 @@ import type { ClipEngineContract, ClipPointerHost } from '../interactions/clip-p
 
 function createMockEngine(): ClipEngineContract {
   return {
-    moveClip: vi.fn(),
+    moveClip: vi.fn().mockImplementation((_t: string, _c: string, d: number) => d),
     trimClip: vi.fn(),
     updateTrack: vi.fn(),
     getClipBounds: vi.fn().mockReturnValue({
@@ -19,6 +19,9 @@ function createMockEngine(): ClipEngineContract {
     }),
     // Default: pass through unconstrained (tests can override)
     constrainTrimDelta: vi.fn().mockImplementation((_t, _c, _b, d) => d),
+    beginTransaction: vi.fn(),
+    commitTransaction: vi.fn(),
+    abortTransaction: vi.fn(),
   };
 }
 
@@ -671,6 +674,46 @@ describe('ClipPointerHandler', () => {
       ) as CustomEvent;
       expect(trimEvent.bubbles).toBe(true);
       expect(trimEvent.composed).toBe(true);
+    });
+  });
+
+  describe('undo transactions', () => {
+    it('calls beginTransaction on drag start', () => {
+      const el = makeClipEl('clip-1', 'track-1');
+      handler.tryHandle(el, pointerEvent('pointerdown', { clientX: 100 }));
+
+      expect(engine.beginTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('calls commitTransaction after successful drag', () => {
+      const el = makeClipEl('clip-1', 'track-1');
+      handler.tryHandle(el, pointerEvent('pointerdown', { clientX: 100 }));
+      handler.onPointerMove(pointerEvent('pointermove', { clientX: 150 }));
+      handler.onPointerUp(pointerEvent('pointerup', { clientX: 150 }));
+
+      expect(engine.commitTransaction).toHaveBeenCalledTimes(1);
+      expect(engine.abortTransaction).not.toHaveBeenCalled();
+    });
+
+    it('calls abortTransaction on click (no drag)', () => {
+      const el = makeClipEl('clip-1', 'track-1');
+      handler.tryHandle(el, pointerEvent('pointerdown', { clientX: 100 }));
+      handler.onPointerUp(pointerEvent('pointerup', { clientX: 100 }));
+
+      expect(engine.abortTransaction).toHaveBeenCalledTimes(1);
+      expect(engine.commitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('calls abortTransaction when drag has zero net delta', () => {
+      const el = makeClipEl('clip-1', 'track-1');
+      handler.tryHandle(el, pointerEvent('pointerdown', { clientX: 100 }));
+      // Drag right then back to start — over threshold but net zero
+      handler.onPointerMove(pointerEvent('pointermove', { clientX: 104 }));
+      handler.onPointerMove(pointerEvent('pointermove', { clientX: 100 }));
+      handler.onPointerUp(pointerEvent('pointerup', { clientX: 100 }));
+
+      expect(engine.abortTransaction).toHaveBeenCalledTimes(1);
+      expect(engine.commitTransaction).not.toHaveBeenCalled();
     });
   });
 });

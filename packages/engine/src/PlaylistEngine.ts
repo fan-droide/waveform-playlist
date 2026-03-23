@@ -45,10 +45,18 @@ export class PlaylistEngine {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
   private _listeners: Map<string, Set<Function>> = new Map();
 
+  private _undoStack: ClipTrack[][] = [];
+  private _redoStack: ClipTrack[][] = [];
+  private _inTransaction = false;
+  private _transactionSnapshot: ClipTrack[] | null = null;
+  private _transactionMutated = false;
+  readonly undoLimit: number;
+
   constructor(options: PlaylistEngineOptions = {}) {
     this._sampleRate = options.sampleRate ?? DEFAULT_SAMPLE_RATE;
     this._zoomLevels = [...(options.zoomLevels ?? DEFAULT_ZOOM_LEVELS)];
     this._adapter = options.adapter ?? null;
+    this.undoLimit = options.undoLimit ?? 100;
 
     if (this._zoomLevels.length === 0) {
       throw new Error('PlaylistEngine: zoomLevels must not be empty');
@@ -63,6 +71,79 @@ export class PlaylistEngine {
       );
     }
     this._zoomIndex = zoomIndex;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Undo/Redo
+  // ---------------------------------------------------------------------------
+
+  get canUndo(): boolean {
+    return this._undoStack.length > 0;
+  }
+
+  get canRedo(): boolean {
+    return this._redoStack.length > 0;
+  }
+
+  undo(): void {
+    if (this._undoStack.length === 0) return;
+    const snapshot = this._undoStack.pop()!;
+    this._redoStack.push(this._snapshotTracks());
+    this._restoreTracks(snapshot);
+  }
+
+  redo(): void {
+    if (this._redoStack.length === 0) return;
+    const snapshot = this._redoStack.pop()!;
+    this._undoStack.push(this._snapshotTracks());
+    this._restoreTracks(snapshot);
+  }
+
+  clearHistory(): void {
+    this._undoStack = [];
+    this._redoStack = [];
+  }
+
+  beginTransaction(): void {
+    if (this._inTransaction) {
+      console.warn(
+        '[waveform-playlist/engine] beginTransaction: already in a transaction, ' +
+          'previous snapshot will be overwritten'
+      );
+    }
+    this._transactionSnapshot = this._snapshotTracks();
+    this._inTransaction = true;
+    this._transactionMutated = false;
+  }
+
+  commitTransaction(): void {
+    if (!this._inTransaction || this._transactionSnapshot === null) {
+      console.warn('[waveform-playlist/engine] commitTransaction: no active transaction to commit');
+      return;
+    }
+    this._undoStack.push(this._transactionSnapshot);
+    if (this._undoStack.length > this.undoLimit) {
+      this._undoStack.shift();
+    }
+    this._redoStack = [];
+    this._transactionSnapshot = null;
+    this._inTransaction = false;
+  }
+
+  abortTransaction(): void {
+    if (!this._inTransaction || this._transactionSnapshot === null) {
+      console.warn('[waveform-playlist/engine] abortTransaction: no active transaction to abort');
+      return;
+    }
+    const snapshot = this._transactionSnapshot;
+    const mutated = this._transactionMutated;
+    this._transactionSnapshot = null;
+    this._inTransaction = false;
+    this._transactionMutated = false;
+    // Only restore if mutations occurred — avoids full adapter rebuild on click
+    if (mutated) {
+      this._restoreTracks(snapshot);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -88,6 +169,8 @@ export class PlaylistEngine {
       loopStart: this._loopStart,
       loopEnd: this._loopEnd,
       isLoopEnabled: this._isLoopEnabled,
+      canUndo: this.canUndo,
+      canRedo: this.canRedo,
     };
   }
 
@@ -96,6 +179,7 @@ export class PlaylistEngine {
   // ---------------------------------------------------------------------------
 
   setTracks(tracks: ClipTrack[]): void {
+    this.clearHistory();
     this._tracks = [...tracks];
     this._tracksVersion++;
     this._adapter?.setTracks(this._tracks);
@@ -103,6 +187,7 @@ export class PlaylistEngine {
   }
 
   addTrack(track: ClipTrack): void {
+    this._pushUndoSnapshot();
     this._tracks = [...this._tracks, track];
     this._tracksVersion++;
     if (this._adapter?.addTrack) {
@@ -115,6 +200,7 @@ export class PlaylistEngine {
 
   removeTrack(trackId: string): void {
     if (!this._tracks.some((t) => t.id === trackId)) return;
+    this._pushUndoSnapshot();
     this._tracks = this._tracks.filter((t) => t.id !== trackId);
     this._tracksVersion++;
     if (this._selectedTrackId === trackId) {
@@ -133,6 +219,7 @@ export class PlaylistEngine {
     const resolved = track ?? this._tracks.find((t) => t.id === trackId);
     if (!resolved) return;
     if (track) {
+      this._pushUndoSnapshot();
       this._tracks = this._tracks.map((t) => (t.id === trackId ? track : t));
       this._tracksVersion++;
     }
@@ -220,11 +307,12 @@ export class PlaylistEngine {
   // Clip Editing (delegates to operations/)
   // ---------------------------------------------------------------------------
 
-  moveClip(trackId: string, clipId: string, deltaSamples: number, skipAdapter = false): void {
+  /** Move a clip by deltaSamples. Returns the constrained delta actually applied (0 if no-op). */
+  moveClip(trackId: string, clipId: string, deltaSamples: number, skipAdapter = false): number {
     const track = this._tracks.find((t) => t.id === trackId);
     if (!track) {
       console.warn(`[waveform-playlist/engine] moveClip: track "${trackId}" not found`);
-      return;
+      return 0;
     }
 
     const clipIndex = track.clips.findIndex((c: AudioClip) => c.id === clipId);
@@ -232,7 +320,7 @@ export class PlaylistEngine {
       console.warn(
         `[waveform-playlist/engine] moveClip: clip "${clipId}" not found in track "${trackId}"`
       );
-      return;
+      return 0;
     }
 
     const clip = track.clips[clipIndex];
@@ -241,7 +329,9 @@ export class PlaylistEngine {
 
     const constrainedDelta = constrainClipDrag(clip, deltaSamples, sortedClips, sortedIndex);
 
-    if (constrainedDelta === 0) return;
+    if (constrainedDelta === 0) return 0;
+
+    this._pushUndoSnapshot();
 
     this._tracks = this._tracks.map((t) => {
       if (t.id !== trackId) return t;
@@ -261,6 +351,7 @@ export class PlaylistEngine {
       this._updateTrackOnAdapter(trackId);
     }
     this._emitStateChange();
+    return constrainedDelta;
   }
 
   splitClip(trackId: string, clipId: string, atSample: number): void {
@@ -288,6 +379,8 @@ export class PlaylistEngine {
       );
       return;
     }
+
+    this._pushUndoSnapshot();
 
     const { left, right } = splitClipOp(clip, atSample);
 
@@ -339,6 +432,8 @@ export class PlaylistEngine {
     );
 
     if (constrained === 0) return;
+
+    this._pushUndoSnapshot();
 
     this._tracks = this._tracks.map((t) => {
       if (t.id !== trackId) return t;
@@ -579,6 +674,40 @@ export class PlaylistEngine {
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
+
+  private _snapshotTracks(): ClipTrack[] {
+    return this._tracks.map((t) => ({ ...t, clips: t.clips.map((c) => ({ ...c })) }));
+  }
+
+  private _pushUndoSnapshot(): void {
+    if (this._inTransaction) {
+      this._transactionMutated = true;
+      return;
+    }
+    this._undoStack.push(this._snapshotTracks());
+    if (this._undoStack.length > this.undoLimit) {
+      this._undoStack.shift();
+    }
+    this._redoStack = [];
+  }
+
+  private _restoreTracks(snapshot: ClipTrack[]): void {
+    const oldTracks = this._tracks;
+    this._tracks = snapshot;
+    this._tracksVersion++;
+    // Use incremental adapter updates when track count is unchanged —
+    // avoids full playout rebuild that interrupts playback during undo/redo.
+    if (this._adapter && oldTracks.length === snapshot.length) {
+      for (let i = 0; i < snapshot.length; i++) {
+        if (oldTracks[i] !== snapshot[i]) {
+          this._updateTrackOnAdapter(snapshot[i].id);
+        }
+      }
+    } else {
+      this._adapter?.setTracks(this._tracks);
+    }
+    this._emitStateChange();
+  }
 
   private _emit(event: string, ...args: unknown[]): void {
     const listeners = this._listeners.get(event);

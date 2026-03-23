@@ -57,6 +57,10 @@ export interface EngineState {
   loopEnd: number;
   /** Whether loop playback is active. */
   isLoopEnabled: boolean;
+  /** Whether undo is available. */
+  canUndo: boolean;
+  /** Whether redo is available. */
+  canRedo: boolean;
 }
 
 /**
@@ -67,6 +71,8 @@ export interface PlaylistEngineOptions {
   sampleRate?: number;
   samplesPerPixel?: number;
   zoomLevels?: number[];
+  /** Maximum number of undo steps (default 100). */
+  undoLimit?: number;
 }
 
 /**

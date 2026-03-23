@@ -10,7 +10,7 @@ export interface ClipBounds {
 
 /** Narrow engine contract for clip move/trim interactions. */
 export interface ClipEngineContract {
-  moveClip(trackId: string, clipId: string, deltaSamples: number, skipAdapter?: boolean): void;
+  moveClip(trackId: string, clipId: string, deltaSamples: number, skipAdapter?: boolean): number;
   trimClip(
     trackId: string,
     clipId: string,
@@ -28,6 +28,12 @@ export interface ClipEngineContract {
     boundary: 'left' | 'right',
     deltaSamples: number
   ): number;
+  /** Begin a transaction — groups mutations into one undo step. */
+  beginTransaction(): void;
+  /** Commit the transaction — pushes one undo step for all grouped mutations. */
+  commitTransaction(): void;
+  /** Abort the transaction — restores pre-transaction state without pushing to undo. */
+  abortTransaction(): void;
 }
 
 /** Peak data returned by reextractClipPeaks for imperative waveform updates. */
@@ -136,6 +142,15 @@ export class ClipPointerHandler {
     this._lastDeltaPx = 0;
     this._cumulativeDeltaSamples = 0;
 
+    // Group all drag mutations into one undo step
+    if (this._host.engine) {
+      this._host.engine.beginTransaction();
+    } else {
+      console.warn(
+        '[dawcore] beginDrag: engine unavailable, drag mutations will not be grouped for undo'
+      );
+    }
+
     // For trim: snapshot the clip container's current position/width
     if (mode === 'trim-left' || mode === 'trim-right') {
       const container = this._host.shadowRoot?.querySelector(
@@ -186,8 +201,9 @@ export class ClipPointerHandler {
       const incrementalDeltaPx = totalDeltaPx - this._lastDeltaPx;
       this._lastDeltaPx = totalDeltaPx;
       const incrementalDeltaSamples = Math.round(incrementalDeltaPx * this._host.samplesPerPixel);
-      this._cumulativeDeltaSamples += incrementalDeltaSamples;
-      engine.moveClip(this._trackId, this._clipId, incrementalDeltaSamples, true);
+      // Track constrained delta (not raw) so undo transactions are accurate
+      const applied = engine.moveClip(this._trackId, this._clipId, incrementalDeltaSamples, true);
+      this._cumulativeDeltaSamples += applied;
     } else {
       // Trim: constrain delta using engine's full collision/bounds logic,
       // then track for visual feedback. Engine called once at pointerup.
@@ -302,6 +318,13 @@ export class ClipPointerHandler {
         }
       }
     } finally {
+      // Commit transaction if mutations occurred, abort if click/no-op.
+      // Abort does NOT push to undo stack or clear redo stack.
+      if (this._isDragging && this._cumulativeDeltaSamples !== 0) {
+        this._host.engine?.commitTransaction();
+      } else {
+        this._host.engine?.abortTransaction();
+      }
       this._reset();
     }
   }
