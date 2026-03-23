@@ -14,6 +14,7 @@ waveform-playlist/
 │   ├── annotations/       # 📦 OPTIONAL: Annotation components & hooks
 │   ├── browser/           # Main React package (provider, hooks, components)
 │   ├── core/              # Core types and interfaces
+│   ├── dawcore/           # Web Components (Lit) — framework-agnostic DAW UI
 │   ├── loaders/           # Audio file loaders
 │   ├── media-element-playout/  # Audio playback (HTMLAudioElement, no Tone.js)
 │   ├── engine/            # Framework-agnostic timeline engine
@@ -65,13 +66,14 @@ waveform-playlist/
 #### `@waveform-playlist/core`
 
 - **Purpose:** Core TypeScript interfaces, types, and utilities
-- **Exports:** AudioClip, ClipTrack, Timeline interfaces, factory functions, clip time helpers, dB/beats utilities
+- **Exports:** AudioClip, ClipTrack, Timeline interfaces, factory functions, clip time helpers, dB/beats utilities, keyboard shortcuts
 - **Dependencies:** None (pure types and math)
 - **Used by:** All other packages
 - **Utilities:**
   - `clipTimeHelpers.ts` — `clipStartTime`, `clipEndTime`, `clipOffsetTime`, `clipDurationTime`, `clipPixelWidth` (sample-to-seconds/pixel conversions)
   - `dBUtils.ts` — `dBToNormalized`, `normalizedToDb`, `gainToNormalized` (dB ↔ 0-1 conversions for VU meters)
   - `beatsAndBars.ts` — `PPQN` (192), `ticksPerBeat`, `ticksPerBar`, `ticksToSamples`, `samplesToTicks`, `snapToGrid`, `ticksToBarBeatLabel`
+  - `keyboard.ts` — `KeyboardShortcut` type, `handleKeyboardEvent()` (matches event to shortcut array), `getShortcutLabel()` (human-readable label from shortcut definition)
 
 **Important Architectural Decision: Sample-Based Representation**
 
@@ -128,6 +130,11 @@ const clip = createClipFromSeconds({
 - **Key Types:** `PlayoutAdapter` (pluggable audio backend, optional `addTrack()` for incremental additions), `EngineState` (state snapshot incl. `tracksVersion`), `EngineEvents` (statechange, timeupdate, play/pause/stop)
 - **State Ownership:** Engine owns selection, loop, selectedTrackId, zoom, masterVolume, and tracks (for clip mutations). React subscribes to `statechange` events.
 - **Clip Mutations:** `moveClip()`, `trimClip()`, `splitClip()` update internal tracks, sync adapter via `adapter.setTracks()`, and emit `statechange`. The browser package's provider mirrors updated tracks back to the parent via `onTracksChange`.
+  - `moveClip()` returns constrained delta (number). Accepts optional `skipAdapter` parameter to skip adapter sync during high-frequency drags.
+  - `trimClip()` accepts optional `skipAdapter` parameter.
+  - `getClipBounds()` — returns clip boundary info for constraint calculations.
+  - `constrainTrimDelta()` — wraps pure `constrainBoundaryTrim` for per-frame collision detection during trim drag.
+- **Undo/Redo:** Built-in undo stack with configurable `undoLimit` (default 100). `undo()`, `redo()`, `canUndo`, `canRedo` getters. Transactions (`beginTransaction()` / `commitTransaction()` / `abortTransaction()`) group multiple mutations (e.g., a drag gesture) into a single undo step. `_transactionMutated` flag prevents phantom undo entries from no-op drags.
 - **Dependencies:** Only peer dependency is `@waveform-playlist/core`
 - **No React, no Tone.js** — zero framework dependencies
 
@@ -287,13 +294,14 @@ const clip = createClipFromSeconds({
   │   ├── useSelectionState.ts          # Selection state (engine delegation + onEngineState)
   │   ├── useTimeFormat.ts              # Time formatting
   │   ├── useTrackDynamicEffects.ts     # Per-track effects
+  │   ├── useUndoState.ts              # Undo/redo state (engine delegation + onEngineState)
   │   ├── useWaveformDataCache.ts       # Web worker peak generation cache
   │   └── useZoomControls.ts            # Zoom state (engine delegation + onEngineState)
   ├── components/                       # React components
   │   ├── PlaylistVisualization.tsx      # Main waveform + track rendering
   │   ├── Waveform.tsx                  # Public waveform component
   │   ├── ClipInteractionProvider.tsx   # Declarative clip drag/trim/snap/collision
-  │   ├── KeyboardShortcuts.tsx         # Declarative keyboard shortcut component
+  │   ├── KeyboardShortcuts.tsx         # Declarative keyboard shortcut component (playback, splitting, undo props)
   │   ├── PlaybackControls.tsx          # Play/Pause/Stop/Rewind/FastForward buttons
   │   ├── ZoomControls.tsx              # Zoom in/out buttons
   │   ├── ExportControls.tsx            # WAV export controls
@@ -569,6 +577,31 @@ audiowaveform -i audio.mp3 -o peaks-stereo.dat -z 256 --split-channels
 - **Peer Dependencies:** React, @waveform-playlist/browser
 - **Example:** `website/src/components/examples/MirSpectrogramExample.tsx`
 
+### 🧱 Web Components
+
+#### `@dawcore/components`
+
+- **Purpose:** Framework-agnostic Web Components (Lit) for multi-track audio editing. Wraps `PlaylistEngine` + `createToneAdapter()` in custom elements.
+- **Architecture:** Data elements (`<daw-track>`, `<daw-clip>`) use light DOM; visual elements (`<daw-waveform>`, `<daw-playhead>`, `<daw-ruler>`) use Shadow DOM with chunked canvas rendering. `<daw-editor>` orchestrates everything.
+- **Build:** tsup — `pnpm typecheck && tsup`. `sideEffects: true` (element imports register custom elements globally).
+- **Testing:** vitest with happy-dom. Run with `cd packages/dawcore && npx vitest run`.
+- **Dev page:** `pnpm dev:page` starts Vite at `http://localhost:5173/dev/index.html`. Resolves workspace packages from source via Vite aliases.
+- **Key Elements:**
+  - `<daw-editor>` — Core orchestrator. Builds engine lazily on first track load. Attributes: `interactive-clips`, `clip-headers`, `clip-header-height`. Methods: `undo()`, `redo()`, `togglePlayPause()`, `seekTo()`. Getters: `canUndo`, `canRedo`.
+  - `<daw-track>`, `<daw-clip>` — Declarative data elements (light DOM)
+  - `<daw-waveform>` — Chunked canvas rendering with dirty pixel tracking
+  - `<daw-playhead>`, `<daw-ruler>`, `<daw-selection>` — Visual overlays
+  - `<daw-transport>`, `<daw-play-button>`, `<daw-pause-button>`, `<daw-stop-button>`, `<daw-record-button>` — Transport controls (find target via `for` attribute)
+  - `<daw-track-controls>` — Mute/solo/volume/pan per track
+  - `<daw-keyboard-shortcuts>` — Render-less element. Boolean attribute presets: `playback`, `splitting`, `undo`. JS properties for remapping (`playbackShortcuts`, `splittingShortcuts`, `undoShortcuts`) and custom shortcuts (`customShortcuts`). Listener on `document`. Uses `handleKeyboardEvent` from `@waveform-playlist/core`.
+- **Clip Interactions:**
+  - `ClipPointerHandler` (`interactions/clip-pointer-handler.ts`) — Move (header drag) and trim (boundary drag) with engine delegation
+  - `splitAtPlayhead` (`interactions/split-handler.ts`) — Split clip at current playhead position (S key)
+  - `clip-peak-sync.ts` — Regenerates peaks after split/trim via `_syncPeaksForChangedClips`
+  - Move uses incremental deltas with `skipAdapter` (60fps); trim accumulates delta and calls engine once on drop
+- **Dependencies:** Lit, `@waveform-playlist/core`, `@waveform-playlist/engine`, `@waveform-playlist/playout`
+- **Location:** `packages/dawcore/`
+
 ## Data Flow Architecture
 
 ### Current Architecture (React + Hooks + Context)
@@ -683,6 +716,8 @@ export interface PlaylistStateContextValue {
   loopStart: number;
   loopEnd: number;
   indefinitePlayback: boolean;       // Whether playback continues past end of audio
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 // 3. Control functions - Stable, don't cause re-renders
@@ -724,6 +759,9 @@ export interface PlaylistControlsContextValue {
   setLoopRegion: (start: number, end: number) => void;
   setLoopRegionFromSelection: () => void;
   clearLoopRegion: () => void;
+  // Undo/Redo
+  undo: () => void;
+  redo: () => void;
 }
 
 // 4. Static/infrequent data
@@ -791,7 +829,7 @@ Business logic is extracted into reusable custom hooks that can be used by any c
 
 - `useAnimationFrameLoop` - Shared rAF lifecycle for both playlist providers
 - `useAudioTracks` - Declarative track loading (configs-driven)
-- `useClipDragHandlers` - Clip drag-to-move and boundary trimming (delegates to engine)
+- `useClipDragHandlers` - Clip drag-to-move and boundary trimming (delegates to engine, wraps drags in transactions for undo)
 - `useClipSplitting` - Split clips at playhead (delegates to engine)
 - `useAnnotationDragHandlers` - Annotation drag logic
 - `useAnnotationKeyboardControls` - Annotation navigation & editing
@@ -806,6 +844,7 @@ Business logic is extracted into reusable custom hooks that can be used by any c
 - `useLoopState` - Loop enabled/start/end (engine delegation + onEngineState)
 - `useSelectedTrack` - Selected track ID (engine delegation + onEngineState)
 - `useMasterVolume` - Master volume (engine delegation + onEngineState)
+- `useUndoState` - Undo/redo canUndo/canRedo (engine delegation + onEngineState)
 - `useZoomControls` - Zoom samplesPerPixel/canZoomIn/Out (engine delegation + onEngineState)
 - `useTimeFormat` - Time formatting and format selection
 - `useOutputMeter` - Master bus output VU metering via AudioWorklet
