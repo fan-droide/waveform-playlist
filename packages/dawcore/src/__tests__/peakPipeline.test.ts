@@ -184,9 +184,7 @@ describe('PeakPipeline', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const result = pipeline.reextractPeaks(clipBuffers, 64, false);
     expect(result.size).toBe(1);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('finer than pre-computed peaks')
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('finer than pre-computed peaks'));
     warnSpy.mockRestore();
   });
 
@@ -221,9 +219,7 @@ describe('PeakPipeline', () => {
     // Request finer zoom (128) — should clamp to 256 and warn
     const result = await pipeline.generatePeaks(buf, 128, false);
     expect(result.data.length).toBeGreaterThan(0);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('finer than pre-computed peaks')
-    );
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('finer than pre-computed peaks'));
     warnSpy.mockRestore();
   });
 

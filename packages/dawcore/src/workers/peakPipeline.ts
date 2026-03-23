@@ -117,11 +117,7 @@ export class PeakPipeline {
    * finer than the cached data, use the cached scale. Set warn=true to log
    * (default); reextractPeaks passes false and logs a single summary instead.
    */
-  private _clampScale(
-    waveformData: WaveformData,
-    requestedScale: number,
-    warn = true
-  ): number {
+  private _clampScale(waveformData: WaveformData, requestedScale: number, warn = true): number {
     if (requestedScale < waveformData.scale) {
       if (warn) {
         console.warn(

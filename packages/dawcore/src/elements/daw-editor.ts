@@ -436,9 +436,7 @@ export class DawEditorElement extends LitElement {
         if (!clipDesc.src) continue;
 
         // Start both fetches concurrently — await peaks first to render preview before audio decode
-        const waveformDataPromise = clipDesc.peaksSrc
-          ? this._fetchPeaks(clipDesc.peaksSrc)
-          : null;
+        const waveformDataPromise = clipDesc.peaksSrc ? this._fetchPeaks(clipDesc.peaksSrc) : null;
         const audioPromise = this._fetchAndDecode(clipDesc.src);
 
         // --- Peaks-first path: render waveform before audio decode completes ---
