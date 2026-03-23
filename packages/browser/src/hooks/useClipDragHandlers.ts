@@ -98,6 +98,14 @@ export function useClipDragHandlers({
       // Only store state for boundary trimming operations
       if (!data.boundary) {
         originalClipStateRef.current = null;
+        // Group move into one undo step
+        if (engineRef.current) {
+          engineRef.current.beginTransaction();
+        } else {
+          console.warn(
+            '[waveform-playlist] onDragStart: engine not ready, move will not be grouped for undo'
+          );
+        }
         return;
       }
 
@@ -113,9 +121,17 @@ export function useClipDragHandlers({
         };
         // Signal provider to skip loadAudio rebuilds during the drag
         isDraggingRef.current = true;
+        // Group the drag into one undo step
+        if (engineRef.current) {
+          engineRef.current.beginTransaction();
+        } else {
+          console.warn(
+            '[waveform-playlist] onDragStart: engine not ready, trim will not be grouped for undo'
+          );
+        }
       }
     },
-    [tracks, isDraggingRef]
+    [tracks, isDraggingRef, engineRef]
   );
 
   const onDragMove = React.useCallback(
@@ -250,6 +266,8 @@ export function useClipDragHandlers({
         isDraggingRef.current = false;
         originalClipStateRef.current = null;
         lastBoundaryDeltaRef.current = 0;
+        // Cancel aborts the transaction — no undo step pushed
+        engineRef.current?.abortTransaction();
         return;
       }
 
@@ -261,7 +279,12 @@ export function useClipDragHandlers({
           }
         | undefined;
 
-      if (!data) return;
+      if (!data) {
+        // Transaction was opened in onDragStart — abort to prevent leak
+        isDraggingRef.current = false;
+        engineRef.current?.abortTransaction();
+        return;
+      }
 
       const { trackIndex, clipId, boundary } = data;
 
@@ -283,10 +306,12 @@ export function useClipDragHandlers({
           console.warn(
             `[waveform-playlist] onDragEnd: track at index ${trackIndex} not found — trim not synced to adapter`
           );
+          engineRef.current?.abortTransaction();
         } else if (!engineRef.current) {
           console.warn('[waveform-playlist] engineRef is null — trim not synced to adapter');
         } else {
           engineRef.current.trimClip(trackId, clipId, boundary, Math.floor(sampleDelta));
+          engineRef.current.commitTransaction();
         }
         originalClipStateRef.current = null;
         lastBoundaryDeltaRef.current = 0;
@@ -298,10 +323,12 @@ export function useClipDragHandlers({
         console.warn(
           `[waveform-playlist] onDragEnd: track at index ${trackIndex} not found — move not synced to adapter`
         );
+        engineRef.current?.abortTransaction();
       } else if (!engineRef.current) {
         console.warn('[waveform-playlist] engineRef is null — move not synced to adapter');
       } else {
         engineRef.current.moveClip(trackId, clipId, Math.floor(sampleDelta));
+        engineRef.current.commitTransaction();
       }
     },
     [tracks, onTracksChange, samplesPerPixel, engineRef, isDraggingRef]
