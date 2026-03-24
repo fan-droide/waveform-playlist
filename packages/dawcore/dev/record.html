@@ -99,17 +99,23 @@
     }
 
     const micSelect = document.getElementById('mic-select');
-    const audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    const audioConstraints = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: { ideal: 2 },
+    };
 
     function updateMicStatus(stream) {
       const track = stream.getAudioTracks()[0];
       const settings = track.getSettings();
       const ctxRate = editor.effectiveSampleRate;
       const micRate = settings.sampleRate;
+      const micRateStr = micRate ? micRate + 'Hz' : 'unknown Hz';
       const ch = settings.channelCount ?? 1;
       const rateNote = micRate && micRate !== ctxRate ? ' (resampling)' : '';
-      micStatus.textContent = ch + 'ch ' + micRate + 'Hz \u2192 ' + ctxRate + 'Hz' + rateNote;
-      addLog('Mic: ' + track.label + ' ' + ch + 'ch ' + micRate + 'Hz, ctx ' + ctxRate + 'Hz' + rateNote);
+      micStatus.textContent = ch + 'ch ' + micRateStr + ' \u2192 ' + ctxRate + 'Hz' + rateNote;
+      addLog('Mic: ' + track.label + ' ' + ch + 'ch ' + micRateStr + ', ctx ' + ctxRate + 'Hz' + rateNote);
     }
 
     async function enumerateDevices() {
@@ -205,8 +211,12 @@
         editor._setSelectedTrackId(trackId);
       }
 
-      // Start recording with overdub
-      await editor.startRecording(editor.recordingStream, { overdub: true });
+      // Read actual channel count from stream, matching openDAW's approach
+      const streamChannels = editor.recordingStream.getAudioTracks()[0]?.getSettings()?.channelCount;
+      await editor.startRecording(editor.recordingStream, {
+        overdub: true,
+        ...(streamChannels && { channelCount: streamChannels }),
+      });
     }, { capture: true }); // capture phase to run before the button's own handler
 
     // Recording events
