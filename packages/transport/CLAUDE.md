@@ -91,6 +91,7 @@ Thin bridge to `PlaylistEngine`. Implements all `PlayoutAdapter` methods (requir
 - **No Tone.js in the signal path** — all audio nodes are native Web Audio.
 - **`_activeSources` cleanup** — ClipPlayer uses `ended` event listener for automatic cleanup. MetronomePlayer clicks are short one-shots.
 - **rAF exclusively** — no setTimeout/setInterval anywhere. The lookahead window (200ms) provides sufficient scheduling headroom.
+- **Scheduler lookahead ≠ perceptible latency** — The 200ms lookahead is scheduling headroom only. `source.start(when)` uses precise `AudioContext.currentTime` values, so audio plays at the exact right time. Recording latency compensation only needs `outputLatency`, not `outputLatency + lookahead`.
 
 ## Critical Gotchas
 
@@ -129,11 +130,11 @@ The reference library (webaudio-transport) avoids this entirely by not implement
 
 ### dawcore (`<daw-editor>`)
 
-Set `editor.adapterFactory = () => new NativePlayoutAdapter(audioCtx)` before tracks load. The editor uses this factory instead of `createToneAdapter()` when building the engine.
+Set `editor.audioContext = new AudioContext({ sampleRate: 48000 })` before tracks load. The editor uses `NativePlayoutAdapter` internally — no Tone.js dependency.
 
 ### dawcore dev pages
 
-Only `multiclip.html` uses the native transport. `record.html` and `index.html` still use `createToneAdapter()`.
+All dev pages use the native transport. `multiclip.html` passes a custom AudioContext; `index.html` and `record.html` use the editor's default.
 
 ### React (WaveformPlaylistContext)
 

@@ -86,8 +86,40 @@ export class DawEditorElement extends LitElement {
   _selectionStartTime = 0;
   _selectionEndTime = 0;
   _currentTime = 0;
-  /** Optional adapter factory. When set, _buildEngine uses this instead of createToneAdapter(). */
-  adapterFactory: (() => import('@waveform-playlist/engine').PlayoutAdapter) | null = null;
+  /** Consumer-provided AudioContext. When set, used for decode, playback, and recording. */
+  private _externalAudioContext: AudioContext | null = null;
+  private _ownedAudioContext: AudioContext | null = null;
+
+  /** Set an AudioContext to use for all audio operations. Must be set before tracks load. */
+  set audioContext(ctx: AudioContext | null) {
+    if (ctx && ctx.state === 'closed') {
+      console.warn('[dawcore] Provided AudioContext is already closed. Ignoring.');
+      return;
+    }
+    if (this._engine) {
+      console.warn(
+        '[dawcore] audioContext set after engine is built. ' +
+          'The engine will continue using the previous context.'
+      );
+    }
+    this._externalAudioContext = ctx;
+  }
+
+  get audioContext(): AudioContext {
+    if (this._externalAudioContext) return this._externalAudioContext;
+    if (!this._ownedAudioContext) {
+      this._ownedAudioContext = new AudioContext({ sampleRate: this.sampleRate });
+      if (this._ownedAudioContext.sampleRate !== this.sampleRate) {
+        console.warn(
+          '[dawcore] Requested sampleRate ' +
+            this.sampleRate +
+            ' but AudioContext is running at ' +
+            this._ownedAudioContext.sampleRate
+        );
+      }
+    }
+    return this._ownedAudioContext;
+  }
   _engine: PlaylistEngine | null = null;
   private _enginePromise: Promise<PlaylistEngine> | null = null;
   _audioCache = new Map<string, Promise<AudioBuffer>>();
@@ -252,11 +284,18 @@ export class DawEditorElement extends LitElement {
     this._clipOffsets.clear();
     this._peakPipeline.terminate();
     this._minSamplesPerPixel = 0;
-    this._contextConfigurePromise = null;
     try {
       this._disposeEngine();
     } catch (err) {
       console.warn('[dawcore] Error disposing engine: ' + String(err));
+    }
+    // Close owned AudioContext to release hardware resources.
+    // Skip when consumer provided an external context (they own its lifecycle).
+    if (this._ownedAudioContext) {
+      this._ownedAudioContext.close().catch((err) => {
+        console.warn('[dawcore] Error closing AudioContext: ' + String(err));
+      });
+      this._ownedAudioContext = null;
     }
   }
   willUpdate(changedProperties: Map<string, unknown>) {
@@ -457,10 +496,7 @@ export class DawEditorElement extends LitElement {
         if (waveformDataPromise) {
           try {
             const wd = await waveformDataPromise;
-            // Ensure context is configured so we can compare rates
-            await this._ensureContextConfigured();
-            const { getGlobalAudioContext } = await import('@waveform-playlist/playout');
-            const contextRate = getGlobalAudioContext().sampleRate;
+            const contextRate = this.audioContext.sampleRate;
             if (wd.sample_rate === contextRate) {
               waveformData = wd;
             } else {
@@ -615,35 +651,6 @@ export class DawEditorElement extends LitElement {
       );
     }
   }
-  private _contextConfigurePromise: Promise<void> | null = null;
-  /**
-   * Ensure the global AudioContext is configured with the editor's sample-rate hint
-   * before the first audio operation. Idempotent — concurrent callers await the
-   * same promise so no one proceeds to getGlobalAudioContext() before configuration.
-   */
-  private _ensureContextConfigured(): Promise<void> {
-    if (!this._contextConfigurePromise) {
-      this._contextConfigurePromise = (async () => {
-        const { configureGlobalContext } = await import('@waveform-playlist/playout');
-        const actualRate = configureGlobalContext({
-          sampleRate: this.sampleRate,
-        });
-        if (actualRate !== this.sampleRate) {
-          console.warn(
-            '[dawcore] Requested sampleRate ' +
-              this.sampleRate +
-              ' but AudioContext is running at ' +
-              actualRate
-          );
-        }
-      })().catch((err) => {
-        // Clear on rejection so next call can retry (same pattern as _enginePromise)
-        this._contextConfigurePromise = null;
-        throw err;
-      });
-    }
-    return this._contextConfigurePromise;
-  }
   async _fetchAndDecode(src: string): Promise<AudioBuffer> {
     if (this._audioCache.has(src)) {
       return this._audioCache.get(src)!;
@@ -656,10 +663,7 @@ export class DawEditorElement extends LitElement {
         );
       }
       const arrayBuffer = await response.arrayBuffer();
-      // Configure context with sample-rate hint before first decode
-      await this._ensureContextConfigured();
-      const { getGlobalAudioContext } = await import('@waveform-playlist/playout');
-      return getGlobalAudioContext().decodeAudioData(arrayBuffer);
+      return this.audioContext.decodeAudioData(arrayBuffer);
     })();
     this._audioCache.set(src, promise);
     try {
@@ -700,20 +704,11 @@ export class DawEditorElement extends LitElement {
     return this._enginePromise;
   }
   private async _buildEngine() {
-    let adapter: import('@waveform-playlist/engine').PlayoutAdapter;
-    let PlaylistEngine: typeof import('@waveform-playlist/engine').PlaylistEngine;
-
-    if (this.adapterFactory) {
-      adapter = this.adapterFactory();
-      ({ PlaylistEngine } = await import('@waveform-playlist/engine'));
-    } else {
-      const [engineMod, playoutMod] = await Promise.all([
-        import('@waveform-playlist/engine'),
-        import('@waveform-playlist/playout'),
-      ]);
-      PlaylistEngine = engineMod.PlaylistEngine;
-      adapter = playoutMod.createToneAdapter();
-    }
+    const [{ PlaylistEngine }, { NativePlayoutAdapter }] = await Promise.all([
+      import('@waveform-playlist/engine'),
+      import('@dawcore/transport'),
+    ]);
+    const adapter = new NativePlayoutAdapter(this.audioContext);
     const engine = new PlaylistEngine({
       adapter,
       sampleRate: this.effectiveSampleRate,
@@ -799,8 +794,7 @@ export class DawEditorElement extends LitElement {
   async play(startTime?: number) {
     try {
       const engine = await this._ensureEngine();
-      // Always init — adapter awaits pending rebuild init if needed,
-      // and Tone.start() is a no-op if already running.
+      // Always init — resumes AudioContext if suspended (requires user gesture).
       await engine.init();
       engine.play(startTime);
       this._startPlayhead();
@@ -842,7 +836,7 @@ export class DawEditorElement extends LitElement {
       return;
     }
     if (this._isPlaying) {
-      // Tone.js needs stop+play to reschedule audio sources at new position
+      // Transport needs stop+play to reschedule audio sources at new position
       this.stop();
       this.play(time);
     } else {
