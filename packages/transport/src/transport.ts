@@ -1,11 +1,11 @@
 import type { ClipTrack } from '@waveform-playlist/core';
-import type { TransportOptions } from './types';
+import type { TransportOptions, MeterSignature } from './types';
 import { Clock } from './core/clock';
 import { Scheduler } from './core/scheduler';
 import { Timer } from './core/timer';
 import { SampleTimeline } from './timeline/sample-timeline';
-import { TickTimeline } from './timeline/tick-timeline';
 import { TempoMap } from './timeline/tempo-map';
+import { MeterMap } from './timeline/meter-map';
 import { ClipPlayer } from './audio/clip-player';
 import { MetronomePlayer } from './audio/metronome-player';
 import { MasterNode } from './audio/master-node';
@@ -17,6 +17,7 @@ export interface TransportEvents {
   stop: () => void;
   loop: () => void;
   tempochange: () => void;
+  meterchange: () => void;
 }
 
 type TransportEventType = keyof TransportEvents;
@@ -28,7 +29,7 @@ export class Transport {
   private _scheduler: Scheduler<any>;
   private _timer: Timer;
   private _sampleTimeline: SampleTimeline;
-  private _tickTimeline: TickTimeline;
+  private _meterMap: MeterMap;
   private _tempoMap: TempoMap;
   private _clipPlayer!: ClipPlayer;
   private _metronomePlayer!: MetronomePlayer;
@@ -47,10 +48,11 @@ export class Transport {
     const sampleRate = options.sampleRate ?? audioContext.sampleRate;
     const ppqn = options.ppqn ?? 960;
     const tempo = options.tempo ?? 120;
-    const beatsPerBar = options.beatsPerBar ?? 4;
+    const numerator = options.numerator ?? 4;
+    const denominator = options.denominator ?? 4;
     const lookahead = options.schedulerLookahead ?? 0.2;
 
-    Transport._validateOptions(sampleRate, ppqn, tempo, beatsPerBar, lookahead);
+    Transport._validateOptions(sampleRate, ppqn, tempo, numerator, denominator, lookahead);
 
     this._clock = new Clock(audioContext);
     this._scheduler = new Scheduler({
@@ -60,10 +62,10 @@ export class Transport {
       },
     });
     this._sampleTimeline = new SampleTimeline(sampleRate);
-    this._tickTimeline = new TickTimeline(ppqn);
+    this._meterMap = new MeterMap(ppqn, numerator, denominator);
     this._tempoMap = new TempoMap(ppqn, tempo);
 
-    this._initAudioGraph(audioContext, beatsPerBar);
+    this._initAudioGraph(audioContext);
 
     this._timer = new Timer(() => {
       const time = this._clock.getTime();
@@ -315,17 +317,57 @@ export class Transport {
 
   // --- Tempo ---
 
-  setTempo(bpm: number): void {
-    this._tempoMap.setTempo(bpm);
+  setTempo(bpm: number, atTick?: number): void {
+    this._tempoMap.setTempo(bpm, atTick);
     this._emit('tempochange');
   }
 
-  getTempo(): number {
-    return this._tempoMap.getTempo();
+  getTempo(atTick?: number): number {
+    return this._tempoMap.getTempo(atTick);
   }
 
-  setBeatsPerBar(beats: number): void {
-    this._metronomePlayer.setBeatsPerBar(beats);
+  // --- Meter ---
+
+  setMeter(numerator: number, denominator: number, atTick?: number): void {
+    this._meterMap.setMeter(numerator, denominator, atTick);
+    this._emit('meterchange');
+  }
+
+  getMeter(atTick?: number): MeterSignature {
+    return this._meterMap.getMeter(atTick);
+  }
+
+  removeMeter(atTick: number): void {
+    this._meterMap.removeMeter(atTick);
+    this._emit('meterchange');
+  }
+
+  clearMeters(): void {
+    this._meterMap.clearMeters();
+    this._emit('meterchange');
+  }
+
+  clearTempos(): void {
+    this._tempoMap.clearTempos();
+    this._emit('tempochange');
+  }
+
+  barToTick(bar: number): number {
+    return this._meterMap.barToTick(bar);
+  }
+
+  tickToBar(tick: number): number {
+    return this._meterMap.tickToBar(tick);
+  }
+
+  /** Convert transport time (seconds) to tick position, using the tempo map. */
+  timeToTick(seconds: number): number {
+    return this._tempoMap.secondsToTicks(seconds);
+  }
+
+  /** Convert tick position to transport time (seconds), using the tempo map. */
+  tickToTime(tick: number): number {
+    return this._tempoMap.ticksToSeconds(tick);
   }
 
   // --- Metronome ---
@@ -389,7 +431,8 @@ export class Transport {
     sampleRate: number,
     ppqn: number,
     tempo: number,
-    beatsPerBar: number,
+    numerator: number,
+    denominator: number,
     lookahead: number
   ): void {
     if (sampleRate <= 0) {
@@ -405,9 +448,14 @@ export class Transport {
     if (tempo <= 0) {
       throw new Error('[waveform-playlist] Transport: tempo must be positive, got ' + tempo);
     }
-    if (beatsPerBar <= 0 || !Number.isInteger(beatsPerBar)) {
+    if (!Number.isInteger(numerator) || numerator < 1 || numerator > 32) {
       throw new Error(
-        '[waveform-playlist] Transport: beatsPerBar must be a positive integer, got ' + beatsPerBar
+        '[waveform-playlist] Transport: numerator must be an integer 1-32, got ' + numerator
+      );
+    }
+    if (denominator <= 0 || (denominator & (denominator - 1)) !== 0 || denominator > 32) {
+      throw new Error(
+        '[waveform-playlist] Transport: denominator must be a power of 2 (1-32), got ' + denominator
       );
     }
     if (lookahead <= 0) {
@@ -417,7 +465,7 @@ export class Transport {
     }
   }
 
-  private _initAudioGraph(audioContext: AudioContext, beatsPerBar: number): void {
+  private _initAudioGraph(audioContext: AudioContext): void {
     this._masterNode = new MasterNode(audioContext);
     this._masterNode.output.connect(audioContext.destination);
 
@@ -427,11 +475,10 @@ export class Transport {
     this._metronomePlayer = new MetronomePlayer(
       audioContext,
       this._tempoMap,
-      this._tickTimeline,
+      this._meterMap,
       this._masterNode.input,
       toAudioTime
     );
-    this._metronomePlayer.setBeatsPerBar(beatsPerBar);
 
     this._scheduler.addListener(this._clipPlayer);
     this._scheduler.addListener(this._metronomePlayer);

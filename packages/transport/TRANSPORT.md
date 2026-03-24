@@ -34,10 +34,10 @@ This transport uses native Web Audio exclusively, receiving the `AudioContext` f
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Timeline Layer                                       │   │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────┐   │   │
-│  │  │ SampleTimeline│  │ TickTimeline │  │ TempoMap │   │   │
-│  │  │ samples↔secs  │  │ PPQN ticks  │  │ tick↔sec │   │   │
-│  │  └──────────────┘  └──────────────┘  └──────────┘   │   │
+│  │  ┌──────────────┐  ┌──────────┐  ┌──────────┐       │   │
+│  │  │ SampleTimeline│  │ TempoMap │  │ MeterMap │       │   │
+│  │  │ samples↔secs  │  │ tick↔sec │  │ time sig │       │   │
+│  │  └──────────────┘  └──────────┘  └──────────┘       │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -125,10 +125,50 @@ This conversion happens inside `consume()` — events carry transport time, and 
 Audio clips and music events live in different coordinate spaces:
 
 - **SampleTimeline** — Audio clips use absolute sample positions (`startSample`, `durationSamples`). Position does NOT change when tempo changes.
-- **TickTimeline** — Metronome and MIDI events use PPQN ticks (default 960 ticks per quarter note). Position is relative to beats and bars.
 - **TempoMap** — Converts between ticks and seconds. Supports tempo changes at arbitrary tick positions with cached cumulative seconds for O(log n) lookups.
+- **MeterMap** — Time signature entries at tick positions. Determines beat unit (from denominator) and bar length (from numerator). See Meter Map section below.
 
 Both coordinate systems convert to seconds at the scheduler boundary. The scheduler itself only works in seconds.
+
+## Meter Map
+
+The transport maintains two independent musical maps:
+
+- **TempoMap** — maps ticks to seconds. Answers "how many seconds is beat N?"
+- **MeterMap** — maps ticks to bar/beat structure. Answers "what bar is tick N in, and how many beats per bar?"
+
+These are intentionally separate. A tempo change does not affect bar numbering; a meter change does not affect the tick→second conversion. Each concern owns its own sorted entry list with O(log n) lookup.
+
+### MeterMap Entry
+
+```typescript
+{ tick: number; numerator: number; denominator: number; barAtTick: number }
+```
+
+`barAtTick` is cached at insertion time by accumulating bar counts from all preceding entries. This makes `barToTick(n)` and `tickToBar(t)` both O(entries) with no per-query accumulation.
+
+### Beat Unit
+
+The denominator controls how many ticks constitute one beat:
+
+```
+ticksPerBeat = ppqn * (4 / denominator)
+```
+
+A denominator of `4` gives a quarter-note beat (standard). A denominator of `8` gives an eighth-note beat — useful for compound meters where the pulse is felt in eighth notes.
+
+### Bar Boundary Constraint
+
+`setMeter(numerator, denominator, atTick)` snaps `atTick` to the nearest preceding bar boundary under the current meter. This prevents fractional bars, which would make bar numbers inconsistent for all later entries.
+
+### MetronomePlayer Integration
+
+`MetronomePlayer.generate(fromTime, toTime)` converts the time window to ticks via `TempoMap`, then walks the beat grid. For each beat tick, it queries `MeterMap.getMeter(tick)` to determine:
+
+1. The beat unit duration (ticks per beat → seconds via TempoMap)
+2. Whether this beat is beat 1 of a bar (→ accent click) or an inner beat (→ normal click)
+
+This means the metronome correctly accents bar 1 regardless of meter changes mid-session.
 
 ## Audio Signal Chain
 

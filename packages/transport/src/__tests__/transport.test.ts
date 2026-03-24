@@ -279,6 +279,93 @@ describe('Transport', () => {
     expect(transport.getTempo()).toBe(140);
   });
 
+  it('setTempo with atTick schedules tempo change', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    transport.setTempo(140, 3840); // 140 BPM at bar 2
+    expect(transport.getTempo(0)).toBe(120); // default
+    expect(transport.getTempo(3840)).toBe(140);
+  });
+
+  it('setMeter changes time signature', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    transport.setMeter(7, 8);
+    const meter = transport.getMeter();
+    expect(meter.numerator).toBe(7);
+    expect(meter.denominator).toBe(8);
+  });
+
+  it('setMeter at tick fires meterchange event', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    const onMeter = vi.fn();
+    transport.on('meterchange', onMeter);
+    transport.setMeter(3, 4, 3840);
+    expect(onMeter).toHaveBeenCalledTimes(1);
+  });
+
+  it('barToTick delegates to MeterMap', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    expect(transport.barToTick(1)).toBe(0);
+    expect(transport.barToTick(2)).toBe(3840); // 4/4 default
+  });
+
+  it('removeMeter fires meterchange event', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    transport.setMeter(7, 8, 3840);
+    const onMeter = vi.fn();
+    transport.on('meterchange', onMeter);
+    transport.removeMeter(3840);
+    expect(onMeter).toHaveBeenCalledTimes(1);
+  });
+
+  it('constructor accepts numerator/denominator options', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx, { numerator: 6, denominator: 8 });
+    expect(transport.getMeter().numerator).toBe(6);
+    expect(transport.getMeter().denominator).toBe(8);
+  });
+
+  it('clearMeters fires meterchange and resets state', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    transport.setMeter(7, 8, 3840);
+    const onMeter = vi.fn();
+    transport.on('meterchange', onMeter);
+    transport.clearMeters();
+    expect(onMeter).toHaveBeenCalledTimes(1);
+    expect(transport.getMeter().numerator).toBe(4);
+  });
+
+  it('clearTempos fires tempochange', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    transport.setTempo(140, 3840);
+    const onTempo = vi.fn();
+    transport.on('tempochange', onTempo);
+    transport.clearTempos();
+    expect(onTempo).toHaveBeenCalledTimes(1);
+    expect(transport.getTempo()).toBe(120);
+  });
+
+  it('tickToBar delegates to MeterMap', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    expect(transport.tickToBar(0)).toBe(1);
+    expect(transport.tickToBar(3840)).toBe(2);
+  });
+
+  it('timeToTick and tickToTime round-trip', () => {
+    const ctx = mockAudioContext();
+    const transport = new Transport(ctx);
+    const tick = 3840;
+    const time = transport.tickToTime(tick);
+    expect(transport.timeToTick(time)).toBeCloseTo(tick);
+  });
+
   it('addTrack adds a single track', () => {
     const ctx = mockAudioContext();
     const transport = new Transport(ctx);
