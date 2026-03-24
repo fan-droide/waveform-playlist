@@ -108,7 +108,7 @@ function App() {
 
 ## Web Components (Experimental)
 
-`@dawcore/components` provides framework-agnostic Web Components for multi-track audio editing — no React required. Built with Lit, wrapping the same engine and Tone.js adapter.
+`@dawcore/components` provides framework-agnostic Web Components for multi-track audio editing — no React required. Built with Lit, using `@dawcore/transport` for native Web Audio playback (no Tone.js dependency).
 
 ```bash
 npm install @dawcore/components
