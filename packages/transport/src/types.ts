@@ -1,15 +1,17 @@
 export interface SchedulerEvent {
-  /** Transport time (elapsed seconds from timeline start) when this event should be realized */
-  transportTime: number;
+  /** Tick position (integer) on the timeline */
+  tick: number;
 }
 
 export interface SchedulerListener<T extends SchedulerEvent> {
-  /** Generate events in the time window [fromTime, toTime) */
-  generate(fromTime: number, toTime: number): T[];
+  /** Generate events in the tick window [fromTick, toTick) */
+  generate(fromTick: number, toTick: number): T[];
   /** Realize an event (create audio nodes, start sources) */
   consume(event: T): void;
-  /** Position jumped (loop/seek) — stop active sources, re-schedule */
-  onPositionJump(newTime: number): void;
+  /** Position jumped (loop/seek) — listeners may stop and re-schedule as appropriate
+   *  (ClipPlayer stops sources and creates mid-clip restarts; MetronomePlayer is a no-op
+   *  since clicks are short one-shots that finish naturally) */
+  onPositionJump(newTick: number): void;
   /** Stop all active audio immediately */
   silence(): void;
 }
@@ -61,6 +63,7 @@ export interface TransportPosition {
   bar: number;
   /** 1-indexed beat within bar */
   beat: number;
-  /** Sub-beat tick (0 to ppqn-1) */
-  tick: number;
+  /** Sub-beat tick remainder (0 to ppqn-1). Named subTick to avoid
+   *  collision with SchedulerEvent.tick (absolute timeline position). */
+  subTick: number;
 }

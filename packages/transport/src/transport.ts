@@ -40,6 +40,8 @@ export class Transport {
   private _mutedTrackIds: Set<string> = new Set();
   private _playing = false;
   private _endTime: number | undefined;
+  private _loopEnabled = false;
+  private _loopStartSeconds = 0;
   private _listeners: Map<TransportEventType, Set<TransportEvents[TransportEventType]>> = new Map();
 
   constructor(audioContext: AudioContext, options: TransportOptions = {}) {
@@ -55,15 +57,24 @@ export class Transport {
     Transport._validateOptions(sampleRate, ppqn, tempo, numerator, denominator, lookahead);
 
     this._clock = new Clock(audioContext);
-    this._scheduler = new Scheduler({
-      lookahead,
-      onLoop: (loopStartTime: number) => {
-        this._clock.seekTo(loopStartTime);
-      },
-    });
     this._sampleTimeline = new SampleTimeline(sampleRate);
     this._meterMap = new MeterMap(ppqn, numerator, denominator);
     this._tempoMap = new TempoMap(ppqn, tempo);
+
+    this._scheduler = new Scheduler(this._tempoMap, {
+      lookahead,
+      onLoop: (loopStartSeconds: number, loopEndSeconds: number, currentTimeSeconds: number) => {
+        // The wrap fires in the middle of advance(), which runs ahead of
+        // real time by the lookahead.  Post-wrap events use toAudioTime()
+        // which reads the clock, so the seek target must place loopStart
+        // at the audio-time of the boundary — not at "now".
+        // Uses the currentTimeSeconds snapshot from advance() to avoid
+        // re-reading the live AudioContext.currentTime (sub-ms drift).
+        const timeToBoundary = loopEndSeconds - currentTimeSeconds;
+        this._clock.seekTo(loopStartSeconds - timeToBoundary);
+      },
+    });
+    this._sampleTimeline.setTempoMap(this._tempoMap);
 
     this._initAudioGraph(audioContext);
 
@@ -103,7 +114,8 @@ export class Transport {
     // After pause, silence() killed all active sources. generate() only
     // picks up clips whose startTime falls in the window, so clips that
     // started before the current position need mid-clip sources.
-    this._clipPlayer.onPositionJump(currentTime);
+    const currentTick = this._tempoMap.secondsToTicks(currentTime);
+    this._clipPlayer.onPositionJump(currentTick);
 
     this._timer.start();
     this._playing = true;
@@ -150,13 +162,20 @@ export class Transport {
     if (wasPlaying) {
       this._clock.start();
       // Re-create sources for clips spanning the seek position
-      this._clipPlayer.onPositionJump(time);
+      const seekTick = this._tempoMap.secondsToTicks(time);
+      this._clipPlayer.onPositionJump(seekTick);
       this._timer.start();
     }
   }
 
   getCurrentTime(): number {
-    return this._clock.getTime();
+    const t = this._clock.getTime();
+    // After a loop wrap, the clock is briefly behind loopStart (the seek
+    // target accounts for lookahead offset). Clamp for display purposes.
+    if (this._loopEnabled && t < this._loopStartSeconds) {
+      return this._loopStartSeconds;
+    }
+    return t;
   }
 
   isPlaying(): boolean {
@@ -299,19 +318,60 @@ export class Transport {
 
   // --- Loop ---
 
-  setLoop(enabled: boolean, start: number, end: number): void {
-    if (enabled && start >= end) {
+  /** Primary loop API — ticks as source of truth */
+  setLoop(enabled: boolean, startTick: number, endTick: number): void {
+    if (enabled && startTick >= endTick) {
       console.warn(
-        '[waveform-playlist] Transport.setLoop: start (' +
-          start +
-          ') must be less than end (' +
-          end +
+        '[waveform-playlist] Transport.setLoop: startTick (' +
+          startTick +
+          ') must be less than endTick (' +
+          endTick +
           ')'
       );
       return;
     }
-    this._scheduler.setLoop(enabled, start, end);
-    this._clipPlayer.setLoop(enabled, start, end);
+    this._loopEnabled = enabled;
+    this._loopStartSeconds = this._tempoMap.ticksToSeconds(startTick);
+    this._scheduler.setLoop(enabled, startTick, endTick);
+    this._clipPlayer.setLoop(enabled, startTick, endTick);
+    this._emit('loop');
+  }
+
+  /** Convenience — converts seconds to ticks */
+  setLoopSeconds(enabled: boolean, startSec: number, endSec: number): void {
+    const startTick = this._tempoMap.secondsToTicks(startSec);
+    const endTick = this._tempoMap.secondsToTicks(endSec);
+    this.setLoop(enabled, startTick, endTick);
+  }
+
+  /** Convenience — sets loop in samples */
+  setLoopSamples(enabled: boolean, startSample: number, endSample: number): void {
+    if (enabled && (!Number.isFinite(startSample) || !Number.isFinite(endSample))) {
+      console.warn(
+        '[waveform-playlist] Transport.setLoopSamples: non-finite sample values (' +
+          startSample +
+          ', ' +
+          endSample +
+          ')'
+      );
+      return;
+    }
+    if (enabled && startSample >= endSample) {
+      console.warn(
+        '[waveform-playlist] Transport.setLoopSamples: startSample (' +
+          startSample +
+          ') must be less than endSample (' +
+          endSample +
+          ')'
+      );
+      return;
+    }
+    const startTick = this._sampleTimeline.samplesToTicks(startSample);
+    const endTick = this._sampleTimeline.samplesToTicks(endSample);
+    this._loopEnabled = enabled;
+    this._loopStartSeconds = this._tempoMap.ticksToSeconds(startTick);
+    this._clipPlayer.setLoopSamples(enabled, startSample, endSample);
+    this._scheduler.setLoop(enabled, startTick, endTick);
     this._emit('loop');
   }
 
@@ -471,7 +531,12 @@ export class Transport {
 
     const toAudioTime = (transportTime: number) => this._clock.toAudioTime(transportTime);
 
-    this._clipPlayer = new ClipPlayer(audioContext, this._sampleTimeline, toAudioTime);
+    this._clipPlayer = new ClipPlayer(
+      audioContext,
+      this._sampleTimeline,
+      this._tempoMap,
+      toAudioTime
+    );
     this._metronomePlayer = new MetronomePlayer(
       audioContext,
       this._tempoMap,
