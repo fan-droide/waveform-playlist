@@ -219,6 +219,10 @@ Implements `PlayoutAdapter` from `@waveform-playlist/engine`. All methods delega
 
 See [TRANSPORT.md](./TRANSPORT.md) for the full architecture guide.
 
+## How It Works
+
+See [EDUCATIONAL.md](./EDUCATIONAL.md) for an in-depth explanation of the math and timing models behind audio transport systems.
+
 ## License
 
 MIT
