@@ -178,6 +178,7 @@ npm install @dawcore/components
 - File drop for adding tracks
 - Recording with overdub and latency compensation
 - Metronome with mixed meters and tempo changes
+- Tempo automation — linear ramps and Möbius-Ease curves with exact integration
 - Pre-computed peaks for fast initial render
 - Native Web Audio — no Tone.js, full `sampleRate` and `latencyHint` control
 
@@ -186,7 +187,7 @@ npm install @dawcore/components
 | Package | Description |
 |---------|-------------|
 | `@dawcore/components` | Lit Web Components for multi-track editing |
-| `@dawcore/transport` | Native Web Audio transport — scheduling, looping, tempo, metronome |
+| `@dawcore/transport` | Native Web Audio transport — scheduling, looping, tempo automation, metronome |
 
 Run the examples locally:
 
@@ -200,6 +201,7 @@ Then open `http://localhost:5173/dev/` — example pages:
 - [`multiclip.html`](packages/dawcore/dev/multiclip.html) — Multi-clip editing with move, trim, and split
 - [`record.html`](packages/dawcore/dev/record.html) — Recording with overdub
 - [`metronome.html`](packages/dawcore/dev/metronome.html) — Metronome with mixed meters, tempo presets, and looping sequences
+- [`automation.html`](packages/dawcore/dev/automation.html) — Tempo automation with step, linear, and curve presets
 
 ## Browser Support
 
