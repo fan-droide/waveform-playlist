@@ -187,7 +187,7 @@ npm install @dawcore/components
 | Package | Description |
 |---------|-------------|
 | `@dawcore/components` | Lit Web Components for multi-track editing |
-| `@dawcore/transport` | Native Web Audio transport — scheduling, looping, tempo automation, metronome |
+| `@dawcore/transport` | Native Web Audio transport — scheduling, looping, tempo automation, time signatures, metronome |
 
 Run the examples locally:
 
