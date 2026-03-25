@@ -113,6 +113,34 @@ function App() {
 | `@waveform-playlist/spectrogram` | Spectrogram visualization with FFT worker |
 | `@waveform-playlist/media-element-playout` | HTMLMediaElement-based playout with pitch-preserving playback rate |
 
+## Key Hooks
+
+```tsx
+// Load audio files into tracks
+const { tracks, loading, error } = useAudioTracks([
+  { src: '/audio/vocals.mp3', name: 'Vocals' },
+  { src: '/audio/drums.mp3', name: 'Drums' },
+]);
+
+// Playback controls
+const { play, pause, stop, seekTo } = usePlaylistControls();
+
+// Playback animation (60fps updates)
+const { currentTime, isPlaying } = usePlaybackAnimation();
+
+// Zoom controls
+const { zoomIn, zoomOut, samplesPerPixel } = useZoomControls();
+
+// Master effects chain
+const { masterEffects, toggleBypass, updateParameter } = useDynamicEffects();
+
+// WAV export
+const { exportWav, isExporting, progress } = useExportWav();
+
+// Recording
+const { startRecording, stopRecording, isRecording } = useIntegratedRecording();
+```
+
 ## Web Components (Experimental)
 
 `@dawcore/components` provides framework-agnostic Web Components for multi-track audio editing — no React required. Built with Lit, using `@dawcore/transport` for native Web Audio playback (no Tone.js dependency).
@@ -172,34 +200,6 @@ Then open `http://localhost:5173/dev/` — example pages:
 - [`multiclip.html`](packages/dawcore/dev/multiclip.html) — Multi-clip editing with move, trim, and split
 - [`record.html`](packages/dawcore/dev/record.html) — Recording with overdub
 - [`metronome.html`](packages/dawcore/dev/metronome.html) — Metronome with mixed meters, tempo presets, and looping sequences
-
-## Key Hooks
-
-```tsx
-// Load audio files into tracks
-const { tracks, loading, error } = useAudioTracks([
-  { src: '/audio/vocals.mp3', name: 'Vocals' },
-  { src: '/audio/drums.mp3', name: 'Drums' },
-]);
-
-// Playback controls
-const { play, pause, stop, seekTo } = usePlaylistControls();
-
-// Playback animation (60fps updates)
-const { currentTime, isPlaying } = usePlaybackAnimation();
-
-// Zoom controls
-const { zoomIn, zoomOut, samplesPerPixel } = useZoomControls();
-
-// Master effects chain
-const { masterEffects, toggleBypass, updateParameter } = useDynamicEffects();
-
-// WAV export
-const { exportWav, isExporting, progress } = useExportWav();
-
-// Recording
-const { startRecording, stopRecording, isRecording } = useIntegratedRecording();
-```
 
 ## Browser Support
 
