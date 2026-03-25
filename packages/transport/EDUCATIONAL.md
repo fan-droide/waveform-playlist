@@ -140,7 +140,7 @@ Both directions are closed-form and exact — no iterative approximation needed.
 
 > **Degenerate case:** When `bpm₀ = bpm₁`, the logarithmic formula produces `ln(1) / 0 = 0/0`. The implementation detects `|bpm₁ - bpm₀| < ε` and falls back to the constant-tempo formula.
 
-> **Reference:** This is a standard result from calculus — the antiderivative of `1/(a + bx)` is `ln(a + bx) / b`. The paper [Fast Envelope Generation](http://werner.yellowcouch.org/Papers/fastenv12/index.html) by Werner Van Belle discusses related techniques for efficient parameter curve generation in audio applications.
+> **Reference:** This is a standard result from calculus — the antiderivative of `1/(a + bx)` is `ln(a + bx) / b`. See any introductory calculus text, e.g., Stewart, J., *Calculus: Early Transcendentals*, Section 7.2 (integration by substitution).
 
 ### Variable Tempo (Curves)
 
@@ -155,6 +155,8 @@ seconds ≈ Σᵢ (Δt × 60 / PPQN) × (1/bpmᵢ + 1/bpmᵢ₊₁) / 2
 where `bpmᵢ` is the BPM at step `i` and `Δt` is the tick width of each step. The trapezoidal rule converges as O(1/N²) — 64 subdivisions typically gives sub-millisecond accuracy for musical tempo curves.
 
 The inverse (seconds → ticks) uses binary search: repeatedly halve the tick range and evaluate the forward integral until the target seconds value is bracketed to within one tick.
+
+> **Reference:** The trapezoidal rule is a foundational numerical integration method. See Atkinson, K.E., *An Introduction to Numerical Analysis*, 2nd ed., Wiley, 1989 — Chapter 5 covers composite quadrature rules including trapezoidal and Simpson's. For a free online treatment, see [Wikipedia — Trapezoidal rule](https://en.wikipedia.org/wiki/Trapezoidal_rule). The convergence rate O(1/N²) follows from the Euler-Maclaurin formula.
 
 #### The Möbius-Ease Curve
 
@@ -253,9 +255,15 @@ These have zero runtime cost (the brand exists only in the type system). Convers
 
 ## Further Reading
 
+### Web Audio and Scheduling
 - W3C Web Audio API specification — [AudioContext.currentTime](https://webaudio.github.io/web-audio-api/#dom-baseaudiocontext-currenttime), [AudioBufferSourceNode.start()](https://webaudio.github.io/web-audio-api/#dom-audioscheduledsourcenode-start)
-- Werner Van Belle, *"Fast Envelope Generation"* — [Paper](http://werner.yellowcouch.org/Papers/fastenv12/index.html) (Möbius-Ease curve, efficient iterative form)
-- Werner Van Belle, *"Beatgraphs: Music at a Glance"* — [Paper](http://werner.yellowcouch.org/Papers/beatgraphs12/index.html) (tempo visualization using beat-folded spectrograms)
-- Werner Van Belle, *"BPM Measurement of Digital Audio by Means of Beat Graphs & Ray Shooting"* — [Paper](http://werner.yellowcouch.org/Papers/bpm04/index.html) (automatic tempo detection)
-- MIDI 1.0 Specification — [midi.org](https://www.midi.org/specifications) (integer tick timing, PPQN)
 - Chris Wilson, *"A Tale of Two Clocks"* — [Article](https://web.dev/articles/audio-scheduling) (Web Audio scheduling with lookahead)
+- MIDI 1.0 Specification — [midi.org](https://www.midi.org/specifications) (integer tick timing, PPQN)
+
+### Numerical Methods
+- Atkinson, K.E., *An Introduction to Numerical Analysis*, 2nd ed., Wiley, 1989 — Chapter 5 (trapezoidal rule, composite quadrature)
+- [Wikipedia — Trapezoidal rule](https://en.wikipedia.org/wiki/Trapezoidal_rule) (convergence, error bounds, Euler-Maclaurin formula)
+
+### Tempo Curves and Music Visualization
+- Werner Van Belle, *"Fast Envelope Generation"*, Proc. of the Linux Audio Conference, 2012 — [Paper](http://werner.yellowcouch.org/Papers/fastenv12/index.html) (Möbius-Ease curve formula, efficient iterative `v[i+1] = m×v[i] + q` form)
+- Werner Van Belle, *"Beatgraphs: Music at a Glance"*, 2012 — [Paper](http://werner.yellowcouch.org/Papers/beatgraphs12/index.html) (tempo visualization by folding audio energy at the bar period)
