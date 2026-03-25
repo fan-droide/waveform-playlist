@@ -1,5 +1,6 @@
 import type { ClipTrack } from '@waveform-playlist/core';
 import type { Tick, Sample, TransportOptions, MeterSignature } from './types';
+import type { SetTempoOptions } from './timeline/tempo-map';
 import { Clock } from './core/clock';
 import { Scheduler } from './core/scheduler';
 import { Timer } from './core/timer';
@@ -41,6 +42,7 @@ export class Transport {
   private _playing = false;
   private _endTime: number | undefined;
   private _loopEnabled = false;
+  private _loopStartTick: Tick = 0 as Tick;
   private _loopStartSeconds = 0;
   private _listeners: Map<TransportEventType, Set<TransportEvents[TransportEventType]>> = new Map();
 
@@ -331,6 +333,7 @@ export class Transport {
       return;
     }
     this._loopEnabled = enabled;
+    this._loopStartTick = startTick;
     this._loopStartSeconds = this._tempoMap.ticksToSeconds(startTick);
     this._scheduler.setLoop(enabled, startTick, endTick);
     this._clipPlayer.setLoop(enabled, startTick, endTick);
@@ -369,6 +372,7 @@ export class Transport {
     const startTick = this._sampleTimeline.samplesToTicks(startSample);
     const endTick = this._sampleTimeline.samplesToTicks(endSample);
     this._loopEnabled = enabled;
+    this._loopStartTick = startTick;
     this._loopStartSeconds = this._tempoMap.ticksToSeconds(startTick);
     this._clipPlayer.setLoopSamples(enabled, startSample, endSample);
     this._scheduler.setLoop(enabled, startTick, endTick);
@@ -377,8 +381,12 @@ export class Transport {
 
   // --- Tempo ---
 
-  setTempo(bpm: number, atTick?: Tick): void {
-    this._tempoMap.setTempo(bpm, atTick);
+  setTempo(bpm: number, atTick?: Tick, options?: SetTempoOptions): void {
+    this._tempoMap.setTempo(bpm, atTick, options);
+    // Recompute cached loop start — tempo change invalidates tick→seconds mapping
+    if (this._loopEnabled) {
+      this._loopStartSeconds = this._tempoMap.ticksToSeconds(this._loopStartTick);
+    }
     this._emit('tempochange');
   }
 
@@ -409,6 +417,9 @@ export class Transport {
 
   clearTempos(): void {
     this._tempoMap.clearTempos();
+    if (this._loopEnabled) {
+      this._loopStartSeconds = this._tempoMap.ticksToSeconds(this._loopStartTick);
+    }
     this._emit('tempochange');
   }
 
