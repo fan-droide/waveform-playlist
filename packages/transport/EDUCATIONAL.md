@@ -264,6 +264,5 @@ These have zero runtime cost (the brand exists only in the type system). Convers
 - Atkinson, K.E., *An Introduction to Numerical Analysis*, 2nd ed., Wiley, 1989 — Chapter 5 (trapezoidal rule, composite quadrature)
 - [Wikipedia — Trapezoidal rule](https://en.wikipedia.org/wiki/Trapezoidal_rule) (convergence, error bounds, Euler-Maclaurin formula)
 
-### Tempo Curves and Music Visualization
+### Tempo Curves
 - Werner Van Belle, *"Fast Envelope Generation"*, Proc. of the Linux Audio Conference, 2012 — [Paper](http://werner.yellowcouch.org/Papers/fastenv12/index.html) (Möbius-Ease curve formula, efficient iterative `v[i+1] = m×v[i] + q` form)
-- Werner Van Belle, *"Beatgraphs: Music at a Glance"*, 2012 — [Paper](http://werner.yellowcouch.org/Papers/beatgraphs12/index.html) (tempo visualization by folding audio energy at the bar period)
