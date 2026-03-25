@@ -1,6 +1,6 @@
 # Understanding Audio Transport Systems
 
-A guide to how DAW transport systems work at a fundamental level — the math, the timing models, and the engineering trade-offs. Written for music information retrieval researchers, graduate students, and advanced undergraduates.
+A guide to how DAW transport systems work at a fundamental level — the math, the timing models, and the engineering trade-offs.
 
 ## What Is a Transport?
 
