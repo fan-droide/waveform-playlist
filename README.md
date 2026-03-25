@@ -82,6 +82,12 @@ function App() {
 | [Annotations](https://naomiaro.github.io/waveform-playlist/examples/annotations) | Time-synced text with keyboard navigation |
 | [Waveform Data](https://naomiaro.github.io/waveform-playlist/examples/waveform-data) | Pre-computed peaks for fast loading |
 | [MIDI](https://naomiaro.github.io/waveform-playlist/examples/midi) | MIDI file playback with piano roll and SoundFont samples |
+| [Beats & Bars](https://naomiaro.github.io/waveform-playlist/examples/beats-and-bars) | Tempo-synced timescale with beats and bars ruler |
+| [Fades](https://naomiaro.github.io/waveform-playlist/examples/fades) | Fade in/out with configurable curves |
+| [Stereo](https://naomiaro.github.io/waveform-playlist/examples/stereo) | Stereo waveform rendering and pan controls |
+| [Spectrogram](https://naomiaro.github.io/waveform-playlist/examples/mir-spectrogram) | FFT-based spectrogram visualization |
+| [Media Element](https://naomiaro.github.io/waveform-playlist/examples/media-element) | HTMLMediaElement playout with playback rate |
+| [Flexible API](https://naomiaro.github.io/waveform-playlist/examples/flexible-api) | Custom playheads, timestamps, and full UI customization |
 
 ## Packages
 
@@ -127,9 +133,31 @@ npm install @dawcore/components
 
 <daw-transport for="editor">
   <daw-play-button></daw-play-button>
+  <daw-pause-button></daw-pause-button>
   <daw-stop-button></daw-stop-button>
+  <daw-record-button></daw-record-button>
 </daw-transport>
+
+<daw-keyboard-shortcuts playback splitting undo></daw-keyboard-shortcuts>
 ```
+
+**Features:**
+- Declarative `<daw-track>` and `<daw-clip>` elements with auto-loading
+- Clip move, trim, and split with collision detection
+- Undo/redo with transaction-based grouping
+- Keyboard shortcuts (Space=play/pause, S=split, Cmd/Ctrl+Z=undo)
+- File drop for adding tracks
+- Recording with overdub and latency compensation
+- Metronome with mixed meters and tempo changes
+- Pre-computed peaks for fast initial render
+- Native Web Audio — no Tone.js, full `sampleRate` and `latencyHint` control
+
+**Packages:**
+
+| Package | Description |
+|---------|-------------|
+| `@dawcore/components` | Lit Web Components for multi-track editing |
+| `@dawcore/transport` | Native Web Audio transport — scheduling, looping, tempo, metronome |
 
 Run the examples locally:
 
@@ -142,6 +170,7 @@ Then open `http://localhost:5173/dev/` — example pages:
 - [`index.html`](packages/dawcore/dev/index.html) — Basic playback with timescale and file drop
 - [`multiclip.html`](packages/dawcore/dev/multiclip.html) — Multi-clip editing with move, trim, and split
 - [`record.html`](packages/dawcore/dev/record.html) — Recording with overdub
+- [`metronome.html`](packages/dawcore/dev/metronome.html) — Metronome with mixed meters, tempo presets, and looping sequences
 
 ## Key Hooks
 
