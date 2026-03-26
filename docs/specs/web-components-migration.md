@@ -160,9 +160,49 @@ Extract framework-agnostic logic, add Web Component wrappers.
 | `<daw-volume-slider>` | setTrackVolume() / setMasterVolume() | Volume control. When inside a `<daw-track>`, controls that track. When inside `<daw-transport>`, controls master volume. |
 | `<daw-pan-slider>` | setTrackPan() | Per-track pan control. |
 | `<daw-vu-meter>` | Meter worklet | Level metering (replaces SegmentedVUMeter). |
-| `<daw-ruler>` | Time ruler | Renders time ruler above tracks. |
+| `<daw-ruler>` | Time ruler | Renders time ruler above tracks. In beats & bars mode, uses adaptive label density — skips labels at coarse zoom, shows every bar/beat at fine zoom. Shares tick computation with `<daw-grid>`. |
+| `<daw-grid>` | Beat/bar grid | Canvas-based background grid behind waveforms. Visible only in beats & bars scale mode. Chunked rendering with virtual scrolling (same pattern as `<daw-waveform>`). See [Beat & Bar Grid](#beat--bar-grid). |
 | `<daw-playhead>` | Playhead | Animated playhead line. |
 | `<daw-keyboard-shortcuts>` | Keyboard handler | Render-less element inside `<daw-editor>`. Boolean attributes: `playback`, `splitting`, `undo`. Properties: `customShortcuts`, `playbackShortcuts`, `splittingShortcuts`, `undoShortcuts` (key remapping), `shortcuts` (read-only, all active). |
+
+### Beat & Bar Grid
+
+`<daw-grid>` renders a striped background behind the track area, visible only in beats & bars scale mode. It helps users visually align clips to the beat/bar structure and makes snap-to-grid intuitive.
+
+**Layer order:** `--daw-background` (editor base) → grid stripes → clips (opaque background) → waveforms → playhead. Track rows are transparent layout containers — no `--daw-track-background` fill — so grid stripes show through. Clips render with their own opaque background.
+
+**Zoom-dependent display:**
+
+| Zoom Level | Lines | Striping |
+|------------|-------|----------|
+| Coarse (bars too dense for labels) | Every Nth bar (matches ruler label density) | None — lines only |
+| Medium (bars visible, beats dense) | Every bar | Bar-level odd/even |
+| Fine (beats visible) | Every beat | Beat-level odd/even |
+
+Grid line spacing matches the ruler's label spacing — they share the same tick computation logic. The ruler's beats & bars mode uses adaptive label density (skip labels when they'd overlap, show every Nth bar at coarse zoom). The grid follows the same thresholds.
+
+**CSS custom properties:**
+
+```css
+--daw-grid-odd: rgba(255, 255, 255, 0.03);
+--daw-grid-even: rgba(255, 255, 255, 0.06);
+--daw-grid-line-color: rgba(255, 255, 255, 0.1);
+```
+
+Odd/even stripes alternate at whatever the current granularity is (bars at medium zoom, beats at fine zoom). At coarse zoom, no stripes — just lines.
+
+**Data source:** Reads tempo (BPM) and meter (numerator/denominator) from the editor's transport. Redraws on `tempochange`, `meterchange`, zoom, and scroll.
+
+**Usage:**
+
+```html
+<daw-editor id="editor" samples-per-pixel="512" timescale>
+  <daw-grid></daw-grid>
+  <daw-keyboard-shortcuts playback splitting></daw-keyboard-shortcuts>
+  <daw-track src="/audio/drums.opus" name="Drums"></daw-track>
+  <daw-track src="/audio/bass.opus" name="Bass"></daw-track>
+</daw-editor>
+```
 
 ### Multi-Track Record Arming
 
