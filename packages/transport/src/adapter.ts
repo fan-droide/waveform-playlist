@@ -22,6 +22,42 @@ export class NativePlayoutAdapter implements PlayoutAdapter {
     }
     if (this._audioContext.state === 'suspended') {
       await this._audioContext.resume();
+      // Safari's audio thread may not be ready to output audio immediately
+      // after resume() resolves. Wait for currentTime to advance past the
+      // output latency, indicating the hardware pipeline is warm.
+      // Minimum warmup ensures the audio thread has time to spin up even
+      // when outputLatency reports 0 (Chrome on low-latency hardware).
+      const MIN_WARMUP = 0.02; // 20ms
+      const warmupTarget = Math.max(MIN_WARMUP, this._audioContext.outputLatency ?? MIN_WARMUP);
+      if (this._audioContext.currentTime < warmupTarget) {
+        const MAX_WARMUP_MS = 2000;
+        await new Promise<void>((resolve) => {
+          const startMs = performance.now();
+          const check = () => {
+            if (this._audioContext.currentTime >= warmupTarget) {
+              resolve();
+            } else if (
+              this._audioContext.state === 'closed' ||
+              performance.now() - startMs > MAX_WARMUP_MS
+            ) {
+              console.warn(
+                '[waveform-playlist] AudioContext warmup timed out' +
+                  ' (currentTime=' +
+                  this._audioContext.currentTime +
+                  ', target=' +
+                  warmupTarget +
+                  ', state=' +
+                  this._audioContext.state +
+                  '). Proceeding without warmup.'
+              );
+              resolve();
+            } else {
+              requestAnimationFrame(check);
+            }
+          };
+          requestAnimationFrame(check);
+        });
+      }
     }
   }
 

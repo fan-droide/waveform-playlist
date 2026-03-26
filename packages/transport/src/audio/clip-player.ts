@@ -224,8 +224,10 @@ export class ClipPlayer implements SchedulerListener<ClipEvent> {
         const clipStartSample = clip.startSample;
         const clipEndSample = clipStartSample + clip.durationSamples;
 
-        // Check if clip spans the new position
-        if (clipStartSample <= newSample && clipEndSample > newSample) {
+        // Check if clip spans the new position (started BEFORE, still playing).
+        // Clips starting exactly AT the new position are handled by generate(),
+        // not here — strict < prevents double-scheduling.
+        if (clipStartSample < newSample && clipEndSample > newSample) {
           const offsetIntoClipSamples = newSample - clipStartSample;
           const offsetSamples = clip.offsetSamples + offsetIntoClipSamples;
           let durationSamples = clipEndSample - newSample;
