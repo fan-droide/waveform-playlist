@@ -147,7 +147,7 @@ Extract framework-agnostic logic, add Web Component wrappers.
 | `<daw-time-format>` | setTimeFormat() | Select for time display format (`hh:mm:ss.sss`, `hh:mm:ss`, `seconds`). Affects time display and selection inputs. |
 | `<daw-tempo>` | setBpm() | Editable BPM input. Reflects current tempo. Drives `BeatsAndBarsProvider` bpm, metronome, and musical time formats. |
 | `<daw-time-signature>` | setTimeSignature() | Editable time signature (e.g., `4/4`, `3/4`, `6/8`). Drives `BeatsAndBarsProvider` timeSignature, ruler subdivisions, and snap grid. |
-| `<daw-snap-to>` | setSnapTo() | Select for snap granularity (`bar`, `beat`, `off`). Controls clip drag/trim snapping. |
+| `<daw-snap-to>` | setSnapTo() | Select for snap granularity. Controls clip drag/trim snapping and `<daw-grid>` line density. See [Snap Subdivisions](#snap-subdivisions). |
 | `<daw-scale-mode>` | setScaleMode() | Select for ruler display mode (`beats`, `temporal`). Switches between bar:beat and minutes:seconds ruler. |
 | `<daw-zoom-in>` | zoomIn() | Zoom in button. Disabled when at maximum zoom. |
 | `<daw-zoom-out>` | zoomOut() | Zoom out button. Disabled when at minimum zoom. |
@@ -203,6 +203,46 @@ Odd/even stripes alternate at whatever the current granularity is (bars at mediu
   <daw-track src="/audio/bass.opus" name="Bass"></daw-track>
 </daw-editor>
 ```
+
+### Snap Subdivisions
+
+Expand `SnapTo` from `'bar' | 'beat' | 'off'` to support note subdivisions and triplets:
+
+```typescript
+type SnapTo =
+  | 'bar'                                          // ticksPerBar
+  | 'beat'                                         // ticksPerBeat (quarter in 4/4, eighth in 6/8)
+  | '1/2' | '1/4' | '1/8' | '1/16' | '1/32'      // straight subdivisions
+  | '1/2T' | '1/4T' | '1/8T' | '1/16T'           // triplets (2/3 of straight value)
+  | 'off';
+```
+
+**Grid tick calculation** (shared by `SnapToGridModifier`, `<daw-grid>`, and `<daw-ruler>`):
+
+| SnapTo | Grid ticks (at 960 PPQN, 4/4) | Musical value |
+|--------|-------------------------------|---------------|
+| `bar` | 3840 | 1 bar |
+| `beat` | 960 | quarter note |
+| `1/2` | 1920 | half note |
+| `1/4` | 960 | quarter note (same as beat in 4/4) |
+| `1/8` | 480 | eighth note |
+| `1/16` | 240 | sixteenth note |
+| `1/32` | 120 | thirty-second note |
+| `1/4T` | 640 | quarter triplet (960 * 2/3) |
+| `1/8T` | 320 | eighth triplet (480 * 2/3) |
+| `1/16T` | 160 | sixteenth triplet (240 * 2/3) |
+
+The `T` suffix denotes triplet — the note value is multiplied by 2/3. For compound meters (6/8), `beat` is an eighth note (480 ticks), so `1/8T` would be 320 ticks (eighth triplet).
+
+**`<daw-snap-to>` element** renders a select/dropdown with these options. The current value drives both clip snapping (via `SnapToGridModifier`) and grid line density (via `<daw-grid>`).
+
+**Utility function** (in `@waveform-playlist/core` or `@dawcore/core`):
+
+```typescript
+function snapToTicks(snapTo: SnapTo, timeSignature: [number, number], ppqn = 960): number
+```
+
+Single source of truth for converting `SnapTo` → tick count. Used by `SnapToGridModifier`, `<daw-grid>`, and `<daw-ruler>`.
 
 ### Multi-Track Record Arming
 
