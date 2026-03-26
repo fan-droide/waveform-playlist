@@ -42,11 +42,15 @@ This transport uses native Web Audio exclusively, receiving the `AudioContext` f
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐   │
 │  │  Audio Layer                                          │   │
-│  │  ┌────────────┐  ┌──────────────────┐  ┌──────────┐ │   │
-│  │  │ ClipPlayer │  │ MetronomePlayer  │  │TrackNodes│ │   │
-│  │  │ source mgmt│  │ beat-grid clicks │  │signal    │ │   │
-│  │  │            │  │                  │  │chains    │ │   │
-│  │  └────────────┘  └──────────────────┘  └──────────┘ │   │
+│  │  ┌────────────┐  ┌────────────────┐  ┌──────────────┐│   │
+│  │  │ ClipPlayer │  │MetronomePlayer │  │CountInPlayer ││   │
+│  │  │ source mgmt│  │beat-grid clicks│  │pre-roll      ││   │
+│  │  └────────────┘  └────────────────┘  └──────────────┘│   │
+│  │  ┌──────────┐  ┌──────────────┐                      │   │
+│  │  │TrackNodes│  │ ClickSounds  │                      │   │
+│  │  │signal    │  │ synthesized  │                      │   │
+│  │  │chains    │  │ defaults     │                      │   │
+│  │  └──────────┘  └──────────────┘                      │   │
 │  └──────────────────────────────────────────────────────┘   │
 │                                                              │
 │  ┌──────────────────────────────────────────────────────┐   │
@@ -79,7 +83,7 @@ The scheduler runs 200ms ahead of real-time audio. This means:
 
 ### Listener Contract
 
-Both `ClipPlayer` and `MetronomePlayer` implement the same interface:
+`ClipPlayer`, `MetronomePlayer`, and `CountInPlayer` all implement the same interface:
 
 ```typescript
 type Tick = number & { readonly [__tick]: never };   // branded — zero runtime cost
@@ -262,6 +266,43 @@ The scheduler detects when the lookahead window (in ticks) crosses `loopEnd`:
 4. Continue generating from `loopStart` to fill remaining lookahead — events use the adjusted clock so `toAudioTime()` maps correctly
 5. Handles multiple wraps per advance for loop regions shorter than the lookahead
 6. `getCurrentTime()` clamps to `loopStart` during the brief window after wrap when the clock is behind (the lookahead offset)
+
+## Count-In (Pre-Roll)
+
+When count-in is enabled, pressing play triggers audible metronome clicks for a configurable number of bars before audio playback begins. The timeline holds at the play position during count-in.
+
+### Count-In Architecture
+
+CountInPlayer implements `SchedulerListener<CountInEvent>` — same contract as ClipPlayer and MetronomePlayer. It is a **temporary** listener, added to a **dedicated count-in scheduler** only during the pre-play phase.
+
+**Dedicated tick space:** The count-in scheduler operates in its own coordinate system starting at tick 0, with a dedicated `TempoMap` locked to the BPM at the play position and a dedicated `MeterMap` locked to the meter at the play position. Both prevent multi-tempo/multi-meter sessions from misinterpreting count-in ticks as main-timeline positions.
+
+**Default click sounds:** `createDefaultClickSounds()` synthesizes sine wave AudioBuffers with exponential decay (accent: 1000 Hz/40ms, normal: 800 Hz/30ms). Loaded in the constructor — both MetronomePlayer and CountInPlayer use them out of the box. `setMetronomeClickSounds()` overrides both.
+
+### Count-In Lifecycle
+
+1. `play()` checks if count-in should activate (`_countInEnabled`, mode, click sounds)
+2. If yes:
+   - Set `_countingIn = true`, `_playing = true`, store `_countInStartPosition`
+   - Calculate `_countInDuration` (full bar duration in seconds)
+   - Create dedicated TempoMap + MeterMap + Scheduler for the count-in
+   - Configure `CountInPlayer` with beat count, click sounds, `onBeat` callback
+   - Seek clock to 0, start timer — count-in scheduler generates beat events
+3. Timer tick: advance count-in scheduler, check `time >= _countInDuration`
+4. When bar duration reached (`_finishCountIn()`):
+   - Remove CountInPlayer from scheduler (don't silence — clicks finish naturally)
+   - Set `_countingIn = false`, emit `countInEnd`
+   - Seek clock back to `_countInStartPosition`
+   - Reset main scheduler, create mid-clip sources, emit `play`
+   - Timer continues — next tick falls through to main scheduler branch
+
+**Cancel:** `stop()`, `pause()`, and `seek()` during count-in call `_cancelCountIn()` which silences clicks, removes the listener, and resets state. No `countInEnd` event.
+
+**Events:**
+- `countIn` — fires per beat with `{ beat: number, totalBeats: number }` for UI countdown
+- `countInEnd` — fires when count-in completes and playback begins
+
+**Why timer-driven, not callback-driven:** `onComplete` from `consume()` fires when the last beat is *scheduled* in the lookahead window (~200ms before it plays). Transitioning then would start the metronome before the last count-in click is heard. The timer tick checks elapsed time against the full bar duration, placing the transition exactly at the bar boundary.
 
 ## Solo Logic
 
