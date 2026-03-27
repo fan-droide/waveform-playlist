@@ -135,6 +135,17 @@ const rebuildChain = useCallback(() => {
 
 **AudioContext Init Pattern:** `audioInitializedRef` guards `engine.init()` (AudioContext resume via `Tone.start()`). Only the first play call awaits init; subsequent plays skip it entirely — no microtask yield. Reset to `false` when engine is rebuilt in `loadAudio`. This keeps the stop→play path fully synchronous after first play, preventing audio layering race conditions.
 
+## Playhead outputLatency Compensation
+
+`getPlaybackTime()` returns **raw engine time** — no latency subtraction. Compensation is applied at the visual layer only, in each consumer's rAF callback during playback (`isPlaying` guard):
+- `AnimatedPlayhead` — subtracts `outputLatency` for playhead position
+- `ChannelWithProgress` — subtracts `outputLatency` for progress overlay
+- Auto-scroll (in animation loop) — subtracts `outputLatency` for scroll target
+
+**All three must stay aligned.** If any visual consumer uses raw time while others compensate, they disagree by `outputLatency` pixels per frame, causing jitter.
+
+**Do NOT compensate `currentTimeRef` or pause position** — state storage must use raw engine time. Subtracting `outputLatency` from stored positions shifts the next `play()` start time and compounds on every pause/resume cycle.
+
 ## Engine State Subscription Pattern
 
 **Pattern:** Engine owns state → emits `statechange` → hook's `onEngineState()` mirrors into useState/refs.
