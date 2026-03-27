@@ -125,11 +125,13 @@ const rebuildChain = useCallback(() => {
 
 **Problem:** React state updates during playback cause flickering. Components need 60fps updates.
 
-**Solution:** `requestAnimationFrame` + direct DOM manipulation via refs. Read time via `getPlaybackTime()` which delegates to `Transport.seconds` for perfect audio sync. No `setState` in the loop.
+**Solution:** Single `requestAnimationFrame` loop in `WaveformPlaylistContext` drives all visual updates via the **Animation Frame Registry**. Components register per-frame callbacks via `registerFrameCallback(id, cb)` / `unregisterFrameCallback(id)` from `usePlaybackAnimation()`. Direct DOM manipulation via refs — no `setState` in the loop.
 
-**Key points:** Use `getPlaybackTime()` (from `usePlaybackAnimation()`) — delegates to `engine.getCurrentTime()` which reads `Transport.seconds` (auto-wraps at loop boundaries). Fallback: manual elapsed calculation from `audioContext.currentTime`. Update DOM directly. Cancel animation frame on cleanup.
+**FrameData:** The animation loop computes `FrameData { time, visualTime, sampleRate, samplesPerPixel }` once per frame and passes it to all registered callbacks. Callbacks must read `sampleRate`/`samplesPerPixel` from `FrameData`, not from closed-over render values — avoids stale closures during zoom changes.
 
-**Reference implementation:** `AnimatedPlayhead` component. Also used by `ChannelWithProgress`, `AudioPosition`, `PlayheadWithMarker`.
+**Consumers:** `AnimatedPlayhead` (id: `'playhead'`), `ChannelWithProgress` (id: `useId()` — unique per instance), `AudioPosition` (id: `'audio-position'`). Auto-scroll uses `visualTime` directly in the loop body. MediaElement provider is excluded — has its own separate animation pattern.
+
+**Do NOT add new rAF loops for visual playback updates.** Register a frame callback instead. Use `visualTime` for DOM positioning, `time` for state/logic.
 
 **Loop handling:** Looping is handled natively by Tone.js Transport (`Transport.loop`/`loopStart`/`loopEnd`). The animation loop does NOT detect loop boundaries — `Transport.seconds` auto-wraps, so `getPlaybackTime()` returns the correct position. Selection/annotation playback disables Transport loop; `stop()` disables it before stopping.
 
@@ -137,12 +139,7 @@ const rebuildChain = useCallback(() => {
 
 ## Playhead outputLatency Compensation
 
-`getPlaybackTime()` returns **raw engine time** — no latency subtraction. Compensation is applied at the visual layer only, in each consumer's rAF callback during playback (`isPlaying` guard):
-- `AnimatedPlayhead` — subtracts `outputLatency` for playhead position
-- `ChannelWithProgress` — subtracts `outputLatency` for progress overlay
-- Auto-scroll (in animation loop) — subtracts `outputLatency` for scroll target
-
-**All three must stay aligned.** If any visual consumer uses raw time while others compensate, they disagree by `outputLatency` pixels per frame, causing jitter.
+`getPlaybackTime()` returns **raw engine time** — no latency subtraction. The animation loop computes `visualTime = Math.max(0, time - outputLatency)` once per frame. All registered frame callbacks receive `visualTime` via `FrameData`. Auto-scroll also uses `visualTime`.
 
 **Do NOT compensate `currentTimeRef` or pause position** — state storage must use raw engine time. Subtracting `outputLatency` from stored positions shifts the next `play()` start time and compounds on every pause/resume cycle.
 

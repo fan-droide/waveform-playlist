@@ -81,6 +81,16 @@ export interface TrackState {
 // Split contexts for performance optimization
 // Animation context contains playback state and timing refs — no per-frame state updates
 
+/** Per-frame data passed to registered animation callbacks. */
+export interface FrameData {
+  /** Raw engine time (for state/logic — NOT for visual positioning). */
+  readonly time: number;
+  /** time - outputLatency (for DOM positioning — matches speaker output). */
+  readonly visualTime: number;
+  readonly sampleRate: number;
+  readonly samplesPerPixel: number;
+}
+
 export interface PlaybackAnimationContextValue {
   isPlaying: boolean;
   currentTime: number;
@@ -90,6 +100,10 @@ export interface PlaybackAnimationContextValue {
   audioStartPositionRef: React.RefObject<number>; // Audio position when playback started
   /** Returns current playback time from engine (auto-wraps at loop boundaries). */
   getPlaybackTime: () => number;
+  /** Register a per-frame callback driven by the single animation loop. */
+  registerFrameCallback: (id: string, cb: (data: FrameData) => void) => void;
+  /** Unregister a per-frame callback. */
+  unregisterFrameCallback: (id: string) => void;
 }
 
 export interface PlaylistStateContextValue {
@@ -360,6 +374,9 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
   const playbackEndTimeRef = useRef<number | null>(null); // Audio position where playback should stop (for selections)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const isAutomaticScrollRef = useRef<boolean>(false);
+  // Animation frame callback registry — components register per-frame DOM update
+  // callbacks instead of running their own rAF loops. Single loop drives all.
+  const frameCallbacksRef = useRef<Map<string, (data: FrameData) => void>>(new Map());
   const continuousPlayRef = useRef<boolean>(annotationList?.isContinuousPlay ?? false);
   const activeAnnotationIdRef = useRef<string | null>(null);
   // Engine clip operations guard: tracks reference from the last engine statechange.
@@ -1004,12 +1021,43 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
     return (audioStartPositionRef.current ?? 0) + elapsed;
   }, []);
 
+  const registerFrameCallback = useCallback((id: string, cb: (data: FrameData) => void) => {
+    frameCallbacksRef.current.set(id, cb);
+  }, []);
+
+  const unregisterFrameCallback = useCallback((id: string) => {
+    frameCallbacksRef.current.delete(id);
+  }, []);
+
   // Animation loop
   const startAnimationLoop = useCallback(() => {
+    // Cache AudioContext at loop start — stable for the lifetime of this playback session.
+    // outputLatency is read per-frame since it's a dynamic property.
+    const audioCtx = getGlobalAudioContext();
+
     const updateTime = () => {
       // Get current time from engine (auto-wraps at loop boundaries via Transport.seconds)
       const time = getPlaybackTime();
       currentTimeRef.current = time;
+
+      // Compute visual time once — all visual consumers use this same value.
+      // Subtracts outputLatency so DOM positions match speaker output.
+      const latency = 'outputLatency' in audioCtx ? (audioCtx as AudioContext).outputLatency : 0;
+      const visualTime = Math.max(0, time - latency);
+
+      // Drive registered per-frame callbacks BEFORE stop checks so the
+      // final frame renders at the correct stop position (not one frame behind).
+      const sr = sampleRateRef.current;
+      const spp = samplesPerPixelRef.current;
+      const frameData: FrameData = {
+        time,
+        visualTime,
+        sampleRate: sr,
+        samplesPerPixel: spp,
+      };
+      for (const cb of frameCallbacksRef.current.values()) {
+        cb(frameData);
+      }
 
       // Handle annotation playback based on continuous play mode
       const currentAnnotations = annotationsRef.current;
@@ -1052,20 +1100,15 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
         }
       }
 
-      // Handle automatic scroll - continuously center the playhead.
-      // Use outputLatency-compensated time so scroll aligns with the visual
-      // playhead position (AnimatedPlayhead applies the same offset).
+      // Handle automatic scroll — uses shared visualTime for alignment with playhead
       if (isAutomaticScrollRef.current && scrollContainerRef.current && duration > 0) {
         const container = scrollContainerRef.current;
-        const sr = sampleRateRef.current;
-        const ctx = getGlobalAudioContext();
-        const latency = 'outputLatency' in ctx ? (ctx as AudioContext).outputLatency : 0;
-        const visualTime = Math.max(0, time - latency);
-        const pixelPosition = (visualTime * sr) / samplesPerPixelRef.current;
+        const pixelPosition = (visualTime * sr) / spp;
         const containerWidth = container.clientWidth;
 
-        // Continuously scroll to keep playhead centered
-        const targetScrollLeft = Math.max(0, pixelPosition - containerWidth / 2);
+        // Continuously scroll to keep playhead centered.
+        // Math.round prevents sub-pixel jitter from browser integer rounding.
+        const targetScrollLeft = Math.round(Math.max(0, pixelPosition - containerWidth / 2));
         container.scrollLeft = targetScrollLeft;
       }
 
@@ -1405,6 +1448,8 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       playbackStartTimeRef,
       audioStartPositionRef,
       getPlaybackTime,
+      registerFrameCallback,
+      unregisterFrameCallback,
     }),
     [
       isPlaying,
@@ -1413,6 +1458,8 @@ export const WaveformPlaylistProvider: React.FC<WaveformPlaylistProviderProps> =
       playbackStartTimeRef,
       audioStartPositionRef,
       getPlaybackTime,
+      registerFrameCallback,
+      unregisterFrameCallback,
     ]
   );
 

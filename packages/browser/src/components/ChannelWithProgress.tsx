@@ -1,10 +1,9 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useId, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import {
   clipPixelWidth as computeClipPixelWidth,
   type MidiNoteData,
 } from '@waveform-playlist/core';
-import { getGlobalAudioContext } from '@waveform-playlist/playout';
 import {
   SmartChannel,
   type SmartChannelProps,
@@ -88,7 +87,7 @@ export interface ChannelWithProgressProps extends SmartChannelProps {
 /**
  * SmartChannel wrapper that adds an animated progress overlay.
  * The progress overlay shows the "played" portion of the waveform.
- * Uses requestAnimationFrame for smooth 60fps animation without React re-renders.
+ * Updates via the shared animation frame registry — no own rAF loop.
  */
 export const ChannelWithProgress: React.FC<ChannelWithProgressProps> = ({
   clipStartSample,
@@ -99,11 +98,12 @@ export const ChannelWithProgress: React.FC<ChannelWithProgressProps> = ({
   ...smartChannelProps
 }) => {
   const progressRef = useRef<HTMLDivElement>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const callbackId = useId();
   const theme = useTheme() as WaveformPlaylistTheme;
   const { waveHeight } = usePlaylistInfo();
 
-  const { isPlaying, currentTimeRef, getPlaybackTime } = usePlaybackAnimation();
+  const { isPlaying, currentTimeRef, registerFrameCallback, unregisterFrameCallback } =
+    usePlaybackAnimation();
   const { samplesPerPixel, sampleRate } = usePlaylistData();
 
   const progressColor = theme?.waveProgressColor || 'rgba(0, 0, 0, 0.1)';
@@ -116,58 +116,37 @@ export const ChannelWithProgress: React.FC<ChannelWithProgressProps> = ({
     samplesPerPixel
   );
 
+  // Register per-frame callback during playback — no own rAF loop
   useEffect(() => {
-    const updateProgress = () => {
-      if (progressRef.current) {
-        let currentTime = isPlaying ? getPlaybackTime() : (currentTimeRef.current ?? 0);
-        // Subtract outputLatency during playback so progress matches speaker output
-        if (isPlaying) {
-          const ctx = getGlobalAudioContext();
-          const latency = 'outputLatency' in ctx ? (ctx as AudioContext).outputLatency : 0;
-          currentTime = Math.max(0, currentTime - latency);
-        }
-        const currentSample = currentTime * sampleRate;
-        const clipEndSample = clipStartSample + clipDurationSamples;
-
-        let ratio = 0;
-        if (currentSample <= clipStartSample) {
-          ratio = 0;
-        } else if (currentSample >= clipEndSample) {
-          ratio = 1;
-        } else {
-          const playedSamples = currentSample - clipStartSample;
-          ratio = playedSamples / clipDurationSamples;
-        }
-
-        // scaleX is composite-only — no layout reflow, GPU-accelerated
-        progressRef.current.style.transform = `scaleX(${ratio})`;
-      }
-
-      if (isPlaying) {
-        animationFrameRef.current = requestAnimationFrame(updateProgress);
-      }
-    };
-
     if (isPlaying) {
-      animationFrameRef.current = requestAnimationFrame(updateProgress);
-    } else {
-      updateProgress();
-    }
+      registerFrameCallback(callbackId, ({ visualTime, sampleRate: sr }) => {
+        if (progressRef.current) {
+          const currentSample = visualTime * sr;
+          const clipEndSample = clipStartSample + clipDurationSamples;
 
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-    };
+          let ratio = 0;
+          if (currentSample <= clipStartSample) {
+            ratio = 0;
+          } else if (currentSample >= clipEndSample) {
+            ratio = 1;
+          } else {
+            const playedSamples = currentSample - clipStartSample;
+            ratio = playedSamples / clipDurationSamples;
+          }
+
+          // scaleX is composite-only — no layout reflow, GPU-accelerated
+          progressRef.current.style.transform = `scaleX(${ratio})`;
+        }
+      });
+    }
+    return () => unregisterFrameCallback(callbackId);
   }, [
     isPlaying,
-    sampleRate,
     clipStartSample,
     clipDurationSamples,
-    clipPixelWidth,
-    currentTimeRef,
-    getPlaybackTime,
+    callbackId,
+    registerFrameCallback,
+    unregisterFrameCallback,
   ]);
 
   // Also update when not playing (for seeks, stops, etc.)
