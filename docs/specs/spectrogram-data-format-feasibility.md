@@ -268,9 +268,27 @@ This is negligible compared to the FFT cost it replaces.
 
 ## Tempo-Aware Spectrogram Rendering
 
-The same tempo integration from the audio rendering pipeline (see `21-audio-rendering-pipeline.md`) applies to spectrograms. The spectrogram data is indexed by audio time (frame index × hopSize / sampleRate), and the renderer maps that to tick-space pixels using the tempo map.
+When tempo varies across the timeline, the spectrogram renderer needs to map audio frames to tick-space pixels — the same challenge as waveform rendering.
 
-For pre-computed `.sgdat` data, the frame-to-pixel mapping works the same way — iterate in TempoChangeGrid steps, compute how many spectrogram frames correspond to each step at the local tempo, and render that slice.
+### The Core Problem
+
+The spectrogram grid is indexed by audio time: `frame_time = frame_index × hopSize / sampleRate`. The timeline grid is tick-linear (beats are evenly spaced). At a constant tempo, the mapping is proportional. At tempo changes, the same number of spectrogram frames maps to different pixel widths depending on the local tempo.
+
+### The Rendering Approach
+
+Iterate the clip's PPQN range in small steps (aligned to a tempo grid resolution, e.g., 80 ticks ≈ 10ms). For each step:
+
+1. Get the local BPM: `bpm = tempoMap.getTempoAt(currentTick)`
+2. Compute how many seconds this step spans: `stepSeconds = stepTicks × 60 / (PPQN × bpm)`
+3. Convert to spectrogram frame range: `frameStart = audioTime × sampleRate / hopSize`, `frameEnd = (audioTime + stepSeconds) × sampleRate / hopSize`
+4. Map tick range to pixel range (linear, same as grid): `x0 = tickToPixel(currentTick)`, `x1 = tickToPixel(nextTick)`
+5. Render spectrogram frames `[frameStart, frameEnd]` into pixels `[x0, x1]`
+
+At a tempo decrease, each tick-step spans more real time, so more spectrogram frames are packed into the same pixel width — the spectrogram appears "compressed." At a tempo increase, fewer frames per pixel — the spectrogram appears "stretched."
+
+### For Pre-Computed `.sgdat` Data
+
+The frame-to-pixel mapping works identically. The `.sgdat` file contains pre-computed dB values indexed by frame number. The renderer just looks up the frame range instead of computing FFT on the fly. The tempo integration happens at the rendering level, not the data level — so the same `.sgdat` file works regardless of tempo changes.
 
 ## Recommendation
 
