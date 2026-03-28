@@ -1,3 +1,5 @@
+import { snapTickToGrid } from '@waveform-playlist/core';
+import type { SnapTo } from '@waveform-playlist/core';
 import { DRAG_THRESHOLD } from './constants';
 
 /** Snapshot of a clip's bounds for trim constraint computation. */
@@ -45,10 +47,18 @@ export interface ClipPeakSlice {
 /** Host interface required by ClipPointerHandler. */
 export interface ClipPointerHost {
   readonly samplesPerPixel: number;
+  /** In beats mode, the tick-derived SPP used for rendering. */
+  readonly renderSamplesPerPixel: number;
   readonly effectiveSampleRate: number;
   readonly interactiveClips: boolean;
   readonly engine: ClipEngineContract | null;
   readonly shadowRoot: ShadowRoot | null;
+  readonly scaleMode: 'temporal' | 'beats';
+  readonly ticksPerPixel: number;
+  readonly bpm: number;
+  readonly ppqn: number;
+  readonly timeSignature: [number, number];
+  readonly snapTo: SnapTo;
   dispatchEvent(event: Event): boolean;
   /** Re-extract peaks for a clip at new offset/duration from cached WaveformData. */
   reextractClipPeaks(
@@ -77,7 +87,6 @@ export class ClipPointerHandler {
   private _trackId = '';
   private _startPx = 0;
   private _isDragging = false;
-  private _lastDeltaPx = 0;
   private _cumulativeDeltaSamples = 0;
   // Trim visual feedback: snapshot of original clip state
   private _clipContainer: HTMLElement | null = null;
@@ -86,9 +95,36 @@ export class ClipPointerHandler {
   private _originalWidth = 0;
   private _originalOffsetSamples = 0;
   private _originalDurationSamples = 0;
+  private _originalStartSample = 0;
 
   constructor(host: ClipPointerHost) {
     this._host = host;
+  }
+
+  /**
+   * Convert a pixel delta to samples, snapping in tick space when in beats mode.
+   *
+   * The anchor is the absolute sample position being moved (e.g., clip start
+   * for move/left-trim, clip end for right-trim). Snapping the absolute
+   * position — not just the delta — ensures clips land exactly on grid lines
+   * even if they started off-grid.
+   */
+  private _snapDeltaToSamples(totalDeltaPx: number, anchorSample: number): number {
+    const h = this._host;
+    if (h.scaleMode === 'beats') {
+      const anchorSeconds = anchorSample / h.effectiveSampleRate;
+      const anchorTick = (anchorSeconds * h.bpm * h.ppqn) / 60;
+      const deltaTicks = totalDeltaPx * h.ticksPerPixel;
+      const targetTick = anchorTick + deltaTicks;
+      const snappedTick =
+        h.snapTo !== 'off'
+          ? snapTickToGrid(targetTick, h.snapTo, h.timeSignature, h.ppqn)
+          : targetTick;
+      const snappedSeconds = (snappedTick * 60) / (h.bpm * h.ppqn);
+      const snappedSample = Math.round(snappedSeconds * h.effectiveSampleRate);
+      return snappedSample - anchorSample;
+    }
+    return Math.round(totalDeltaPx * h.renderSamplesPerPixel);
   }
 
   /** Returns true if a drag interaction is currently in progress. */
@@ -139,12 +175,21 @@ export class ClipPointerHandler {
     this._trackId = trackId;
     this._startPx = e.clientX;
     this._isDragging = false;
-    this._lastDeltaPx = 0;
+
     this._cumulativeDeltaSamples = 0;
 
+    // Snapshot clip start position for snap calculations
+    const engine = this._host.engine;
+    if (engine) {
+      const bounds = engine.getClipBounds(trackId, clipId);
+      if (bounds) {
+        this._originalStartSample = bounds.startSample;
+      }
+    }
+
     // Group all drag mutations into one undo step
-    if (this._host.engine) {
-      this._host.engine.beginTransaction();
+    if (engine) {
+      engine.beginTransaction();
     } else {
       console.warn(
         '[dawcore] beginDrag: engine unavailable, drag mutations will not be grouped for undo'
@@ -196,26 +241,45 @@ export class ClipPointerHandler {
     if (!engine) return;
 
     if (this._mode === 'move') {
-      // Move: send incremental deltas per-frame with skipAdapter=true.
-      // Adapter synced once via updateTrack() at drag end.
-      const incrementalDeltaPx = totalDeltaPx - this._lastDeltaPx;
-      this._lastDeltaPx = totalDeltaPx;
-      const incrementalDeltaSamples = Math.round(incrementalDeltaPx * this._host.samplesPerPixel);
-      // Track constrained delta (not raw) so undo transactions are accurate
-      const applied = engine.moveClip(this._trackId, this._clipId, incrementalDeltaSamples, true);
-      this._cumulativeDeltaSamples += applied;
+      // Move: compute total snapped delta from original position, then derive
+      // the incremental from what's already been applied to the engine.
+      // Anchor = clip start position (move shifts the whole clip)
+      const totalSnappedDelta = this._snapDeltaToSamples(totalDeltaPx, this._originalStartSample);
+      const incrementalDeltaSamples = totalSnappedDelta - this._cumulativeDeltaSamples;
+      if (incrementalDeltaSamples !== 0) {
+        // Track constrained delta (not raw) so undo transactions are accurate
+        const applied = engine.moveClip(this._trackId, this._clipId, incrementalDeltaSamples, true);
+        this._cumulativeDeltaSamples += applied;
+      }
     } else {
       // Trim: constrain delta using engine's full collision/bounds logic,
       // then track for visual feedback. Engine called once at pointerup.
       const boundary = this._mode === 'trim-left' ? 'left' : 'right';
-      const rawDeltaSamples = Math.round(totalDeltaPx * this._host.samplesPerPixel);
+      // Anchor = the boundary edge being dragged
+      // Left trim: snap the left edge (startSample)
+      // Right trim: snap the right edge (startSample + durationSamples)
+      const anchor =
+        boundary === 'left'
+          ? this._originalStartSample
+          : this._originalStartSample + this._originalDurationSamples;
+      const rawDeltaSamples = this._snapDeltaToSamples(totalDeltaPx, anchor);
       const deltaSamples = engine.constrainTrimDelta(
         this._trackId,
         this._clipId,
         boundary,
         rawDeltaSamples
       );
-      const deltaPx = Math.round(deltaSamples / this._host.samplesPerPixel);
+      // Convert sample delta to pixels — use tick space in beats mode
+      // to avoid quantization drift from the sample round-trip.
+      let deltaPx: number;
+      if (this._host.scaleMode === 'beats') {
+        const h = this._host;
+        const deltaSec = deltaSamples / h.effectiveSampleRate;
+        const deltaTicks = (deltaSec * h.bpm * h.ppqn) / 60;
+        deltaPx = Math.round(deltaTicks / h.ticksPerPixel);
+      } else {
+        deltaPx = Math.round(deltaSamples / this._host.renderSamplesPerPixel);
+      }
 
       this._cumulativeDeltaSamples = deltaSamples;
 
@@ -376,12 +440,13 @@ export class ClipPointerHandler {
     this._trackId = '';
     this._startPx = 0;
     this._isDragging = false;
-    this._lastDeltaPx = 0;
+
     this._cumulativeDeltaSamples = 0;
     this._clipContainer = null;
     this._originalLeft = 0;
     this._originalWidth = 0;
     this._originalOffsetSamples = 0;
     this._originalDurationSamples = 0;
+    this._originalStartSample = 0;
   }
 }

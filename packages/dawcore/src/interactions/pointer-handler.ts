@@ -1,4 +1,5 @@
-import { pixelsToSeconds } from '@waveform-playlist/core';
+import { pixelsToSeconds, snapTickToGrid } from '@waveform-playlist/core';
+import type { SnapTo } from '@waveform-playlist/core';
 import { DRAG_THRESHOLD } from './constants';
 
 /** Narrow engine contract for pointer interactions. */
@@ -32,12 +33,19 @@ export interface PointerHandlerHost {
     onPointerUp(e: PointerEvent): void;
     isActive: boolean;
   } | null;
+  readonly scaleMode: 'temporal' | 'beats';
+  readonly ticksPerPixel: number;
+  readonly bpm: number;
+  readonly ppqn: number;
+  readonly timeSignature: [number, number];
+  readonly snapTo: SnapTo;
 }
 
 export class PointerHandler {
   private _host: PointerHandlerHost;
   private _isDragging = false;
   private _dragStartPx = 0;
+  private _dragStartTime = 0;
   private _timeline: HTMLElement | null = null;
   // Cached from onPointerDown to avoid forced layout reflows at 60fps during drag
   private _timelineRect: DOMRect | null = null;
@@ -55,6 +63,25 @@ export class PointerHandler {
     // getBoundingClientRect().left already reflects scroll position
     // (goes negative when scrolled), so no scrollLeft adjustment needed.
     return e.clientX - this._timelineRect.left;
+  }
+
+  private _pxToTime(px: number): number {
+    const h = this._host;
+    if (h.scaleMode === 'beats') {
+      let tick = px * h.ticksPerPixel;
+      tick = snapTickToGrid(tick, h.snapTo, h.timeSignature, h.ppqn);
+      return (tick * 60) / (h.bpm * h.ppqn);
+    }
+    return pixelsToSeconds(px, h.samplesPerPixel, h.effectiveSampleRate);
+  }
+
+  private _timeToPx(time: number): number {
+    const h = this._host;
+    if (h.scaleMode === 'beats') {
+      const tick = (time * h.bpm * h.ppqn) / 60;
+      return tick / h.ticksPerPixel;
+    }
+    return (time * h.effectiveSampleRate) / h.samplesPerPixel;
   }
 
   onPointerDown = (e: PointerEvent) => {
@@ -109,16 +136,14 @@ export class PointerHandler {
 
     if (!this._isDragging && Math.abs(currentPx - this._dragStartPx) > DRAG_THRESHOLD) {
       this._isDragging = true;
+      // Cache snapped start time once — don't recompute every frame
+      this._dragStartTime = this._pxToTime(this._dragStartPx);
     }
 
     if (this._isDragging) {
       const h = this._host;
-      const startTime = pixelsToSeconds(
-        this._dragStartPx,
-        h.samplesPerPixel,
-        h.effectiveSampleRate
-      );
-      const endTime = pixelsToSeconds(currentPx, h.samplesPerPixel, h.effectiveSampleRate);
+      const startTime = this._dragStartTime;
+      const endTime = this._pxToTime(currentPx);
       // Mutate host fields directly (not @state) and update <daw-selection>
       // imperatively to avoid triggering Lit re-renders at 60fps during drag
       h._selectionStartTime = Math.min(startTime, endTime);
@@ -127,8 +152,8 @@ export class PointerHandler {
         | { startPx: number; endPx: number }
         | undefined;
       if (sel) {
-        sel.startPx = (h._selectionStartTime * h.effectiveSampleRate) / h.samplesPerPixel;
-        sel.endPx = (h._selectionEndTime * h.effectiveSampleRate) / h.samplesPerPixel;
+        sel.startPx = this._timeToPx(h._selectionStartTime);
+        sel.endPx = this._timeToPx(h._selectionEndTime);
       }
     }
   };
@@ -179,7 +204,7 @@ export class PointerHandler {
   private _handleSeekClick(e: PointerEvent) {
     const h = this._host;
     const px = this._pxFromPointer(e);
-    const time = pixelsToSeconds(px, h.samplesPerPixel, h.effectiveSampleRate);
+    const time = this._pxToTime(px);
 
     // Clear selection
     h._selectionStartTime = 0;

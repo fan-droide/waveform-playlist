@@ -1,6 +1,6 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ClipTrack, FadeType, Peaks, PeakData } from '@waveform-playlist/core';
+import type { ClipTrack, FadeType, Peaks, PeakData, SnapTo } from '@waveform-playlist/core';
 import type { TrackDescriptor, ClipDescriptor } from '../types';
 import {
   createClip,
@@ -14,6 +14,7 @@ import type { DawClipElement } from './daw-clip';
 import type { DawPlayheadElement } from './daw-playhead';
 import type { PlaylistEngine } from '@waveform-playlist/engine';
 import '../elements/daw-track-controls';
+import '../elements/daw-grid';
 import { hostStyles, clipStyles } from '../styles/theme';
 import { ViewportController } from '../controllers/viewport-controller';
 import { AudioResumeController } from '../controllers/audio-resume-controller';
@@ -70,6 +71,45 @@ export class DawEditorElement extends LitElement {
   @property({ type: Boolean, attribute: 'clip-headers' }) clipHeaders = false;
   @property({ type: Number, attribute: 'clip-header-height' }) clipHeaderHeight = 20;
   @property({ type: Boolean, attribute: 'interactive-clips' }) interactiveClips = false;
+  @property({ type: String, attribute: 'scale-mode' })
+  scaleMode: 'temporal' | 'beats' = 'temporal';
+  @property({ type: Number, attribute: 'ticks-per-pixel', noAccessor: true })
+  get ticksPerPixel(): number {
+    return this._ticksPerPixel;
+  }
+  set ticksPerPixel(value: number) {
+    const old = this._ticksPerPixel;
+    if (!Number.isFinite(value) || value <= 0) return;
+    this._ticksPerPixel = value;
+    this.requestUpdate('ticksPerPixel', old);
+  }
+  private _ticksPerPixel = 24;
+  @property({ type: Number, noAccessor: true })
+  get bpm(): number {
+    return this._bpm;
+  }
+  set bpm(value: number) {
+    const old = this._bpm;
+    if (!Number.isFinite(value) || value <= 0) return;
+    this._bpm = value;
+    this.requestUpdate('bpm', old);
+  }
+  private _bpm = 120;
+  @property({ attribute: false })
+  timeSignature: [number, number] = [4, 4];
+  @property({ type: Number, noAccessor: true })
+  get ppqn(): number {
+    return this._ppqn;
+  }
+  set ppqn(value: number) {
+    const old = this._ppqn;
+    if (!Number.isFinite(value) || value <= 0) return;
+    this._ppqn = value;
+    this.requestUpdate('ppqn', old);
+  }
+  private _ppqn = 960;
+  @property({ type: String, attribute: 'snap-to' })
+  snapTo: SnapTo = 'off';
   /** Desired sample rate. Creates a cross-browser AudioContext at this rate.
    *  Pre-computed .dat peaks render instantly when they match. */
   @property({ type: Number, attribute: 'sample-rate' }) sampleRate = 48000;
@@ -142,6 +182,9 @@ export class DawEditorElement extends LitElement {
   get engine() {
     return this._engine;
   }
+  get renderSamplesPerPixel() {
+    return this._renderSpp;
+  }
   /** Re-extract peaks for a clip at new offset/duration from cached WaveformData. */
   reextractClipPeaks(clipId: string, offsetSamples: number, durationSamples: number) {
     const buf = this._clipBuffers.get(clipId);
@@ -150,7 +193,7 @@ export class DawEditorElement extends LitElement {
     const singleClipOffsets = new Map([[clipId, { offsetSamples, durationSamples }]]);
     const result = this._peakPipeline.reextractPeaks(
       singleClipBuffers,
-      this.samplesPerPixel,
+      this._renderSpp,
       this.mono,
       singleClipOffsets
     );
@@ -197,6 +240,15 @@ export class DawEditorElement extends LitElement {
       .track-row.selected {
         background: rgba(99, 199, 95, 0.08);
       }
+      :host([scale-mode='beats']) .track-row {
+        background: transparent;
+      }
+      :host([scale-mode='beats']) .clip-container {
+        background: var(--daw-track-background, #16213e);
+      }
+      :host([scale-mode='beats']) .track-row.selected .clip-container {
+        box-shadow: inset 0 0 0 1000px rgba(99, 199, 95, 0.06);
+      }
       .timeline.drag-over {
         outline: 2px dashed var(--daw-selection-color, rgba(99, 199, 95, 0.3));
         outline-offset: -2px;
@@ -211,7 +263,28 @@ export class DawEditorElement extends LitElement {
   resolveAudioContextSampleRate(rate: number) {
     if (!this._resolvedSampleRate) this._resolvedSampleRate = rate;
   }
+  /**
+   * In beats mode, derive samplesPerPixel from ticksPerPixel so that
+   * clip positions, waveforms, and the tick-space grid all align.
+   */
+  private get _renderSpp(): number {
+    if (this.scaleMode === 'beats') {
+      // Round to integer — WaveformData.resample() uses integer scale math.
+      const spp = Math.ceil(
+        (60 * this.effectiveSampleRate * this.ticksPerPixel) / (this.ppqn * this.bpm)
+      );
+      // Floor at the peak pipeline's base scale so peaks can always be extracted.
+      // Without this, fine zoom levels request a scale finer than what WaveformData
+      // can resample to, causing blank waveforms.
+      return this._minSamplesPerPixel > 0 ? Math.max(spp, this._minSamplesPerPixel) : spp;
+    }
+    return this.samplesPerPixel;
+  }
   private get _totalWidth(): number {
+    if (this.scaleMode === 'beats') {
+      const totalTicks = (this._duration * this.bpm * this.ppqn) / 60;
+      return Math.ceil(totalTicks / this.ticksPerPixel);
+    }
     return Math.ceil((this._duration * this.effectiveSampleRate) / this.samplesPerPixel);
   }
   _setSelectedTrackId(trackId: string | null) {
@@ -302,17 +375,28 @@ export class DawEditorElement extends LitElement {
     if (changedProperties.has('eagerResume')) {
       this._audioResume.target = this.eagerResume;
     }
-    // Restart playhead animation with new samplesPerPixel if playing
-    if (changedProperties.has('samplesPerPixel') && this._isPlaying) {
+    // Restart playhead animation when zoom or beats params change during playback
+    if (
+      (changedProperties.has('samplesPerPixel') ||
+        changedProperties.has('ticksPerPixel') ||
+        changedProperties.has('bpm')) &&
+      this._isPlaying
+    ) {
       this._startPlayhead();
     }
     // Re-extract peaks at new zoom level from cached WaveformData (near-instant).
     // For worker-generated peaks, baseScale (128) is finest; for pre-computed .dat
     // peaks (only cached when rates match), the file's scale is the limit.
-    if (changedProperties.has('samplesPerPixel') && this._clipBuffers.size > 0) {
+    // In beats mode, _renderSpp changes when ticksPerPixel or bpm changes.
+    const zoomChanged =
+      changedProperties.has('samplesPerPixel') ||
+      changedProperties.has('ticksPerPixel') ||
+      changedProperties.has('bpm') ||
+      changedProperties.has('scaleMode');
+    if (zoomChanged && this._clipBuffers.size > 0) {
       const re = this._peakPipeline.reextractPeaks(
         this._clipBuffers,
-        this.samplesPerPixel,
+        this._renderSpp,
         this.mono,
         this._clipOffsets
       );
@@ -534,7 +618,7 @@ export class DawEditorElement extends LitElement {
             sampleRate: wdRate,
             sourceDurationSamples: Math.ceil(waveformData.duration * wdRate),
           });
-          const effectiveScale = Math.max(this.samplesPerPixel, waveformData.scale);
+          const effectiveScale = Math.max(this._renderSpp, waveformData.scale);
           const peakData = extractPeaks(
             waveformData,
             effectiveScale,
@@ -609,7 +693,7 @@ export class DawEditorElement extends LitElement {
         });
         const peakData = await this._peakPipeline.generatePeaks(
           audioBuffer,
-          this.samplesPerPixel,
+          this._renderSpp,
           this.mono,
           clip.offsetSamples,
           clip.durationSamples
@@ -942,9 +1026,10 @@ export class DawEditorElement extends LitElement {
     // Position stays at startSample (same as finalized clip).
     const audibleSamples = Math.max(0, rs.totalSamples - rs.latencySamples);
     if (audibleSamples === 0) return '';
-    const latencyPixels = Math.floor(rs.latencySamples / this.samplesPerPixel);
-    const left = Math.floor(rs.startSample / this.samplesPerPixel);
-    const w = Math.floor(audibleSamples / this.samplesPerPixel);
+    const renderSpp = this._renderSpp;
+    const latencyPixels = Math.floor(rs.latencySamples / renderSpp);
+    const left = Math.floor(rs.startSample / renderSpp);
+    const w = Math.floor(audibleSamples / renderSpp);
     return rs.peaks.map((chPeaks, ch) => {
       // Slice peaks to skip latency prefix (2 entries per pixel: min/max)
       const slicedPeaks = latencyPixels > 0 ? chPeaks.slice(latencyPixels * 2) : chPeaks;
@@ -970,25 +1055,36 @@ export class DawEditorElement extends LitElement {
     const playhead = this._getPlayhead();
     if (!playhead || !this._engine) return;
     const engine = this._engine;
-    // Subtract outputLatency so the playhead matches when audio reaches
-    // the speakers, not when it's processed. Safari reports ~15ms;
-    // Chrome ~3ms. Read per-frame since outputLatency is a dynamic property
-    // (can change on device switch, Bluetooth codec change).
-    // Note: audioContext is captured once — it's stable after engine creation.
     const ctx = this.audioContext;
-    playhead.startAnimation(
-      () => {
-        const latency = 'outputLatency' in ctx ? (ctx as AudioContext).outputLatency : 0;
-        return Math.max(0, engine.getCurrentTime() - latency);
-      },
-      this.effectiveSampleRate,
-      this.samplesPerPixel
-    );
+    if (this.scaleMode === 'beats') {
+      playhead.startBeatsAnimation(
+        () => {
+          const latency = 'outputLatency' in ctx ? (ctx as AudioContext).outputLatency : 0;
+          return Math.max(0, engine.getCurrentTime() - latency);
+        },
+        this.bpm,
+        this.ppqn,
+        this.ticksPerPixel
+      );
+    } else {
+      playhead.startAnimation(
+        () => {
+          const latency = 'outputLatency' in ctx ? (ctx as AudioContext).outputLatency : 0;
+          return Math.max(0, engine.getCurrentTime() - latency);
+        },
+        this.effectiveSampleRate,
+        this.samplesPerPixel
+      );
+    }
   }
   _stopPlayhead() {
     const playhead = this._getPlayhead();
     if (!playhead) return;
-    playhead.stopAnimation(this._currentTime, this.effectiveSampleRate, this.samplesPerPixel);
+    if (this.scaleMode === 'beats') {
+      playhead.stopBeatsAnimation(this._currentTime, this.bpm, this.ppqn, this.ticksPerPixel);
+    } else {
+      playhead.stopAnimation(this._currentTime, this.effectiveSampleRate, this.samplesPerPixel);
+    }
   }
   private _getPlayhead(): DawPlayheadElement | null {
     return this.shadowRoot?.querySelector('daw-playhead') as DawPlayheadElement | null;
@@ -1012,8 +1108,20 @@ export class DawEditorElement extends LitElement {
   // --- Render ---
   render() {
     const sr = this.effectiveSampleRate;
-    const selStartPx = (this._selectionStartTime * sr) / this.samplesPerPixel;
-    const selEndPx = (this._selectionEndTime * sr) / this.samplesPerPixel;
+    const spp = this._renderSpp;
+    // In beats mode, derive selection pixels from tick space (same as clip positions)
+    // to avoid 1-2px quantization error from the sample round-trip.
+    let selStartPx: number;
+    let selEndPx: number;
+    if (this.scaleMode === 'beats') {
+      const startTick = (this._selectionStartTime * this.bpm * this.ppqn) / 60;
+      const endTick = (this._selectionEndTime * this.bpm * this.ppqn) / 60;
+      selStartPx = startTick / this.ticksPerPixel;
+      selEndPx = endTick / this.ticksPerPixel;
+    } else {
+      selStartPx = (this._selectionStartTime * sr) / spp;
+      selEndPx = (this._selectionEndTime * sr) / spp;
+    }
 
     // Precompute track info once for both controls column and timeline
     const orderedTracks = this._getOrderedTracks().map(([trackId, track]) => {
@@ -1068,10 +1176,27 @@ export class DawEditorElement extends LitElement {
         >
           ${orderedTracks.length > 0 && this.timescale
             ? html`<daw-ruler
-                .samplesPerPixel=${this.samplesPerPixel}
+                .samplesPerPixel=${spp}
                 .sampleRate=${this.effectiveSampleRate}
                 .duration=${this._duration}
+                .scaleMode=${this.scaleMode}
+                .ticksPerPixel=${this.ticksPerPixel}
+                .timeSignature=${this.timeSignature}
+                .ppqn=${this.ppqn}
+                .totalWidth=${this._totalWidth}
               ></daw-ruler>`
+            : ''}
+          ${orderedTracks.length > 0 && this.scaleMode === 'beats'
+            ? html`<daw-grid
+                style="top: ${this.timescale ? 30 : 0}px;"
+                .ticksPerPixel=${this.ticksPerPixel}
+                .timeSignature=${this.timeSignature}
+                .ppqn=${this.ppqn}
+                .visibleStart=${this._viewport.visibleStart}
+                .visibleEnd=${this._viewport.visibleEnd}
+                .length=${this._totalWidth}
+                .height=${orderedTracks.reduce((sum, t) => sum + t.trackHeight + 1, 0)}
+              ></daw-grid>`
             : ''}
           ${orderedTracks.length > 0
             ? html`<daw-selection .startPx=${selStartPx} .endPx=${selEndPx}></daw-selection>
@@ -1087,12 +1212,22 @@ export class DawEditorElement extends LitElement {
               >
                 ${t.track.clips.map((clip) => {
                   const peakData = this._peaksData.get(clip.id);
-                  const width = clipPixelWidth(
-                    clip.startSample,
-                    clip.durationSamples,
-                    this.samplesPerPixel
-                  );
-                  const clipLeft = Math.floor(clip.startSample / this.samplesPerPixel);
+                  // In beats mode, derive pixel positions from tick space to
+                  // match grid lines exactly. The sample→spp path introduces
+                  // 1-2px quantization error from integer sample rounding.
+                  let clipLeft: number;
+                  let width: number;
+                  if (this.scaleMode === 'beats') {
+                    const startSec = clip.startSample / sr;
+                    const durSec = clip.durationSamples / sr;
+                    const startTick = (startSec * this.bpm * this.ppqn) / 60;
+                    const endTick = ((startSec + durSec) * this.bpm * this.ppqn) / 60;
+                    clipLeft = Math.round(startTick / this.ticksPerPixel);
+                    width = Math.round(endTick / this.ticksPerPixel) - clipLeft;
+                  } else {
+                    clipLeft = Math.floor(clip.startSample / spp);
+                    width = clipPixelWidth(clip.startSample, clip.durationSamples, spp);
+                  }
                   const channels: Peaks[] = peakData?.data ?? [new Int16Array(0)];
                   const hdrH = this.clipHeaders ? this.clipHeaderHeight : 0;
                   const chH = this.waveHeight;
