@@ -35,3 +35,5 @@ bundle-stats.html
 
 # Superpowers brainstorming
 .superpowers/
+# Beat map demo media (not committed - local only)
+website/static/media/audio/beat-demos/
