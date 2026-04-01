@@ -154,10 +154,11 @@ npm install @dawcore/components
   import '@dawcore/components';
 </script>
 
-<daw-editor clip-headers interactive-clips timescale file-drop>
+<daw-editor id="editor" clip-headers interactive-clips timescale file-drop>
   <daw-track name="Vocals">
     <daw-clip src="/audio/vocals.mp3" start="0" duration="10"></daw-clip>
   </daw-track>
+  <daw-keyboard-shortcuts playback splitting undo></daw-keyboard-shortcuts>
 </daw-editor>
 
 <daw-transport for="editor">
@@ -167,7 +168,6 @@ npm install @dawcore/components
   <daw-record-button></daw-record-button>
 </daw-transport>
 
-<daw-keyboard-shortcuts playback splitting undo></daw-keyboard-shortcuts>
 ```
 
 **Features:**
