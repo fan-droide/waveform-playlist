@@ -4,10 +4,22 @@ import type { Peaks, Bits } from '@waveform-playlist/core';
 import { aggregatePeaks, calculateBarRects } from '../utils/peak-rendering';
 import { getVisibleChunkIndices } from '../utils/viewport';
 
+/** A segment mapping a peak-index range to a pixel range within the waveform. */
+export interface WaveformSegment {
+  /** Start position in the peaks array (fractional index). */
+  peakStart: number;
+  /** End position in the peaks array (fractional index). */
+  peakEnd: number;
+  /** Start pixel position within the waveform. */
+  pixelStart: number;
+  /** End pixel position within the waveform. */
+  pixelEnd: number;
+}
+
 const MAX_CANVAS_WIDTH = 1000;
 
 /** Layout/data properties that require a full redraw when changed. */
-const LAYOUT_PROPS = new Set(['length', 'waveHeight', 'barWidth', 'barGap']);
+const LAYOUT_PROPS = new Set(['length', 'waveHeight', 'barWidth', 'barGap', 'segments']);
 
 /**
  * Group dirty peak indices by canvas chunk. Returns bar-pixel-aligned
@@ -78,6 +90,8 @@ export class DawWaveformElement extends LitElement {
   @property({ type: Number, attribute: false }) visibleEnd = Infinity;
   /** This element's left offset on the timeline (for viewport intersection). */
   @property({ type: Number, attribute: false }) originX = 0;
+  /** When set, draws per-segment with independent samples-per-pixel ratios. */
+  @property({ attribute: false }) segments?: WaveformSegment[];
 
   static styles = css`
     :host {
@@ -156,15 +170,24 @@ export class DawWaveformElement extends LitElement {
     const waveColor =
       getComputedStyle(this).getPropertyValue('--daw-wave-color').trim() || '#c49a6c';
 
-    const dirtyByChunk = groupDirtyByChunk(this._dirtyPixels, step);
-
     this._drawnChunks.clear();
-    for (const canvas of canvases) {
-      const chunkIdx = Number(canvas.dataset.index);
-      this._drawnChunks.add(chunkIdx);
-      const range = dirtyByChunk.get(chunkIdx);
-      if (!range) continue;
-      this._drawChunk(canvas, chunkIdx, range, step, dpr, halfHeight, bits, waveColor);
+
+    if (this.segments) {
+      // Segment mode: full redraw per chunk (segments have variable SPP)
+      for (const canvas of canvases) {
+        const chunkIdx = Number(canvas.dataset.index);
+        this._drawnChunks.add(chunkIdx);
+        this._drawSegments(canvas, chunkIdx, dpr, halfHeight, bits, waveColor);
+      }
+    } else {
+      const dirtyByChunk = groupDirtyByChunk(this._dirtyPixels, step);
+      for (const canvas of canvases) {
+        const chunkIdx = Number(canvas.dataset.index);
+        this._drawnChunks.add(chunkIdx);
+        const range = dirtyByChunk.get(chunkIdx);
+        if (!range) continue;
+        this._drawChunk(canvas, chunkIdx, range, step, dpr, halfHeight, bits, waveColor);
+      }
     }
 
     this._dirtyPixels.clear();
@@ -211,6 +234,65 @@ export class DawWaveformElement extends LitElement {
       );
       for (const r of rects) {
         ctx.fillRect(r.x, r.y, r.width, r.height);
+      }
+    }
+  }
+
+  private _drawSegments(
+    canvas: HTMLCanvasElement,
+    chunkIdx: number,
+    dpr: number,
+    halfHeight: number,
+    bits: Bits,
+    waveColor: string
+  ) {
+    if (!this.segments) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const globalOffset = chunkIdx * MAX_CANVAS_WIDTH;
+    const canvasWidth = Math.min(MAX_CANVAS_WIDTH, this.length - globalOffset);
+
+    ctx.resetTransform();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = waveColor;
+
+    const step = Math.max(1, Math.round(this.barWidth + this.barGap));
+
+    for (const seg of this.segments) {
+      // Skip segments outside this chunk
+      if (seg.pixelEnd <= globalOffset || seg.pixelStart >= globalOffset + canvasWidth) continue;
+
+      const localStart = Math.max(0, seg.pixelStart - globalOffset);
+      const localEnd = Math.min(canvasWidth, seg.pixelEnd - globalOffset);
+      const segPixelWidth = seg.pixelEnd - seg.pixelStart;
+      const segPeakWidth = seg.peakEnd - seg.peakStart;
+      if (segPixelWidth <= 0 || segPeakWidth <= 0) continue;
+
+      // Per-segment peaks-per-pixel ratio
+      const peaksPerPixel = segPeakWidth / segPixelWidth;
+
+      for (let px = Math.floor(localStart); px < Math.ceil(localEnd); px += step) {
+        // Map this pixel to a peak index range
+        const pxInSeg = px + globalOffset - seg.pixelStart;
+        const peakPos = seg.peakStart + pxInSeg * peaksPerPixel;
+        const peakEnd = peakPos + step * peaksPerPixel;
+
+        const peak = aggregatePeaks(this._peaks, bits, Math.floor(peakPos), Math.ceil(peakEnd));
+        if (!peak) continue;
+
+        const rects = calculateBarRects(
+          px,
+          this.barWidth,
+          halfHeight,
+          peak.min,
+          peak.max,
+          'normal'
+        );
+        for (const r of rects) {
+          ctx.fillRect(r.x, r.y, r.width, r.height);
+        }
       }
     }
   }

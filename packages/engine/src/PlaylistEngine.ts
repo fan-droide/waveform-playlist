@@ -38,6 +38,8 @@ export class PlaylistEngine {
   private _loopStart = 0;
   private _loopEnd = 0;
   private _isLoopEnabled = false;
+  private _bpm: number;
+  private _ppqn: number;
   private _tracksVersion = 0;
   private _adapter: PlayoutAdapter | null;
   private _disposed = false;
@@ -70,6 +72,8 @@ export class PlaylistEngine {
       );
     }
     this._zoomIndex = zoomIndex;
+    this._bpm = options.bpm ?? 120;
+    this._ppqn = options.ppqn ?? 960;
   }
 
   // ---------------------------------------------------------------------------
@@ -173,6 +177,8 @@ export class PlaylistEngine {
       loopStart: this._loopStart,
       loopEnd: this._loopEnd,
       isLoopEnabled: this._isLoopEnabled,
+      bpm: this._bpm,
+      ppqn: this._ppqn,
       canUndo: this.canUndo,
       canRedo: this.canRedo,
     };
@@ -184,7 +190,13 @@ export class PlaylistEngine {
 
   setTracks(tracks: ClipTrack[]): void {
     this.clearHistory();
-    this._tracks = [...tracks];
+    this._tracks = tracks.map((track) => ({
+      ...track,
+      clips: track.clips.map((clip) => ({
+        ...clip,
+        startTick: clip.startTick ?? this._secondsToTicks(clip.startSample / this._sampleRate),
+      })),
+    }));
     this._tracksVersion++;
     this._adapter?.setTracks(this._tracks);
     this._emitStateChange();
@@ -192,10 +204,17 @@ export class PlaylistEngine {
 
   addTrack(track: ClipTrack): void {
     this._pushUndoSnapshot();
-    this._tracks = [...this._tracks, track];
+    const enriched = {
+      ...track,
+      clips: track.clips.map((clip) => ({
+        ...clip,
+        startTick: clip.startTick ?? this._secondsToTicks(clip.startSample / this._sampleRate),
+      })),
+    };
+    this._tracks = [...this._tracks, enriched];
     this._tracksVersion++;
     if (this._adapter?.addTrack) {
-      this._adapter.addTrack(track);
+      this._adapter.addTrack(enriched);
     } else {
       this._adapter?.setTracks(this._tracks);
     }
@@ -224,16 +243,30 @@ export class PlaylistEngine {
     if (!resolved) return;
     if (track) {
       this._pushUndoSnapshot();
-      this._tracks = this._tracks.map((t) => (t.id === trackId ? track : t));
+      const enriched = {
+        ...track,
+        clips: track.clips.map((clip) => ({
+          ...clip,
+          startTick: clip.startTick ?? this._secondsToTicks(clip.startSample / this._sampleRate),
+        })),
+      };
+      this._tracks = this._tracks.map((t) => (t.id === trackId ? enriched : t));
       this._tracksVersion++;
+      // Forward enriched track to adapter
+      if (this._adapter?.updateTrack) {
+        this._adapter.updateTrack(trackId, enriched);
+      } else {
+        this._adapter?.setTracks(this._tracks);
+      }
+      this._emitStateChange();
+      return;
     }
+    // No track arg — just forward existing track to adapter
     if (this._adapter?.updateTrack) {
       this._adapter.updateTrack(trackId, resolved);
     } else {
       this._adapter?.setTracks(this._tracks);
     }
-    // Only emit statechange when internal state actually changed
-    if (track) this._emitStateChange();
   }
 
   /** Internal: update adapter after modifying this._tracks in place. */
@@ -339,14 +372,18 @@ export class PlaylistEngine {
 
     this._tracks = this._tracks.map((t) => {
       if (t.id !== trackId) return t;
-      const newClips = t.clips.map((c: AudioClip, i: number) =>
-        i === clipIndex
-          ? {
-              ...c,
-              startSample: Math.floor(c.startSample + constrainedDelta),
-            }
-          : c
-      );
+      const newClips = t.clips.map((c: AudioClip, i: number) => {
+        if (i !== clipIndex) return c;
+        const newStartSample = Math.floor(c.startSample + constrainedDelta);
+        return {
+          ...c,
+          startSample: newStartSample,
+          startTick:
+            c.startTick !== undefined
+              ? this._secondsToTicks(newStartSample / this._sampleRate)
+              : undefined,
+        };
+      });
       return { ...t, clips: newClips };
     });
 
@@ -388,10 +425,20 @@ export class PlaylistEngine {
 
     const { left, right } = splitClipOp(clip, atSample);
 
+    // Enrich split clips with startTick if the original had one
+    const enrichedLeft =
+      clip.startTick !== undefined
+        ? { ...left, startTick: this._secondsToTicks(left.startSample / this._sampleRate) }
+        : left;
+    const enrichedRight =
+      clip.startTick !== undefined
+        ? { ...right, startTick: this._secondsToTicks(right.startSample / this._sampleRate) }
+        : right;
+
     this._tracks = this._tracks.map((t) => {
       if (t.id !== trackId) return t;
       const newClips = [...t.clips];
-      newClips.splice(clipIndex, 1, left, right);
+      newClips.splice(clipIndex, 1, enrichedLeft, enrichedRight);
       return { ...t, clips: newClips };
     });
 
@@ -444,9 +491,14 @@ export class PlaylistEngine {
       const newClips = t.clips.map((c: AudioClip, i: number) => {
         if (i !== clipIndex) return c;
         if (boundary === 'left') {
+          const newStartSample = c.startSample + constrained;
           return {
             ...c,
-            startSample: c.startSample + constrained,
+            startSample: newStartSample,
+            startTick:
+              c.startTick !== undefined
+                ? this._secondsToTicks(newStartSample / this._sampleRate)
+                : undefined,
             offsetSamples: c.offsetSamples + constrained,
             durationSamples: c.durationSamples - constrained,
           };
@@ -530,6 +582,8 @@ export class PlaylistEngine {
     this._currentTime = this._playStartPosition;
     this._adapter?.setLoop(false, this._loopStart, this._loopEnd);
     this._adapter?.stop();
+    // Seek adapter to play-start position so getCurrentTime() returns it
+    this._adapter?.seek(this._currentTime);
     this._emit('stop');
     this._emitStateChange();
   }
@@ -547,8 +601,20 @@ export class PlaylistEngine {
     this._emitStateChange();
   }
 
+  setTempo(bpm: number, atTick?: number): void {
+    if (!Number.isFinite(bpm) || bpm <= 0) {
+      console.warn('[waveform-playlist/engine] setTempo: bpm must be a positive finite number');
+      return;
+    }
+    if (bpm === this._bpm && atTick === undefined) return;
+    this._bpm = bpm;
+    this._adapter?.setTempo?.(bpm, atTick);
+    this._recomputeStartSamples();
+    this._emitStateChange();
+  }
+
   getCurrentTime(): number {
-    if (this._isPlaying && this._adapter) {
+    if (this._adapter) {
       return this._adapter.getCurrentTime();
     }
     return this._currentTime;
@@ -734,6 +800,38 @@ export class PlaylistEngine {
     if (!this._isPlaying) return true;
     const t = this._adapter?.getCurrentTime() ?? this._currentTime;
     return t < this._loopEnd;
+  }
+
+  private _ticksToSeconds(tick: number): number {
+    if (this._adapter?.ticksToSeconds) {
+      return this._adapter.ticksToSeconds(tick);
+    }
+    return (tick * 60) / (this._ppqn * this._bpm);
+  }
+
+  private _secondsToTicks(seconds: number): number {
+    if (this._adapter?.secondsToTicks) {
+      return this._adapter.secondsToTicks(seconds);
+    }
+    return Math.round((seconds * this._ppqn * this._bpm) / 60);
+  }
+
+  private _recomputeStartSamples(): void {
+    this._tracks = this._tracks.map((track) => ({
+      ...track,
+      clips: track.clips.map((clip) => {
+        if (clip.startTick === undefined) return clip;
+        return {
+          ...clip,
+          startSample: Math.round(this._ticksToSeconds(clip.startTick) * this._sampleRate),
+        };
+      }),
+    }));
+    this._tracksVersion++;
+    // Use incremental updates to avoid full playout rebuild during playback
+    for (const track of this._tracks) {
+      this._updateTrackOnAdapter(track.id);
+    }
   }
 
   private _emitStateChange(): void {

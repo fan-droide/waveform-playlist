@@ -98,6 +98,11 @@ Custom properties on `<daw-editor>` or any ancestor, inherited through Shadow DO
 
 **Lit controller lifecycle gotcha:** `hostConnected()` fires during `connectedCallback()`, BEFORE the first `willUpdate()`. Controllers that read properties set from attributes must defer work with `requestAnimationFrame` (as `ViewportController` and `AudioResumeController` do), otherwise the property will still be `undefined`.
 
+## Transport Access
+
+- **`editor.transport` getter** — Returns the `NativePlayoutAdapter`'s `Transport` instance (or `null` before engine is built). Use for tempo, metronome, and effects configuration on the same clock that schedules clips.
+- **`editor.bpm` setter forwards to engine** — Calls `engine.setTempo(value)` when engine exists, keeping the adapter's Transport in sync. `_buildEngine` calls `adapter.setTempo(this._bpm)` before creating the engine so initial `setTracks()` enrichment uses the correct BPM.
+
 ## AudioContext Ownership
 
 **`audioContext` JS property** — Optional `AudioContext` on `<daw-editor>`. When set before tracks load, the editor uses it for decode, playback (via `NativePlayoutAdapter`), and recording. When not set, the editor creates its own `AudioContext({ sampleRate })` lazily on first audio operation.
@@ -220,7 +225,13 @@ Example: `editor.audioContext = new AudioContext({ sampleRate: 48000, latencyHin
 - **Snap absolute position, not delta** — `snapTickToGrid` must snap the clip's absolute target position to the grid, not the drag delta. Delta-snapping preserves off-grid offsets permanently. `_snapDeltaToSamples(deltaPx, anchorSample)` takes the anchor (startSample for move/left-trim, startSample+durationSamples for right-trim).
 - **`<daw-grid>` element** — Shadow DOM, chunked 1000px canvases (same pattern as `<daw-waveform>`). Positioned behind tracks via `z-index: 0`. Track rows go transparent via `:host([scale-mode="beats"]) .track-row { background: transparent }`. Grid top offset = ruler height (30px when `timescale` enabled).
 - **Vite pre-bundles Tone.js** — Even though dawcore has no Tone.js dependency, Vite's dep scanner finds it in the workspace `node_modules`. `optimizeDeps.exclude: ['tone']` in `dev/vite.config.ts` prevents loading.
-- **Clip pixel positions from tick space, not samples** — In beats mode, `clipLeft` and `width` must be derived via `startSample → seconds → ticks → ticks/ticksPerPixel`, NOT via `startSample / _renderSpp`. The sample round-trip (`tick → seconds → Math.round(samples) → floor(samples/spp)`) introduces 1-2px quantization error vs the grid which uses `tick / ticksPerPixel` directly. Same applies to trim visual feedback `deltaPx`. Temporal mode still uses `startSample / samplesPerPixel`.
+- **Clip pixel positions from tick space, not samples** — In beats mode, use `clip.startTick / ticksPerPixel` directly when `startTick` is available. Fall back to `startSample → seconds → ticks → ticks/ticksPerPixel` for clips without `startTick`. Never use `startSample / _renderSpp` — the sample round-trip introduces 1-2px quantization error and drifts when BPM changes. Same applies to trim visual feedback `deltaPx`. Temporal mode still uses `startSample / samplesPerPixel`.
 - **Validated beats-mode properties** — `bpm`, `ppqn`, `ticksPerPixel` use `@property({ noAccessor: true })` with custom getters/setters that reject zero, negative, NaN, and Infinity (same pattern as `samplesPerPixel`). Without this, division-by-zero cascades through `_renderSpp`, `_totalWidth`, snap pipeline, and `computeMusicalTicks`. `computeMusicalTicks` and `snapTickToGrid` also have internal guards returning empty/passthrough for zero inputs.
 - **`_renderSpp` uses `Math.ceil`** — The derived value can be non-integer at non-standard BPM. `WaveformData.resample()` uses integer scale math, so rounding up prevents fractional scale issues.
 - **Clip backgrounds are beats-mode only** — Opaque `.clip-container` backgrounds (so grid stripes show through gaps) are scoped via `:host([scale-mode='beats']) .clip-container` in `daw-editor.ts` CSS, NOT in `theme.ts` (which applies globally). Putting them in `theme.ts` breaks temporal mode dev pages. Selected track clips get a green tint via `box-shadow: inset 0 0 0 1000px rgba(99, 199, 95, 0.06)`.
+
+## Variable Tempo
+
+- **Callback interface, not TempoMap dependency** — `secondsToTicks`/`ticksToSeconds` optional function properties on `<daw-editor>`. Keeps dawcore decoupled from the transport package. Consumers with a different playout engine provide their own conversion functions. When callbacks are absent, falls back to single-BPM math.
+- **Per-segment waveform rendering** — In beats mode with callbacks, clips are iterated in fine tick steps (~80 ticks). Each step is converted to audio time via callbacks, then peaks are extracted for that sample range into the corresponding pixel range. Uses base-scale (128) peaks directly — no BPM-dependent intermediate resampling.
+- **Beat-map clip positioning** — Use `beatBpm` uniformly from tick 0 (no "gap BPM"). Shift the clip's `startTick` forward so beat 1 in the audio aligns with the next bar boundary. Formula: `clipStartTick = firstDownbeatTick - naturalFirstBeatTick` where `naturalFirstBeatTick = round(beats[0].time * ppqn * beatBpm / 60)`. Gives the metronome a natural tempo throughout.

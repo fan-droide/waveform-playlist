@@ -80,7 +80,7 @@ Mute uses a separate GainNode (0/1) so volume and mute are independent. `connect
 
 ### ClipPlayer
 
-Implements `SchedulerListener<ClipEvent>`. `generate(fromTick, toTick)` converts ticks to samples via `SampleTimeline.ticksToSamples()`, finds clips whose `startSample` falls in the window, and does loop clamping in integer samples (`_loopEndSamples`). Has two loop setters: `setLoop(startTick, endTick)` converts via SampleTimeline, `setLoopSamples(startSample, endSample)` stores directly. `consume()` converts `event.tick` → seconds → audio time, then samples → seconds for `source.start(when, offset, duration)`. `onPositionJump(newTick)` converts to samples, stops all active sources, and creates mid-clip sources for clips spanning the new position.
+Implements `SchedulerListener<ClipEvent>`. `generate(fromTick, toTick)` uses `clip.startTick` when available for tick-space matching; falls back to `SampleTimeline.samplesToTicks(clip.startSample)`. Only schedules when the clip START tick falls within the window. Loop clamping in integer samples (`_loopEndSamples`). Has two loop setters: `setLoop(startTick, endTick)` converts via SampleTimeline, `setLoopSamples(startSample, endSample)` stores directly. `consume()` converts `event.tick` → seconds → audio time, then samples → seconds for `source.start(when, offset, duration)`. `onPositionJump(newTick)` uses `clip.startTick` for start comparison (ticks) and `clip.startSample + clip.durationSamples` for end comparison (samples), stops all active sources, and creates mid-clip sources for clips spanning the new position.
 
 **Skips:** Clips with `durationSamples === 0` or missing `audioBuffer` (peaks-first rendering).
 
@@ -136,6 +136,8 @@ When any track is soloed, all non-soloed tracks are muted via `TrackNode.setMute
 ## NativePlayoutAdapter
 
 Thin bridge to `PlaylistEngine`. Implements all `PlayoutAdapter` methods (required + optional: `addTrack`, `removeTrack`, `updateTrack`). `init()` resumes suspended AudioContext and waits for Safari warmup (see Patterns). `transport` getter exposes the Transport for direct access to tempo, metronome, and effects hooks.
+
+`setTempo(bpm, atTick?)`, `setMeter(numerator, denominator, atTick?)`, `ticksToSeconds(tick)`, `secondsToTicks(seconds)` — delegate to the underlying Transport. These enable the engine to forward tempo changes and use the adapter's TempoMap for `startSample` cache recomputation.
 
 ## Patterns
 

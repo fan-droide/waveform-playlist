@@ -210,22 +210,23 @@ pnpm publish --filter @waveform-playlist/NEW-PACKAGE --no-git-checks --access pu
 
 ### Sample-Based Architecture (Phase 3.3)
 
-**Decision:** Store all timing as integer sample counts, not floating-point seconds.
+**Decision:** Store timeline positions as integer ticks (authoritative) and integer samples (derived cache). Duration and offset remain sample-only.
 
-**Why:** Eliminates floating-point precision errors that cause pixel gaps between clips.
+**Why:** Integer samples eliminate floating-point precision errors. Ticks provide tempo-independent timeline positioning for variable-tempo sessions.
 
 **Types:**
 
 ```typescript
 interface AudioClip {
-  startSample: number; // Position on timeline (samples)
+  startTick?: number; // Position on timeline (ticks, authoritative when present)
+  startSample: number; // Position on timeline (samples) — derived cache
   durationSamples: number; // Clip duration (samples)
   offsetSamples: number; // Start within audio file (samples)
   // ... other properties
 }
 ```
 
-**Helper:** Use `createClipFromSeconds()` for backwards compatibility with time-based APIs.
+**Helpers:** `createClip()` when samples known, `createClipFromSeconds()` for time-based APIs, `createClipFromTicks()` for tick-based creation (variable-tempo).
 
 ### Hybrid Canvas + DOM (Phase 3)
 
@@ -361,7 +362,7 @@ const LazyExample = createLazyExample(() =>
 37. **effectiveSampleRate Pattern in dawcore** — `<daw-editor>` `sampleRate` `@property` is an initial hint. Internal calculations use `effectiveSampleRate` getter which returns `_resolvedSampleRate ?? sampleRate`. The resolved rate is set from decoded audio buffers. `PointerHandlerHost` and all pixel/time conversions use `effectiveSampleRate`.
 38. **WaveformData.resample() Only Upsamples** — `WaveformData.resample({ scale })` can only resample to a coarser (larger) scale than the source. Attempting to resample to a finer scale throws. When caching WaveformData, validate `cached.scale <= requestedScale` before returning cache hits.
 39. **Track ID Alignment in dawcore** — `createTrack()` from core generates its own `id` via `generateId()`. The dawcore editor uses a different ID (`<daw-track>.trackId` or `crypto.randomUUID()` for drops) as its map key. Must set `track.id = trackId` after `createTrack()` so engine methods (`setTrackSolo`, `setTrackMute`, etc.) can find the track by ID.
-40. **Prefer `createClip()` Over `createClipFromSeconds()` When Samples Known** — `createClipFromSeconds` round-trips through float seconds: `samples/rate → seconds → Math.round(seconds*rate)`. Safe when the same rate is used for division and multiplication, but drifts silently when rates differ (e.g., `effectiveSampleRate` vs `audioBuffer.sampleRate`). Use `createClip()` with integer samples when available.
+40. **Prefer `createClip()` Over `createClipFromSeconds()` When Samples Known** — `createClipFromSeconds` round-trips through float seconds: `samples/rate → seconds → Math.round(seconds*rate)`. Safe when the same rate is used for division and multiplication, but drifts silently when rates differ (e.g., `effectiveSampleRate` vs `audioBuffer.sampleRate`). Use `createClip()` with integer samples when available. For tick-based creation (variable-tempo), use `createClipFromTicks()` which sets `startTick` as authoritative and derives `startSample`.
 41. **Clip Interaction Adapter Sync** — During clip move drag, pass `skipAdapter=true` to `engine.moveClip()` to avoid 60fps adapter rebuilds. Call `engine.updateTrack(trackId)` once on `pointerup`. Trim uses cumulative delta (engine called once on drop). Split calls engine normally (single operation).
 42. **`composedPath()[0]` vs `closest()` in Shadow DOM** — `composedPath()[0]` returns the deepest clicked element (may be a child like `<span>`). For hit detection on interaction zones (`.clip-header`, `.clip-boundary`), always use `target.closest('.class-name')` to walk up the DOM tree.
 43. **Peak Regeneration After Clip Mutations** — After `splitClip` (new clip IDs) or `trimClip` (changed offset/duration), peaks must be regenerated via `_syncPeaksForChangedClips`. The statechange handler detects changes by comparing `_clipOffsets` cache with current clip state.
@@ -374,7 +375,10 @@ const LazyExample = createLazyExample(() =>
 50. **Loop Wrap Clock Seek Offset** — When the Scheduler wraps at `loopEnd` inside the lookahead window, seek the clock to `loopStart - (loopEnd - clockTime)`, not `loopStart`. The lookahead means the wrap fires before real time reaches the boundary; `seekTo(loopStart)` makes post-wrap events schedule at "now" instead of at the boundary's audio time. `getCurrentTime()` clamps to `loopStart` during the brief window when the clock is behind.
 51. **`_renderSpp` Pattern in dawcore Beats Mode** — In beats mode, `samplesPerPixel` must be derived from `ticksPerPixel` via `(60 × sampleRate × ticksPerPixel) / (ppqn × bpm)`. Every rendering path (clip positions, peak generation, peak re-extraction after trim/split, trim visual feedback) must use this derived value. Using raw `samplesPerPixel` causes coordinate mismatches. Exposed as `renderSamplesPerPixel` getter for `ClipPointerHost` and `ClipPeakSyncHost` interfaces.
 52. **Snap Absolute Position, Not Delta** — When snapping clip drag/trim to a musical grid, snap the clip's absolute timeline position — not the delta. Delta-snapping preserves off-grid offsets permanently. Applies to both dawcore `ClipPointerHandler._snapDeltaToSamples()` and React `SnapToGridModifier`. Pass the anchor sample (left edge for move/left-trim, right edge for right-trim) to compute the correct absolute target.
-53. **Tick-Space Pixel Positioning in Beats Mode** — In beats mode, clip pixel positions must be derived from tick space (`startSample → seconds → ticks → ticks/ticksPerPixel`), not from `startSample / _renderSpp`. The sample round-trip introduces 1-2px quantization error because `_renderSpp` is non-integer and samples are rounded to integers. The grid uses `tick / ticksPerPixel` directly, so clip positions must use the same path to align exactly. This is a display-only concern — the engine still stores `startSample` in integer samples.
+53. **Tick-Space Pixel Positioning in Beats Mode** — In beats mode, clip pixel positions must be derived from tick space, not from `startSample / _renderSpp`. When `clip.startTick` is available, use `clip.startTick / ticksPerPixel` directly. Fall back to `startSample → seconds → ticks → ticks/ticksPerPixel` for clips without `startTick`. Never use `startSample / _renderSpp` — the sample round-trip introduces 1-2px quantization error.
+54. **Engine Tempo Forwarding** — `<daw-editor>` BPM setter must call `engine.setTempo()` to keep the adapter's Transport in sync. `_buildEngine` initializes the adapter with `adapter.setTempo(this._bpm)` BEFORE creating the engine, so `setTracks()` enriches clips with `startTick` at the correct tempo. Without this, clips at non-zero positions get wrong tick values (computed at default 120 BPM).
+55. **`startTick` is Authoritative, `startSample` is Cache** — `AudioClip.startTick` is the authoritative timeline position. `startSample` is a derived cache recomputed via `TempoMap.ticksToSeconds(startTick) * sampleRate` when tempo changes. Engine's `setTracks()` enriches clips missing `startTick` by computing it from `startSample`. In beats mode, rendering must use `clip.startTick / ticksPerPixel` for pixel position — NOT the sample round-trip which drifts when BPM changes.
+56. **Two Transport Instances in Dev Demos** — Dawcore dev demos that create their own `Transport` (for metronome preview) have a DIFFERENT Transport from the editor's internal `NativePlayoutAdapter.transport`. Tempo set on the demo's Transport doesn't affect the engine's clip scheduling. Use `editor.transport` (exposed getter) for tempo that affects clip `startTick` enrichment. Apply tempo to BOTH transports when metronome preview is needed.
 
 ---
 
@@ -419,4 +423,4 @@ Package-specific conventions, architecture, and patterns live in each package's 
 
 ---
 
-**Last Updated:** 2026-03-03
+**Last Updated:** 2026-03-31
