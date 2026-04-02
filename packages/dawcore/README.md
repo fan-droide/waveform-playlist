@@ -97,30 +97,28 @@ Access the native transport for tempo, metronome, count-in, meter, and effects:
 ```javascript
 const editor = document.getElementById('editor');
 
-// Transport is available after first track loads
-editor.addEventListener('daw-play', () => {
-  const transport = editor.engine?.adapter?.transport;
-  if (!transport) return;
+// Build engine eagerly so transport is available immediately
+await editor._ensureEngine();
+const transport = editor.transport;
 
-  // Tempo & meter
-  transport.setTempo(140);
-  transport.setMeter(3, 4);
+// Tempo & meter
+transport.setTempo(140);
+transport.setMeter(3, 4);
 
-  // Metronome (default click sounds built in)
-  transport.setMetronomeEnabled(true);
+// Metronome (default click sounds built in)
+transport.setMetronomeEnabled(true);
 
-  // Count-in
-  transport.setCountIn(true);
-  transport.setCountInBars(1);
-  transport.setCountInMode('always');
+// Count-in
+transport.setCountIn(true);
+transport.setCountInBars(1);
+transport.setCountInMode('always');
 
-  transport.on('countIn', ({ beat, totalBeats }) => {
-    console.log(beat + '/' + totalBeats);
-  });
-
-  // Effects hook — insert any AudioNode chain
-  transport.connectTrackOutput('track-id', reverbNode);
+transport.on('countIn', ({ beat, totalBeats }) => {
+  console.log(beat + '/' + totalBeats);
 });
+
+// Effects hook — insert any AudioNode chain
+transport.connectTrackOutput('track-id', reverbNode);
 ```
 
 ## Programmatic File Loading
