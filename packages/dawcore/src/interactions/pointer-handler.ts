@@ -1,5 +1,5 @@
 import { pixelsToSeconds, snapTickToGrid } from '@waveform-playlist/core';
-import type { SnapTo } from '@waveform-playlist/core';
+import type { SnapTo, MeterEntry } from '@waveform-playlist/core';
 import { DRAG_THRESHOLD } from './constants';
 
 /** Narrow engine contract for pointer interactions. */
@@ -37,7 +37,7 @@ export interface PointerHandlerHost {
   readonly ticksPerPixel: number;
   readonly bpm: number;
   readonly ppqn: number;
-  readonly timeSignature: [number, number];
+  readonly _meterEntries: MeterEntry[];
   readonly snapTo: SnapTo;
   readonly _secondsToTicks: (seconds: number) => number;
   readonly _ticksToSeconds: (ticks: number) => number;
@@ -71,7 +71,7 @@ export class PointerHandler {
     const h = this._host;
     if (h.scaleMode === 'beats') {
       let tick = px * h.ticksPerPixel;
-      tick = snapTickToGrid(tick, h.snapTo, h.timeSignature, h.ppqn);
+      tick = snapTickToGrid(tick, h.snapTo, h._meterEntries, h.ppqn);
       return h._ticksToSeconds(tick);
     }
     return pixelsToSeconds(px, h.samplesPerPixel, h.effectiveSampleRate);

@@ -1,6 +1,13 @@
 import { LitElement, html, css } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
-import type { ClipTrack, FadeType, Peaks, PeakData, SnapTo } from '@waveform-playlist/core';
+import type {
+  ClipTrack,
+  FadeType,
+  Peaks,
+  PeakData,
+  SnapTo,
+  MeterEntry,
+} from '@waveform-playlist/core';
 import type { TrackDescriptor, ClipDescriptor } from '../types';
 import {
   createClip,
@@ -104,6 +111,13 @@ export class DawEditorElement extends LitElement {
   private _bpm = 120;
   @property({ attribute: false })
   timeSignature: [number, number] = [4, 4];
+  @property({ attribute: false })
+  meterEntries?: MeterEntry[];
+  /** MeterEntries for grid/ruler: explicit meterEntries if set, otherwise derived from timeSignature. */
+  get _meterEntries(): MeterEntry[] {
+    if (this.meterEntries && this.meterEntries.length > 0) return this.meterEntries;
+    return [{ tick: 0, numerator: this.timeSignature[0], denominator: this.timeSignature[1] }];
+  }
   @property({ type: Number, noAccessor: true })
   get ppqn(): number {
     return this._ppqn;
@@ -1248,7 +1262,7 @@ export class DawEditorElement extends LitElement {
                 .duration=${this._duration}
                 .scaleMode=${this.scaleMode}
                 .ticksPerPixel=${this.ticksPerPixel}
-                .timeSignature=${this.timeSignature}
+                .meterEntries=${this._meterEntries}
                 .ppqn=${this.ppqn}
                 .totalWidth=${this._totalWidth}
               ></daw-ruler>`
@@ -1257,7 +1271,7 @@ export class DawEditorElement extends LitElement {
             ? html`<daw-grid
                 style="top: ${this.timescale ? 30 : 0}px;"
                 .ticksPerPixel=${this.ticksPerPixel}
-                .timeSignature=${this.timeSignature}
+                .meterEntries=${this._meterEntries}
                 .ppqn=${this.ppqn}
                 .visibleStart=${this._viewport.visibleStart}
                 .visibleEnd=${this._viewport.visibleEnd}

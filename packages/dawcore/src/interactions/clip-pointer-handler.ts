@@ -1,5 +1,5 @@
 import { snapTickToGrid } from '@waveform-playlist/core';
-import type { SnapTo } from '@waveform-playlist/core';
+import type { SnapTo, MeterEntry } from '@waveform-playlist/core';
 import { DRAG_THRESHOLD } from './constants';
 
 /** Snapshot of a clip's bounds for trim constraint computation. */
@@ -57,7 +57,7 @@ export interface ClipPointerHost {
   readonly ticksPerPixel: number;
   readonly bpm: number;
   readonly ppqn: number;
-  readonly timeSignature: [number, number];
+  readonly _meterEntries: MeterEntry[];
   readonly snapTo: SnapTo;
   readonly _secondsToTicks: (seconds: number) => number;
   readonly _ticksToSeconds: (ticks: number) => number;
@@ -120,7 +120,7 @@ export class ClipPointerHandler {
       const targetTick = anchorTick + deltaTicks;
       const snappedTick =
         h.snapTo !== 'off'
-          ? snapTickToGrid(targetTick, h.snapTo, h.timeSignature, h.ppqn)
+          ? snapTickToGrid(targetTick, h.snapTo, h._meterEntries, h.ppqn)
           : targetTick;
       const snappedSeconds = h._ticksToSeconds(snappedTick);
       const snappedSample = Math.round(snappedSeconds * h.effectiveSampleRate);

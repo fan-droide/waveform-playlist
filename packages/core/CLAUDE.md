@@ -22,12 +22,15 @@ Framework-agnostic types, pure functions, and utilities shared across all packag
 | `constants.ts` | `MAX_CANVAS_WIDTH` (1000px virtual scroll chunk size) |
 | `utils/conversions.ts` | Unit converters: `samplesToSeconds`, `secondsToSamples`, `samplesToPixels`, `pixelsToSamples`, `pixelsToSeconds`, `secondsToPixels` |
 | `utils/dBUtils.ts` | Decibel utilities: `gainToDb`, `dBToNormalized`, `normalizedToDb`, `gainToNormalized` |
-| `utils/beatsAndBars.ts` | Musical time: `PPQN`, `ticksPerBeat`, `ticksPerBar`, `ticksToSamples`, `samplesToTicks`, `ticksToBarBeatLabel` |
-| `utils/musicalTicks.ts` | Snap-to-grid: `SnapTo` type, `snapToTicks`, `snapToGrid` |
+| `utils/beatsAndBars.ts` | Musical time: `PPQN`, `ticksPerBeat`, `ticksPerBar`, `ticksToSamples`, `samplesToTicks`, `snapToGrid` |
+| `utils/musicalTicks.ts` | Grid ticks + snap: `computeMusicalTicks`, `snapToTicks`, `snapTickToGrid`, `SnapTo`, `MusicalTick`, `MusicalTickData`, `MusicalTickParams`, `TickType`, `ZoomLevel`. Re-exports `MeterEntry`. |
+| `utils/meterDetection.ts` | `MeterEntry` type, `detectMeterChanges()` — extracts time signature changes from beat number sequences |
 
 ## Key Patterns
 
 **Sample-based architecture with tick authority:** Timeline positions use `startTick` (authoritative, optional) and `startSample` (derived cache). Duration and offset remain sample-only (`durationSamples`, `offsetSamples`). Engine enriches clips missing `startTick` on ingestion. Use `clipTimeHelpers` for seconds conversion. `clipPixelWidth` uses floor-based endpoint subtraction to guarantee no pixel gaps. `createClipFromTicks()` creates clips with authoritative tick positions.
+
+**Multi-meter grid:** `computeMusicalTicks` accepts `meterEntries: MeterEntry[]` (not `timeSignature`). `MusicalTickData` has `pixelsPerQuarterNote` (not `pixelsPerBeat`/`pixelsPerBar`). `detectMeterChanges()` extracts meter from beat number sequences. `ticksToBarBeatLabel` removed — labels computed inline.
 
 **`gainToDb` vs `gainToNormalized`:** `gainToDb` is the raw gain→dB conversion used by audio nodes (Tone.js `Volume` takes dB). `gainToNormalized` maps gain to 0–1 for UI meters (gain → dB → normalized with configurable floor). Do not duplicate `gainToDb` — it's shared by playout, browser, and dawcore packages.
 
