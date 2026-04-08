@@ -1,0 +1,89 @@
+{
+  "$schema": "https://fundingjson.org/schema/v1.1.0.json",
+  "version": "v1.1.0",
+  "entity": {
+    "type": "individual",
+    "role": "owner",
+    "name": "Naomi Aro",
+    "email": "naomiaro@gmail.com",
+    "description": "Creator and maintainer of waveform-playlist, a multitrack Web Audio editor and player with canvas waveform visualizations.",
+    "webpageUrl": {
+      "url": "https://github.com/naomiaro"
+    }
+  },
+  "projects": [
+    {
+      "guid": "waveform-playlist",
+      "name": "waveform-playlist",
+      "description": "Multitrack Web Audio editor and player with HTML canvas waveform visualizations. Used in audio research, listening test platforms, podcasting tools, and music production workflows. Features include drag-and-drop, trimming, splitting, audio effects, recording, and variable-tempo support. Built as a modular monorepo of 11 packages with React components and Web Components, designed to be embedded in larger applications.",
+      "webpageUrl": {
+        "url": "https://naomiaro.github.io/waveform-playlist/"
+      },
+      "repositoryUrl": {
+        "url": "https://github.com/naomiaro/waveform-playlist"
+      },
+      "licenses": [
+        "spdx:MIT"
+      ],
+      "tags": [
+        "web-audio",
+        "waveform",
+        "audio-editor",
+        "multitrack",
+        "react",
+        "canvas",
+        "typescript"
+      ]
+    }
+  ],
+  "funding": {
+    "channels": [
+      {
+        "guid": "github-sponsors",
+        "type": "payment-provider",
+        "address": "https://github.com/sponsors/naomiaro",
+        "description": "GitHub Sponsors"
+      },
+      {
+        "guid": "patreon",
+        "type": "payment-provider",
+        "address": "https://www.patreon.com/naomiaro",
+        "description": "Patreon"
+      },
+      {
+        "guid": "buy-me-a-coffee",
+        "type": "payment-provider",
+        "address": "https://www.buymeacoffee.com/naomiaro",
+        "description": "Buy Me a Coffee"
+      }
+    ],
+    "plans": [
+      {
+        "guid": "one-time-any",
+        "status": "active",
+        "name": "One-time donation",
+        "description": "Support waveform-playlist development with a one-time contribution of any amount.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "one-time",
+        "channels": [
+          "github-sponsors",
+          "buy-me-a-coffee"
+        ]
+      },
+      {
+        "guid": "monthly-any",
+        "status": "active",
+        "name": "Monthly sponsorship",
+        "description": "Recurring monthly support for ongoing development and maintenance.",
+        "amount": 0,
+        "currency": "USD",
+        "frequency": "monthly",
+        "channels": [
+          "github-sponsors",
+          "buy-me-a-coffee"
+        ]
+      }
+    ]
+  }
+}
