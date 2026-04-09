@@ -256,3 +256,11 @@ Originally created for the [Airtime](https://www.sourcefabric.org/software/airti
 <p align="center">
   <a href="https://github.com/sponsors/naomiaro">Become a sponsor</a>
 </p>
+
+## Partners
+
+<p align="center">
+  <a href="https://www.telecom-paris.fr/" target="_blank">
+    <img width="120px" src="https://raw.githubusercontent.com/naomiaro/waveform-playlist/main/website/static/img/logos/telecom-paris.svg" alt="Télécom Paris">
+  </a>
+</p>
