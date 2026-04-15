@@ -27,7 +27,3 @@ export type {
   UseRecordingReturn,
   UseMicrophoneAccessReturn,
 } from './types';
-
-// Utilities
-export { generatePeaks, appendPeaks } from './utils/peaksGenerator';
-export { createAudioBuffer, concatenateAudioData } from './utils/audioBufferUtils';

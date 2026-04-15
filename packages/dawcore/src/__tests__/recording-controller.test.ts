@@ -5,11 +5,15 @@ vi.mock('@waveform-playlist/worklets', () => ({
   recordingProcessorUrl: 'blob:mock-recording-processor',
 }));
 
-vi.mock('@waveform-playlist/recording', () => ({
-  appendPeaks: vi.fn((existing) => existing),
-  concatenateAudioData: vi.fn(() => new Float32Array(0)),
-  createAudioBuffer: vi.fn(() => mockAudioBuffer),
-}));
+vi.mock('@waveform-playlist/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@waveform-playlist/core')>();
+  return {
+    ...actual,
+    appendPeaks: vi.fn((existing) => existing),
+    concatenateAudioData: vi.fn(() => new Float32Array(0)),
+    createAudioBuffer: vi.fn(() => mockAudioBuffer),
+  };
+});
 
 let mockAudioBuffer: any;
 let mockWorkletNode: any;
@@ -372,10 +376,40 @@ describe('RecordingController', () => {
     expect(errorEvent!.detail.trackId).toBe('track-1');
   });
 
+  it('dispatches actionable error when @waveform-playlist/worklets is missing', async () => {
+    // Force worklet re-import by clearing the cached context
+    const controller = new RecordingController(host);
+    // Mock dynamic import to simulate missing optional peer dep
+    vi.doMock('@waveform-playlist/worklets', () => {
+      throw new Error('Cannot find module');
+    });
+
+    const events: CustomEvent[] = [];
+    const origDispatch = host.dispatchEvent.bind(host);
+    host.dispatchEvent = vi.fn((e: Event) => {
+      if (e instanceof CustomEvent) events.push(e);
+      return origDispatch(e);
+    });
+
+    await controller.startRecording(createMockStream(), { trackId: 'track-1' });
+
+    expect(controller.isRecording).toBe(false);
+    expect(controller.getSession('track-1')).toBeUndefined();
+    const errorEvent = events.find((e) => e.type === 'daw-recording-error');
+    expect(errorEvent).toBeTruthy();
+    expect(errorEvent!.detail.trackId).toBe('track-1');
+    expect(String(errorEvent!.detail.error)).toContain('@waveform-playlist/worklets');
+
+    // Restore the original mock for subsequent tests
+    vi.doMock('@waveform-playlist/worklets', () => ({
+      recordingProcessorUrl: 'blob:mock-recording-processor',
+    }));
+  });
+
   // --- _onWorkletMessage tests ---
 
   it('worklet message accumulates chunks and totalSamples', async () => {
-    const { appendPeaks: mockAppendPeaks } = await import('@waveform-playlist/recording');
+    const { appendPeaks: mockAppendPeaks } = await import('@waveform-playlist/core');
     const controller = new RecordingController(host);
     await controller.startRecording(createMockStream(), { trackId: 'track-1' });
 
@@ -461,7 +495,7 @@ describe('RecordingController', () => {
     // Latency of 0.5s matches 0.5s recording — no usable samples
     host.audioContext.outputLatency = 0.5;
     // Mock createAudioBuffer to return a buffer matching the short recording
-    const { createAudioBuffer } = await import('@waveform-playlist/recording');
+    const { createAudioBuffer } = await import('@waveform-playlist/core');
     vi.mocked(createAudioBuffer).mockReturnValueOnce({
       length: 24000,
       sampleRate: 48000,
