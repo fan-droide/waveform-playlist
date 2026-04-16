@@ -20,10 +20,7 @@ Native Web Audio transport for multi-track audio scheduling, looping, tempo, and
 npm install @dawcore/transport
 ```
 
-Peer dependencies:
-```bash
-npm install @waveform-playlist/core @waveform-playlist/engine
-```
+No runtime dependencies. When using `NativePlayoutAdapter` (bridge to `@waveform-playlist/engine`), install `@waveform-playlist/core` and `@waveform-playlist/engine` alongside.
 
 ## Quick Start
 

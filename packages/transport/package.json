@@ -1,6 +1,6 @@
 {
   "name": "@dawcore/transport",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Native Web Audio transport for waveform-playlist — scheduling, looping, tempo, metronome",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -35,10 +35,6 @@
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
     "vitest": "^3.0.0"
-  },
-  "peerDependencies": {
-    "@waveform-playlist/core": ">=11.0.0",
-    "@waveform-playlist/engine": ">=11.0.0"
   },
   "dependencies": {}
 }
