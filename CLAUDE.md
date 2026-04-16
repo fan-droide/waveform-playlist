@@ -64,6 +64,8 @@ npm install @waveform-playlist/browser
 sed -i '' 's/"version": "OLD"/"version": "NEW"/g' package.json packages/*/package.json
 ```
 
+**Independent Versioning:** `@dawcore/components` and `@dawcore/transport` have their own version schemes (0.x.x), separate from the main `@waveform-playlist/*` packages. Don't include them in the `sed` version bump command.
+
 **First-time scoped packages:** New `@waveform-playlist/*` packages need `--access public` on first npm publish:
 
 ```bash

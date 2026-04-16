@@ -8,7 +8,7 @@
 
 **Testing:** vitest unit tests in `src/__tests__/`. Run with `cd packages/transport && npx vitest run`.
 
-**Zero dependencies.** `@waveform-playlist/core` and `@waveform-playlist/engine` are peer deps (types only at runtime).
+**Zero dependencies.** No peer deps. `@waveform-playlist/core` and `@waveform-playlist/engine` are devDependencies only (all imports are `import type`, erased at build time).
 
 ## Core Layer
 
