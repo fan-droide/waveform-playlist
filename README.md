@@ -216,7 +216,7 @@ See [Can I Use: Web Audio API](https://caniuse.com/audio-api)
 pnpm install
 
 # Start dev server
-pnpm start
+pnpm website
 
 # Run tests
 pnpm test
