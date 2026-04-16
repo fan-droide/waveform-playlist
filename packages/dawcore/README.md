@@ -31,7 +31,7 @@ npm install @waveform-playlist/core @waveform-playlist/engine @dawcore/transport
 
 Optional (for recording):
 ```bash
-npm install @waveform-playlist/recording @waveform-playlist/worklets
+npm install @waveform-playlist/worklets
 ```
 
 ## Quick Start
